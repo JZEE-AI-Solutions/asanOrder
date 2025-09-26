@@ -1,0 +1,263 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   // ADMIN, BUSINESS_OWNER, STOCK_KEEPER
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  tenant    Tenant?
+  orders    Order[]  @relation("BusinessOwnerOrders")
+
+  @@map("users")
+}
+
+model Tenant {
+  id              String   @id @default(cuid())
+  businessName    String
+  contactPerson   String
+  whatsappNumber  String
+  businessType    String   // DRESS_SHOP, RESTAURANT, BAKERY, ELECTRONICS, GROCERY, OTHER
+  businessCode    String   @unique // 4-digit unique business code
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  ownerId String @unique
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  forms   Form[]
+  orders  Order[]
+  purchaseItems PurchaseItem[]
+  products Product[]
+  productLogs ProductLog[]
+  purchaseInvoices PurchaseInvoice[]
+  returns Return[]
+
+  @@map("tenants")
+}
+
+model Form {
+  id          String      @id @default(cuid())
+  name        String
+  description String?
+  fields      FormField[]
+  isPublished Boolean     @default(false)
+  isHidden    Boolean     @default(false)
+  formLink    String?     @unique
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  tenantId String
+  tenant   Tenant  @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  orders   Order[]
+
+  @@map("forms")
+}
+
+model FormField {
+  id          String   @id @default(cuid())
+  label       String
+  fieldType   String   // TEXT, EMAIL, PHONE, ADDRESS, FILE_UPLOAD, AMOUNT, TEXTAREA, DROPDOWN
+  isRequired  Boolean  @default(false)
+  placeholder String?
+  options     String?  // JSON array for dropdown options
+  order       Int
+  createdAt   DateTime @default(now())
+
+  // Relations
+  formId String
+  form   Form   @relation(fields: [formId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("form_fields")
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  orderNumber   String   @unique // Custom order number format: 4-digit business code-3 char month-2 digit year-sequence
+  formData      String   // JSON data from form submission
+  images        String?  // JSON array of image paths (legacy)
+  imagesData    Bytes?   // Order images data stored in database
+  imagesType    String?  // MIME types of the order images
+  paymentAmount Float?
+  paymentReceipt String? // Path to payment receipt image (legacy)
+  paymentReceiptData Bytes? // Payment receipt image data stored in database
+  paymentReceiptType String? // MIME type of the payment receipt
+  status        String   @default("PENDING") // PENDING, CONFIRMED, DISPATCHED, COMPLETED, CANCELLED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  formId         String
+  form           Form   @relation(fields: [formId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenantId       String
+  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  businessOwnerId String?
+  businessOwner   User?  @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("orders")
+}
+
+model PurchaseItem {
+  id            String   @id @default(cuid())
+  name          String
+  description   String?
+  purchasePrice Float
+  quantity      Int      @default(0)
+  category      String?  // Optional category for organization
+  sku           String?  // Stock Keeping Unit
+  image         String?  // Path to product image (legacy)
+  imageData     Bytes?   // Image data stored in database
+  imageType     String?  // MIME type of the image
+  isDeleted     Boolean  @default(false) // Soft delete flag
+  deletedAt     DateTime? // When the purchase item was deleted
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseInvoiceId String
+  purchaseInvoice   PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productLogs   ProductLog[]
+
+  @@map("purchase_items")
+}
+
+model Product {
+  id                String   @id @default(cuid())
+  name              String
+  description       String?
+  category          String?  // Optional category for organization
+  sku               String?  // Stock Keeping Unit
+  currentQuantity   Int      @default(0)  // Current stock quantity
+  lastPurchasePrice Float?   // Last purchase price
+  currentRetailPrice Float?  // Current selling price
+  minStockLevel     Int      @default(0)  // Minimum stock level for alerts
+  maxStockLevel     Int?     // Maximum stock level
+  image             String?  // Path to product image (legacy)
+  imageData         Bytes?   // Image data stored in database
+  imageType         String?  // MIME type of the image
+  isActive          Boolean  @default(true)
+  lastUpdated       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productLogs ProductLog[]
+
+  @@map("products")
+}
+
+model ProductLog {
+  id            String   @id @default(cuid())
+  action        String   // INCREASE, DECREASE, UPDATE_PRICE, CREATE, DELETE
+  quantity      Int?     // Quantity change (positive for increase, negative for decrease)
+  oldQuantity   Int?     // Previous quantity
+  newQuantity   Int?     // New quantity
+  oldPrice      Float?   // Previous price
+  newPrice      Float?   // New price
+  reason        String?  // Reason for the change
+  reference     String?  // Reference to purchase invoice, order, etc.
+  notes         String?  // Additional notes
+  createdAt     DateTime @default(now())
+
+  // Relations
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseItemId String?
+  purchaseItem   PurchaseItem? @relation(fields: [purchaseItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("product_logs")
+}
+
+model PurchaseInvoice {
+  id            String   @id @default(cuid())
+  invoiceNumber String   // Invoice number from the actual invoice
+  supplierName  String?  // Supplier/vendor name
+  invoiceDate   DateTime // Date of the invoice
+  totalAmount   Float    // Total amount of the invoice
+  image         String?  // Path to invoice image (legacy)
+  imageData     Bytes?   // Invoice image data stored in database
+  imageType     String?  // MIME type of the invoice image
+  notes         String?  // Additional notes
+  isDeleted     Boolean  @default(false) // Soft delete flag
+  deletedAt     DateTime? // When the invoice was deleted
+  deletedBy     String?  // User ID who deleted the invoice
+  deleteReason  String?  // Reason for deletion
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseItems PurchaseItem[]
+  returns  Return[]
+
+  @@map("purchase_invoices")
+}
+
+model Return {
+  id            String   @id @default(cuid())
+  returnNumber  String   // Return number (e.g., RET-001)
+  reason        String?  // Reason for return (DAMAGED, WRONG_ITEM, DEFECTIVE, etc.)
+  returnDate    DateTime // Date of the return
+  totalAmount   Float    // Total refund amount
+  status        String   @default("PENDING") // PENDING, APPROVED, REJECTED, PROCESSED
+  notes         String?  // Additional notes
+  image         String?  // Path to return documentation image (legacy)
+  imageData     Bytes?   // Return documentation image data stored in database
+  imageType     String?  // MIME type of the return image
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  tenantId String
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseInvoiceId String?
+  purchaseInvoice   PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  returnItems ReturnItem[]
+
+  @@map("returns")
+}
+
+model ReturnItem {
+  id            String   @id @default(cuid())
+  productName   String   // Name of the returned product
+  description   String?  // Product description
+  purchasePrice Float    // Original purchase price
+  quantity      Int      // Quantity returned (always positive)
+  reason        String?  // Specific reason for this item's return
+  sku           String?  // Product SKU if available
+  createdAt     DateTime @default(now())
+
+  // Relations
+  returnId String
+  return   Return @relation(fields: [returnId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@map("return_items")
+}
+
+// Enums converted to String fields for SQLite compatibility
+// UserRole: ADMIN, BUSINESS_OWNER, STOCK_KEEPER
+// BusinessType: DRESS_SHOP, RESTAURANT, BAKERY, ELECTRONICS, GROCERY, OTHER
+// FieldType: TEXT, EMAIL, PHONE, ADDRESS, FILE_UPLOAD, AMOUNT, TEXTAREA, DROPDOWN
+// OrderStatus: PENDING, CONFIRMED, DISPATCHED, COMPLETED, CANCELLED
