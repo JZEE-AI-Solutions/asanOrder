@@ -14,7 +14,8 @@
     "db:reset": "npx prisma migrate reset --force",
     "db:deploy": "npx prisma migrate deploy",
     "clean-production": "node clean-production-db.js",
-    "fix-production": "node fix-production-migration.js"
+    "fix-production": "node fix-production-migration.js",
+    "delete-migrations": "node delete-all-migrations.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
