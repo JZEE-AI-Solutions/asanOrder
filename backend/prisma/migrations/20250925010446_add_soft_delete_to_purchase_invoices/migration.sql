@@ -11,31 +11,87 @@ BEGIN TRY
 
 BEGIN TRAN;
 
--- DropForeignKey
-ALTER TABLE [dbo].[products] DROP CONSTRAINT [products_purchaseInvoiceId_fkey];
+-- Check if the foreign key constraint exists before dropping it
+IF EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'products_purchaseInvoiceId_fkey')
+BEGIN
+    ALTER TABLE [dbo].[products] DROP CONSTRAINT [products_purchaseInvoiceId_fkey];
+END
 
--- Drop constraint first
-ALTER TABLE [dbo].[products] DROP CONSTRAINT [products_quantity_df];
+-- Check if columns exist before dropping them
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'purchaseInvoiceId')
+BEGIN
+    ALTER TABLE [dbo].[products] DROP COLUMN [purchaseInvoiceId];
+END
 
--- AlterTable
-ALTER TABLE [dbo].[products] DROP COLUMN [purchaseInvoiceId],
-[purchasePrice],
-[quantity],
-[sellingPrice];
-ALTER TABLE [dbo].[products] ADD [currentQuantity] INT NOT NULL CONSTRAINT [products_currentQuantity_df] DEFAULT 0,
-[currentRetailPrice] FLOAT(53),
-[lastPurchasePrice] FLOAT(53),
-[lastUpdated] DATETIME2 NOT NULL CONSTRAINT [products_lastUpdated_df] DEFAULT CURRENT_TIMESTAMP,
-[maxStockLevel] INT,
-[minStockLevel] INT NOT NULL CONSTRAINT [products_minStockLevel_df] DEFAULT 0;
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'purchasePrice')
+BEGIN
+    ALTER TABLE [dbo].[products] DROP COLUMN [purchasePrice];
+END
 
--- AlterTable
-ALTER TABLE [dbo].[purchase_invoices] ADD [deleteReason] NVARCHAR(1000),
-[deletedAt] DATETIME2,
-[deletedBy] NVARCHAR(1000),
-[isDeleted] BIT NOT NULL CONSTRAINT [purchase_invoices_isDeleted_df] DEFAULT 0;
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'quantity')
+BEGIN
+    ALTER TABLE [dbo].[products] DROP COLUMN [quantity];
+END
 
--- CreateTable
+IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'sellingPrice')
+BEGIN
+    ALTER TABLE [dbo].[products] DROP COLUMN [sellingPrice];
+END
+-- Add new columns only if they don't exist
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'currentQuantity')
+BEGIN
+    ALTER TABLE [dbo].[products] ADD [currentQuantity] INT NOT NULL CONSTRAINT [products_currentQuantity_df] DEFAULT 0;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'currentRetailPrice')
+BEGIN
+    ALTER TABLE [dbo].[products] ADD [currentRetailPrice] FLOAT(53);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'lastPurchasePrice')
+BEGIN
+    ALTER TABLE [dbo].[products] ADD [lastPurchasePrice] FLOAT(53);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'lastUpdated')
+BEGIN
+    ALTER TABLE [dbo].[products] ADD [lastUpdated] DATETIME2 NOT NULL CONSTRAINT [products_lastUpdated_df] DEFAULT CURRENT_TIMESTAMP;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'maxStockLevel')
+BEGIN
+    ALTER TABLE [dbo].[products] ADD [maxStockLevel] INT;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'minStockLevel')
+BEGIN
+    ALTER TABLE [dbo].[products] ADD [minStockLevel] INT NOT NULL CONSTRAINT [products_minStockLevel_df] DEFAULT 0;
+END
+
+-- Add soft delete columns to purchase_invoices if they don't exist
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('purchase_invoices') AND name = 'deleteReason')
+BEGIN
+    ALTER TABLE [dbo].[purchase_invoices] ADD [deleteReason] NVARCHAR(1000);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('purchase_invoices') AND name = 'deletedAt')
+BEGIN
+    ALTER TABLE [dbo].[purchase_invoices] ADD [deletedAt] DATETIME2;
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('purchase_invoices') AND name = 'deletedBy')
+BEGIN
+    ALTER TABLE [dbo].[purchase_invoices] ADD [deletedBy] NVARCHAR(1000);
+END
+
+IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('purchase_invoices') AND name = 'isDeleted')
+BEGIN
+    ALTER TABLE [dbo].[purchase_invoices] ADD [isDeleted] BIT NOT NULL CONSTRAINT [purchase_invoices_isDeleted_df] DEFAULT 0;
+END
+
+-- CreateTable only if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'purchase_items')
+BEGIN
 CREATE TABLE [dbo].[purchase_items] (
     [id] NVARCHAR(1000) NOT NULL,
     [name] NVARCHAR(1000) NOT NULL,
@@ -53,8 +109,11 @@ CREATE TABLE [dbo].[purchase_items] (
     [purchaseInvoiceId] NVARCHAR(1000) NOT NULL,
     CONSTRAINT [purchase_items_pkey] PRIMARY KEY CLUSTERED ([id])
 );
+END
 
--- CreateTable
+-- CreateTable only if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'product_logs')
+BEGIN
 CREATE TABLE [dbo].[product_logs] (
     [id] NVARCHAR(1000) NOT NULL,
     [action] NVARCHAR(1000) NOT NULL,
@@ -72,21 +131,33 @@ CREATE TABLE [dbo].[product_logs] (
     [purchaseItemId] NVARCHAR(1000),
     CONSTRAINT [product_logs_pkey] PRIMARY KEY CLUSTERED ([id])
 );
+END
 
--- AddForeignKey
-ALTER TABLE [dbo].[purchase_items] ADD CONSTRAINT [purchase_items_tenantId_fkey] FOREIGN KEY ([tenantId]) REFERENCES [dbo].[tenants]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+-- Add foreign keys only if they don't exist
+IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'purchase_items_tenantId_fkey')
+BEGIN
+    ALTER TABLE [dbo].[purchase_items] ADD CONSTRAINT [purchase_items_tenantId_fkey] FOREIGN KEY ([tenantId]) REFERENCES [dbo].[tenants]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+END
 
--- AddForeignKey
-ALTER TABLE [dbo].[purchase_items] ADD CONSTRAINT [purchase_items_purchaseInvoiceId_fkey] FOREIGN KEY ([purchaseInvoiceId]) REFERENCES [dbo].[purchase_invoices]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'purchase_items_purchaseInvoiceId_fkey')
+BEGIN
+    ALTER TABLE [dbo].[purchase_items] ADD CONSTRAINT [purchase_items_purchaseInvoiceId_fkey] FOREIGN KEY ([purchaseInvoiceId]) REFERENCES [dbo].[purchase_invoices]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+END
 
--- AddForeignKey
-ALTER TABLE [dbo].[product_logs] ADD CONSTRAINT [product_logs_tenantId_fkey] FOREIGN KEY ([tenantId]) REFERENCES [dbo].[tenants]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'product_logs_tenantId_fkey')
+BEGIN
+    ALTER TABLE [dbo].[product_logs] ADD CONSTRAINT [product_logs_tenantId_fkey] FOREIGN KEY ([tenantId]) REFERENCES [dbo].[tenants]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+END
 
--- AddForeignKey
-ALTER TABLE [dbo].[product_logs] ADD CONSTRAINT [product_logs_productId_fkey] FOREIGN KEY ([productId]) REFERENCES [dbo].[products]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'product_logs_productId_fkey')
+BEGIN
+    ALTER TABLE [dbo].[product_logs] ADD CONSTRAINT [product_logs_productId_fkey] FOREIGN KEY ([productId]) REFERENCES [dbo].[products]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+END
 
--- AddForeignKey
-ALTER TABLE [dbo].[product_logs] ADD CONSTRAINT [product_logs_purchaseItemId_fkey] FOREIGN KEY ([purchaseItemId]) REFERENCES [dbo].[purchase_items]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+IF NOT EXISTS (SELECT * FROM sys.foreign_keys WHERE name = 'product_logs_purchaseItemId_fkey')
+BEGIN
+    ALTER TABLE [dbo].[product_logs] ADD CONSTRAINT [product_logs_purchaseItemId_fkey] FOREIGN KEY ([purchaseItemId]) REFERENCES [dbo].[purchase_items]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
+END
 
 COMMIT TRAN;
 
