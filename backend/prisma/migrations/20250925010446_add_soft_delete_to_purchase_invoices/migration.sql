@@ -14,6 +14,9 @@ BEGIN TRAN;
 -- DropForeignKey
 ALTER TABLE [dbo].[products] DROP CONSTRAINT [products_purchaseInvoiceId_fkey];
 
+-- Drop constraint first
+ALTER TABLE [dbo].[products] DROP CONSTRAINT [products_quantity_df];
+
 -- AlterTable
 ALTER TABLE [dbo].[products] DROP COLUMN [purchaseInvoiceId],
 [purchasePrice],
