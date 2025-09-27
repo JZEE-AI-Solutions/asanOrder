@@ -57,6 +57,7 @@ async function main() {
       contactPerson: 'Sarah Ahmed',
       whatsappNumber: '+923001234567',
       businessType: 'DRESS_SHOP',
+      businessCode: '1001',
       ownerId: businessOwner.id
     }
   });

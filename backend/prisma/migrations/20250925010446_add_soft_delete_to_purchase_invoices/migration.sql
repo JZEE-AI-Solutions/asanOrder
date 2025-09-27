@@ -28,6 +28,12 @@ BEGIN
     ALTER TABLE [dbo].[products] DROP COLUMN [purchasePrice];
 END
 
+-- Drop constraint before dropping column
+IF EXISTS (SELECT * FROM sys.default_constraints WHERE name = 'products_quantity_df')
+BEGIN
+    ALTER TABLE [dbo].[products] DROP CONSTRAINT [products_quantity_df];
+END
+
 IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('products') AND name = 'quantity')
 BEGIN
     ALTER TABLE [dbo].[products] DROP COLUMN [quantity];
@@ -103,6 +109,8 @@ CREATE TABLE [dbo].[purchase_items] (
     [image] NVARCHAR(1000),
     [imageData] VARBINARY(max),
     [imageType] NVARCHAR(1000),
+    [isDeleted] BIT NOT NULL CONSTRAINT [purchase_items_isDeleted_df] DEFAULT 0,
+    [deletedAt] DATETIME2,
     [createdAt] DATETIME2 NOT NULL CONSTRAINT [purchase_items_createdAt_df] DEFAULT CURRENT_TIMESTAMP,
     [updatedAt] DATETIME2 NOT NULL,
     [tenantId] NVARCHAR(1000) NOT NULL,
