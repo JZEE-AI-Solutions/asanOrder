@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form'
 import toast from 'react-hot-toast'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
+import ProductDisplay from '../components/ProductDisplay'
 import { 
   PhotoIcon, DocumentIcon, UserIcon, PhoneIcon, MapPinIcon, ScaleIcon, 
   CubeTransparentIcon, XMarkIcon, CheckIcon, DocumentTextIcon, TagIcon, 
@@ -19,6 +20,7 @@ const ClientFormDynamic = () => {
   const [uploadedImages, setUploadedImages] = useState([])
   const [paymentReceipt, setPaymentReceipt] = useState(null)
   const [quantities, setQuantities] = useState({})
+  const [selectedProducts, setSelectedProducts] = useState([])
 
   const {
     register,
@@ -348,6 +350,32 @@ const ClientFormDynamic = () => {
             ))}
           </select>
         )
+      case 'PRODUCT_SELECTOR':
+        return (
+          <div className="space-y-4">
+            <ProductDisplay
+              products={field.selectedProducts || []}
+              selectedProducts={selectedProducts}
+              onSelectionChange={setSelectedProducts}
+              maxSelections={10}
+              showNavigation={true}
+            />
+            {/* Hidden input to store selected products */}
+            <input
+              type="hidden"
+              {...register(field.label, {
+                required: field.isRequired ? `${field.label} is required` : false,
+                validate: () => {
+                  if (field.isRequired && selectedProducts.length === 0) {
+                    return 'Please select at least one product'
+                  }
+                  return true
+                }
+              })}
+              value={JSON.stringify(selectedProducts)}
+            />
+          </div>
+        )
       default:
         return <input type="text" {...commonProps} />
     }
@@ -356,6 +384,7 @@ const ClientFormDynamic = () => {
   const getFieldIcon = (field) => {
     if (field.fieldType === 'PHONE') return '📱'
     if (field.fieldType === 'ADDRESS') return '📍'
+    if (field.fieldType === 'PRODUCT_SELECTOR') return '🛍️'
     if (field.label.toLowerCase().includes('name')) return '👤'
     if (field.label.toLowerCase().includes('size')) return '📏'
     if (field.label.toLowerCase().includes('quantity')) return '🔢'
@@ -414,7 +443,8 @@ const ClientFormDynamic = () => {
           ? parseFloat(data['Payment Amount']) 
           : null,
         images: uploadedImages.map(img => img.url),
-        paymentReceipt: paymentReceipt?.url || null
+        paymentReceipt: paymentReceipt?.url || null,
+        selectedProducts: selectedProducts
       }
 
       console.log('📤 Submitting order data:', orderData)

@@ -97,6 +97,7 @@ model Order {
   paymentReceipt String? // Path to payment receipt image (legacy)
   paymentReceiptData Bytes? // Payment receipt image data stored in database
   paymentReceiptType String? // MIME type of the payment receipt
+  selectedProducts String? // JSON array of selected products from product selector
   status        String   @default("PENDING") // PENDING, CONFIRMED, DISPATCHED, COMPLETED, CANCELLED
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

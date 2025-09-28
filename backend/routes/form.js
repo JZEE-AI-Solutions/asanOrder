@@ -12,7 +12,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
   body('description').optional().trim(),
   body('fields').isArray({ min: 1 }),
   body('fields.*.label').trim().isLength({ min: 1 }),
-  body('fields.*.fieldType').isIn(['TEXT', 'EMAIL', 'PHONE', 'ADDRESS', 'FILE_UPLOAD', 'AMOUNT', 'TEXTAREA', 'DROPDOWN']),
+  body('fields.*.fieldType').isIn(['TEXT', 'EMAIL', 'PHONE', 'ADDRESS', 'FILE_UPLOAD', 'AMOUNT', 'TEXTAREA', 'DROPDOWN', 'PRODUCT_SELECTOR']),
   body('fields.*.isRequired').isBoolean(),
   body('fields.*.placeholder').optional().trim(),
   body('fields.*.options').optional()

@@ -18,7 +18,7 @@ router.post('/submit', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { formLink, formData, paymentAmount, images, paymentReceipt } = req.body;
+    const { formLink, formData, paymentAmount, images, paymentReceipt, selectedProducts } = req.body;
 
     // Get form and validate
     const form = await prisma.form.findUnique({
@@ -79,6 +79,7 @@ router.post('/submit', [
         paymentAmount: paymentAmount || null,
         images: images ? JSON.stringify(images) : null,
         paymentReceipt: paymentReceipt || null,
+        selectedProducts: selectedProducts ? JSON.stringify(selectedProducts) : null,
         status: 'PENDING'
       },
       include: {
