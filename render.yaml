@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: asanorder-backend
+    env: node
+    plan: free
+    buildCommand: npm install && cd backend && npm install && npx prisma generate
+    startCommand: cd backend && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        value: sqlserver://mssql-185523-0.cloudclusters.net:19401;database=asanOrder;user=zeesoft;password=Pass@word1;encrypt=true;trustServerCertificate=true
+      - key: JWT_SECRET
+        value: your-super-secret-jwt-key-for-production
+      - key: UPLOAD_DIR
+        value: uploads
+      - key: MAX_FILE_SIZE
+        value: 5242880
+      - key: OPENAI_API_KEY
+        value: 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
+
+  - type: web
+    name: asanorder-frontend
+    env: node
+    plan: free
+    buildCommand: npm install && cd frontend && npm install && npm run build
+    startCommand: cd frontend && npx serve -s dist -l $PORT
+    envVars:
+      - key: VITE_API_URL
+        value: https://asanorder-backend.onrender.com
