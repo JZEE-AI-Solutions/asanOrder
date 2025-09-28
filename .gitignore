@@ -13,7 +13,7 @@ yarn-error.log
 /frontend/dist/
 
 # Production files
-render.yaml
+# render.yaml - needed for Render.com deployment
 
 # Logs
 logs
