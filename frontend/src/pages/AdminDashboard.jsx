@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import CreateTenantModal from '../components/CreateTenantModal'
 import EditTenantModal from '../components/EditTenantModal'
+import CreateFormModal from '../components/CreateFormModal'
 import EditFormModal from '../components/EditFormModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import {
@@ -32,6 +33,7 @@ const AdminDashboard = () => {
   const [showCreateTenant, setShowCreateTenant] = useState(false)
   const [showEditTenant, setShowEditTenant] = useState(false)
   const [selectedTenant, setSelectedTenant] = useState(null)
+  const [showCreateForm, setShowCreateForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [selectedForm, setSelectedForm] = useState(null)
   const [confirmationModal, setConfirmationModal] = useState({
@@ -87,6 +89,11 @@ const AdminDashboard = () => {
 
   const closeConfirmation = () => {
     setConfirmationModal(prev => ({ ...prev, isOpen: false }))
+  }
+
+  const handleFormCreated = () => {
+    setShowCreateForm(false)
+    fetchDashboardData()
   }
 
   const handleTenantCreated = () => {
@@ -468,18 +475,27 @@ const AdminDashboard = () => {
 
         {activeTab === 'forms' && (
           <div className="card p-4 sm:p-6">
-            <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-4 sm:mb-6">All Forms</h3>
+            <div className="flex justify-between items-center mb-4 sm:mb-6">
+              <h3 className="text-base sm:text-lg font-medium text-gray-900">All Forms</h3>
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="btn-primary flex items-center"
+              >
+                <PlusIcon className="h-4 w-4 mr-2" />
+                Create Form
+              </button>
+            </div>
             
             {forms.length === 0 ? (
               <div className="text-center py-8">
                 <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Forms Created Yet</h3>
-                <p className="text-gray-600 mb-4">Create forms by going to specific tenant pages</p>
+                <p className="text-gray-600 mb-4">Create your first form to start accepting orders</p>
                 <button
-                  onClick={() => setActiveTab('tenants')}
+                  onClick={() => setShowCreateForm(true)}
                   className="btn-primary"
                 >
-                  View Tenants
+                  Create Your First Form
                 </button>
               </div>
             ) : (
@@ -665,6 +681,15 @@ const AdminDashboard = () => {
             setSelectedForm(null)
           }}
           onSuccess={handleFormUpdated}
+        />
+      )}
+
+      {/* Create Form Modal */}
+      {showCreateForm && (
+        <CreateFormModal
+          tenants={tenants}
+          onClose={() => setShowCreateForm(false)}
+          onSuccess={handleFormCreated}
         />
       )}
 

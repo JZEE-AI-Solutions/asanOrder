@@ -5,7 +5,6 @@ import api from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import CreateFormModal from '../components/CreateFormModal'
-import EnhancedCreateFormModal from '../components/EnhancedCreateFormModal'
 import EditFormModal from '../components/EditFormModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import {
@@ -28,7 +27,6 @@ const TenantDetails = () => {
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
-  const [showEnhancedCreateForm, setShowEnhancedCreateForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
   const [selectedForm, setSelectedForm] = useState(null)
   const [confirmationModal, setConfirmationModal] = useState({
@@ -87,7 +85,6 @@ const TenantDetails = () => {
 
   const handleFormCreated = () => {
     setShowCreateForm(false)
-    setShowEnhancedCreateForm(false)
     fetchTenantData()
   }
 
@@ -259,22 +256,13 @@ const TenantDetails = () => {
               </div>
               Order Forms
             </h3>
-            <div className="flex space-x-2">
-              <button
-                onClick={() => setShowCreateForm(true)}
-                className="btn-outline flex items-center"
-              >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                Basic Form
-              </button>
-              <button
-                onClick={() => setShowEnhancedCreateForm(true)}
-                className="btn-primary flex items-center"
-              >
-                <PlusIcon className="h-4 w-4 mr-2" />
-                Enhanced Form
-              </button>
-            </div>
+            <button
+              onClick={() => setShowCreateForm(true)}
+              className="btn-primary flex items-center"
+            >
+              <PlusIcon className="h-4 w-4 mr-2" />
+              Create Form
+            </button>
           </div>
 
           {forms.length === 0 ? (
@@ -284,20 +272,12 @@ const TenantDetails = () => {
               </div>
               <h4 className="text-lg font-semibold text-gray-900 mb-2">No Forms Created Yet</h4>
               <p className="text-gray-500 mb-6">Create your first form to start accepting orders</p>
-              <div className="flex space-x-3 justify-center">
-                <button
-                  onClick={() => setShowCreateForm(true)}
-                  className="btn-outline"
-                >
-                  Basic Form
-                </button>
-                <button
-                  onClick={() => setShowEnhancedCreateForm(true)}
-                  className="btn-primary"
-                >
-                  Enhanced Form
-                </button>
-              </div>
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="btn-primary"
+              >
+                Create Your First Form
+              </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -417,15 +397,6 @@ const TenantDetails = () => {
         />
       )}
 
-      {/* Enhanced Create Form Modal */}
-      {showEnhancedCreateForm && (
-        <EnhancedCreateFormModal
-          tenants={[tenant]}
-          defaultTenantId={tenant.id}
-          onClose={() => setShowEnhancedCreateForm(false)}
-          onSuccess={handleFormCreated}
-        />
-      )}
 
       {/* Edit Form Modal */}
       {showEditForm && selectedForm && (

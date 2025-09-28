@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import { useForm, useFieldArray } from 'react-hook-form'
-import { XMarkIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, PlusIcon, TrashIcon, ShoppingBagIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from './LoadingSpinner'
+import ProductSelector from './ProductSelector'
 
 const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedTenantId, setSelectedTenantId] = useState(defaultTenantId || '')
+  const [selectedProducts, setSelectedProducts] = useState([])
   
   const {
     register,
     handleSubmit,
     control,
+    watch,
     formState: { errors }
   } = useForm({
     defaultValues: {
@@ -41,7 +45,8 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
     { value: 'TEXTAREA', label: 'Text Area' },
     { value: 'AMOUNT', label: 'Amount' },
     { value: 'FILE_UPLOAD', label: 'File Upload' },
-    { value: 'DROPDOWN', label: 'Dropdown' }
+    { value: 'DROPDOWN', label: 'Dropdown' },
+    { value: 'PRODUCT_SELECTOR', label: 'Product Selector' }
   ]
 
   const addField = () => {
@@ -49,8 +54,14 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
       label: '',
       fieldType: 'TEXT',
       isRequired: false,
-      placeholder: ''
+      placeholder: '',
+      isVisible: true
     })
+  }
+
+  const handleTenantChange = (tenantId) => {
+    setSelectedTenantId(tenantId)
+    setSelectedProducts([]) // Clear selected products when tenant changes
   }
 
   const onSubmit = async (data) => {
@@ -61,12 +72,21 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
         ...data,
         fields: data.fields
           .filter(field => field.isVisible)
-          .map(field => ({
-            ...field,
-            options: field.fieldType === 'DROPDOWN' && field.options 
-              ? field.options.split(',').map(opt => opt.trim()).filter(opt => opt)
-              : undefined
-          }))
+          .map(field => {
+            const processedField = {
+              ...field,
+              options: field.fieldType === 'DROPDOWN' && field.options 
+                ? field.options.split(',').map(opt => opt.trim()).filter(opt => opt)
+                : undefined
+            }
+            
+            // Add selected products for PRODUCT_SELECTOR fields
+            if (field.fieldType === 'PRODUCT_SELECTOR') {
+              processedField.selectedProducts = selectedProducts
+            }
+            
+            return processedField
+          })
       }
       
       await api.post('/form', processedData)
@@ -111,7 +131,8 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
               <select
                 {...register('tenantId', { required: 'Tenant is required' })}
                 className="input-field"
-                defaultValue={defaultTenantId || ""}
+                value={selectedTenantId}
+                onChange={(e) => handleTenantChange(e.target.value)}
               >
                 <option value="">Select tenant</option>
                 {tenants.map((tenant) => (
@@ -135,6 +156,27 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
               placeholder="Enter form description (optional)"
             />
           </div>
+
+          {/* Product Selection Section */}
+          {selectedTenantId && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center mb-4">
+                <ShoppingBagIcon className="h-5 w-5 text-blue-600 mr-2" />
+                <h4 className="font-medium text-blue-900">Product Selection</h4>
+              </div>
+              <p className="text-sm text-blue-700 mb-4">
+                Select products that can be used in Product Selector fields. You can add Product Selector fields in the form fields section below.
+                {selectedProducts.length > 0 && ` (${selectedProducts.length} products selected)`}
+              </p>
+              <ProductSelector
+                tenantId={selectedTenantId}
+                selectedProducts={selectedProducts}
+                onProductsChange={setSelectedProducts}
+                maxProducts={20}
+                showSearch={true}
+              />
+            </div>
+          )}
 
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -236,6 +278,33 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
                             placeholder="Option 1, Option 2, Option 3"
                             defaultValue={field.options?.join(', ')}
                           />
+                        </div>
+                      )}
+
+                      {field.fieldType === 'PRODUCT_SELECTOR' && (
+                        <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                          <p className="text-sm text-blue-700">
+                            This field will display a product selector with {selectedProducts.length} products for customers to choose from.
+                          </p>
+                          {selectedProducts.length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {selectedProducts.slice(0, 3).map((product) => (
+                                <span key={product.id} className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
+                                  {product.name}
+                                </span>
+                              ))}
+                              {selectedProducts.length > 3 && (
+                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
+                                  +{selectedProducts.length - 3} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {selectedProducts.length === 0 && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Select products in the Product Selection section above to populate this field.
+                            </p>
+                          )}
                         </div>
                       )}
 
