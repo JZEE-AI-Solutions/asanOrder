@@ -157,26 +157,6 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
             />
           </div>
 
-          {/* Product Selection Section */}
-          {selectedTenantId && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <div className="flex items-center mb-4">
-                <ShoppingBagIcon className="h-5 w-5 text-blue-600 mr-2" />
-                <h4 className="font-medium text-blue-900">Product Selection</h4>
-              </div>
-              <p className="text-sm text-blue-700 mb-4">
-                Select products that can be used in Product Selector fields. You can add Product Selector fields in the form fields section below.
-                {selectedProducts.length > 0 && ` (${selectedProducts.length} products selected)`}
-              </p>
-              <ProductSelector
-                tenantId={selectedTenantId}
-                selectedProducts={selectedProducts}
-                onProductsChange={setSelectedProducts}
-                maxProducts={20}
-                showSearch={true}
-              />
-            </div>
-          )}
 
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -281,30 +261,21 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
                         </div>
                       )}
 
-                      {field.fieldType === 'PRODUCT_SELECTOR' && (
+                      {field.fieldType === 'PRODUCT_SELECTOR' && selectedTenantId && (
                         <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                          <p className="text-sm text-blue-700">
-                            This field will display a product selector with {selectedProducts.length} products for customers to choose from.
-                          </p>
-                          {selectedProducts.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {selectedProducts.slice(0, 3).map((product) => (
-                                <span key={product.id} className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
-                                  {product.name}
-                                </span>
-                              ))}
-                              {selectedProducts.length > 3 && (
-                                <span className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800">
-                                  +{selectedProducts.length - 3} more
-                                </span>
-                              )}
-                            </div>
-                          )}
-                          {selectedProducts.length === 0 && (
-                            <p className="text-xs text-blue-600 mt-1">
-                              Select products in the Product Selection section above to populate this field.
-                            </p>
-                          )}
+                          <div className="flex items-center justify-between mb-3">
+                            <h5 className="font-medium text-blue-900">Product Management</h5>
+                            <span className="text-sm text-blue-600">
+                              {selectedProducts.length} products selected
+                            </span>
+                          </div>
+                          <ProductSelector
+                            tenantId={selectedTenantId}
+                            selectedProducts={selectedProducts}
+                            onProductsChange={setSelectedProducts}
+                            maxProducts={20}
+                            showSearch={true}
+                          />
                         </div>
                       )}
 

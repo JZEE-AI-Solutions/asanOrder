@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import CreateFormModal from '../components/CreateFormModal'
 import EditFormModal from '../components/EditFormModal'
+import ProductManagementModal from '../components/ProductManagementModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import {
   ArrowLeftIcon,
@@ -15,7 +16,8 @@ import {
   DocumentTextIcon,
   PencilIcon,
   TrashIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  ShoppingBagIcon
 } from '@heroicons/react/24/outline'
 
 const TenantDetails = () => {
@@ -28,6 +30,7 @@ const TenantDetails = () => {
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
+  const [showProductManagement, setShowProductManagement] = useState(false)
   const [selectedForm, setSelectedForm] = useState(null)
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
@@ -85,6 +88,22 @@ const TenantDetails = () => {
 
   const handleFormCreated = () => {
     setShowCreateForm(false)
+    fetchTenantData()
+  }
+
+  const handleProductManagement = (form) => {
+    setSelectedForm(form)
+    setShowProductManagement(true)
+  }
+
+  const handleProductManagementClose = () => {
+    setShowProductManagement(false)
+    setSelectedForm(null)
+  }
+
+  const handleProductManagementSuccess = () => {
+    setShowProductManagement(false)
+    setSelectedForm(null)
     fetchTenantData()
   }
 
@@ -325,6 +344,14 @@ const TenantDetails = () => {
                     </button>
                     
                     <button
+                      onClick={() => handleProductManagement(form)}
+                      className="text-blue-600 hover:text-blue-800 border border-blue-300 hover:bg-blue-50 text-xs py-2 px-3 flex items-center"
+                      title="Manage Products"
+                    >
+                      <ShoppingBagIcon className="h-3 w-3" />
+                    </button>
+                    
+                    <button
                       onClick={() => toggleFormVisibility(form.id, form.isHidden, form.name)}
                       className={`text-xs py-2 px-3 flex items-center ${
                         form.isHidden ? 'btn-primary' : 'text-orange-600 hover:text-orange-800 border border-orange-300 hover:bg-orange-50'
@@ -397,6 +424,14 @@ const TenantDetails = () => {
         />
       )}
 
+      {/* Product Management Modal */}
+      {showProductManagement && selectedForm && (
+        <ProductManagementModal
+          form={selectedForm}
+          onClose={handleProductManagementClose}
+          onSuccess={handleProductManagementSuccess}
+        />
+      )}
 
       {/* Edit Form Modal */}
       {showEditForm && selectedForm && (
