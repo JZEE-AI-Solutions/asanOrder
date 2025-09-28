@@ -83,7 +83,10 @@ const ClientFormDynamic = () => {
         }
       })
       
-      const newImages = response.data.files
+      const newImages = response.data.files.map(file => ({
+        ...file,
+        url: file.url.startsWith('http') ? file.url : `${import.meta.env.VITE_API_URL || 'https://asanorder.onrender.com'}${file.url}`
+      }))
       setUploadedImages(prev => [...prev, ...newImages])
       toast.success(`${newImages.length} image(s) uploaded successfully`)
     } catch (error) {
@@ -104,7 +107,11 @@ const ClientFormDynamic = () => {
         }
       })
       
-      setPaymentReceipt(response.data.file)
+      const receiptFile = {
+        ...response.data.file,
+        url: response.data.file.url.startsWith('http') ? response.data.file.url : `${import.meta.env.VITE_API_URL || 'https://asanorder.onrender.com'}${response.data.file.url}`
+      }
+      setPaymentReceipt(receiptFile)
       toast.success('Payment receipt uploaded successfully')
     } catch (error) {
       toast.error('Failed to upload payment receipt')
