@@ -18,7 +18,21 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
         // For now, we'll use the first Product Selector field's products
         // In a more complex scenario, you might want to manage each field separately
         const firstField = productSelectorFields[0]
-        setSelectedProducts(firstField.selectedProducts || [])
+        let products = []
+        
+        if (firstField.selectedProducts) {
+          try {
+            // Parse JSON string if it's a string, otherwise use as is
+            products = typeof firstField.selectedProducts === 'string' 
+              ? JSON.parse(firstField.selectedProducts) 
+              : firstField.selectedProducts
+          } catch (error) {
+            console.error('Error parsing selectedProducts:', error)
+            products = []
+          }
+        }
+        
+        setSelectedProducts(Array.isArray(products) ? products : [])
       }
     }
   }, [form])
@@ -33,7 +47,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
         if (field.fieldType === 'PRODUCT_SELECTOR') {
           return {
             ...field,
-            selectedProducts: selectedProducts
+            selectedProducts: JSON.stringify(selectedProducts)
           }
         }
         return field
@@ -118,7 +132,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
                 </div>
                 
                 <ProductSelector
-                  tenantId={form.tenantId}
+                  tenantId={form.tenant?.id}
                   selectedProducts={selectedProducts}
                   onProductsChange={setSelectedProducts}
                   maxProducts={50}

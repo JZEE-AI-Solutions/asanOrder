@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
+import ProductManagementModal from '../components/ProductManagementModal'
 import { 
   DocumentTextIcon, 
   ShoppingBagIcon,
@@ -33,6 +34,8 @@ const BusinessDashboard = () => {
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
+  const [selectedForm, setSelectedForm] = useState(null)
+  const [showProductManagement, setShowProductManagement] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
@@ -84,6 +87,11 @@ const BusinessDashboard = () => {
   const openForm = (form) => {
     const url = `${window.location.origin}/form/${form.formLink}`
     window.open(url, '_blank')
+  }
+
+  const manageProducts = (form) => {
+    setSelectedForm(form)
+    setShowProductManagement(true)
   }
 
   const handleStatClick = (filter) => {
@@ -269,6 +277,17 @@ const BusinessDashboard = () => {
                         Open Form
                       </button>
                       
+                      {/* Check if form has Product Selector field */}
+                      {form.fields && form.fields.some(field => field.fieldType === 'PRODUCT_SELECTOR') && (
+                        <button
+                          onClick={() => manageProducts(form)}
+                          className="w-full bg-purple-600 hover:bg-purple-700 text-white text-sm py-2.5 flex items-center justify-center rounded-lg transition-colors duration-200"
+                        >
+                          <ShoppingBagIcon className="h-4 w-4 mr-2" />
+                          Manage Products
+                        </button>
+                      )}
+                      
                       <div className="grid grid-cols-2 gap-2">
                         <button
                           onClick={() => shareFormLink(form)}
@@ -401,6 +420,22 @@ const BusinessDashboard = () => {
           order={selectedOrder}
           onClose={() => setSelectedOrder(null)}
           onConfirm={confirmOrder}
+        />
+      )}
+
+      {/* Product Management Modal */}
+      {showProductManagement && selectedForm && (
+        <ProductManagementModal
+          form={selectedForm}
+          onClose={() => {
+            setShowProductManagement(false)
+            setSelectedForm(null)
+          }}
+          onSuccess={() => {
+            setShowProductManagement(false)
+            setSelectedForm(null)
+            fetchDashboardData() // Refresh forms to get updated product data
+          }}
         />
       )}
     </div>

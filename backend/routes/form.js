@@ -24,6 +24,9 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
     }
 
     const { name, description, fields } = req.body;
+    
+    console.log('Form creation request:', { name, description, fieldsLength: fields?.length });
+    console.log('Fields:', fields);
 
     // Get tenant ID
     let tenantId;
@@ -44,35 +47,41 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
       tenantId = tenant.id;
     }
 
-    // Create form with fields in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      const form = await tx.form.create({
+    // Generate unique form link
+    const formLink = crypto.randomBytes(16).toString('hex');
+    
+    // Create form first
+    const form = await prisma.form.create({
+      data: {
+        name,
+        description,
+        tenantId,
+        formLink
+      }
+    });
+
+    // Create form fields sequentially
+    const formFields = [];
+    for (let index = 0; index < fields.length; index++) {
+      const field = fields[index];
+      const formField = await prisma.formField.create({
         data: {
-          name,
-          description,
-          tenantId
+          label: field.label,
+          fieldType: field.fieldType,
+          isRequired: field.isRequired,
+          placeholder: field.placeholder,
+          options: field.options ? JSON.stringify(field.options) : null,
+          selectedProducts: field.fieldType === 'PRODUCT_SELECTOR' && field.selectedProducts 
+            ? JSON.stringify(field.selectedProducts) 
+            : null,
+          order: index,
+          formId: form.id
         }
       });
+      formFields.push(formField);
+    }
 
-      // Create form fields
-      const formFields = await Promise.all(
-        fields.map((field, index) =>
-          tx.formField.create({
-            data: {
-              label: field.label,
-              fieldType: field.fieldType,
-              isRequired: field.isRequired,
-              placeholder: field.placeholder,
-              options: field.options ? JSON.stringify(field.options) : null,
-              order: index,
-              formId: form.id
-            }
-          })
-        )
-      );
-
-      return { ...form, fields: formFields };
-    });
+    const result = { ...form, fields: formFields };
 
     res.status(201).json({
       message: 'Form created successfully',
@@ -80,7 +89,16 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
     });
   } catch (error) {
     console.error('Create form error:', error);
-    res.status(500).json({ error: 'Failed to create form' });
+    console.error('Error details:', {
+      code: error.code,
+      message: error.message,
+      meta: error.meta
+    });
+    res.status(500).json({ 
+      error: 'Failed to create form',
+      details: error.message,
+      code: error.code
+    });
   }
 });
 
@@ -351,46 +369,47 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    // Update form in a transaction
-    const result = await prisma.$transaction(async (tx) => {
-      // Update form basic info
-      const updatedForm = await tx.form.update({
-        where: { id },
-        data: {
-          ...(name && { name }),
-          ...(description !== undefined && { description })
-        }
+    // Update form basic info first
+    const updatedForm = await prisma.form.update({
+      where: { id },
+      data: {
+        ...(name && { name }),
+        ...(description !== undefined && { description })
+      }
+    });
+
+    let result = updatedForm;
+
+    // If fields are provided, update them
+    if (fields) {
+      // Delete existing fields
+      await prisma.formField.deleteMany({
+        where: { formId: id }
       });
 
-      // If fields are provided, update them
-      if (fields) {
-        // Delete existing fields
-        await tx.formField.deleteMany({
-          where: { formId: id }
+      // Create new fields sequentially to avoid transaction timeout
+      const newFields = [];
+      for (let index = 0; index < fields.length; index++) {
+        const field = fields[index];
+        const newField = await prisma.formField.create({
+          data: {
+            label: field.label,
+            fieldType: field.fieldType,
+            isRequired: field.isRequired,
+            placeholder: field.placeholder,
+            options: field.options ? JSON.stringify(field.options) : null,
+            selectedProducts: field.fieldType === 'PRODUCT_SELECTOR' && field.selectedProducts 
+              ? field.selectedProducts 
+              : null,
+            order: index,
+            formId: id
+          }
         });
-
-        // Create new fields
-        const newFields = await Promise.all(
-          fields.map((field, index) =>
-            tx.formField.create({
-              data: {
-                label: field.label,
-                fieldType: field.fieldType,
-                isRequired: field.isRequired,
-                placeholder: field.placeholder,
-                options: field.options ? JSON.stringify(field.options) : null,
-                order: index,
-                formId: id
-              }
-            })
-          )
-        );
-
-        return { ...updatedForm, fields: newFields };
+        newFields.push(newField);
       }
 
-      return updatedForm;
-    });
+      result = { ...updatedForm, fields: newFields };
+    }
 
     res.json({
       message: 'Form updated successfully',

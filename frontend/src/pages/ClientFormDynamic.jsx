@@ -8,7 +8,7 @@ import ProductDisplay from '../components/ProductDisplay'
 import { 
   PhotoIcon, DocumentIcon, UserIcon, PhoneIcon, MapPinIcon, ScaleIcon, 
   CubeTransparentIcon, XMarkIcon, CheckIcon, DocumentTextIcon, TagIcon, 
-  CalendarIcon, ClockIcon, HashtagIcon, PlusIcon, MinusIcon 
+  CalendarIcon, ClockIcon, HashtagIcon, PlusIcon, MinusIcon, CurrencyDollarIcon
 } from '@heroicons/react/24/outline'
 
 const ClientFormDynamic = () => {
@@ -52,11 +52,35 @@ const ClientFormDynamic = () => {
     try {
       const response = await api.get(`/form/public/${formLink}`)
       const formData = response.data.form
-      setForm(formData)
+      
+      // Parse selectedProducts for PRODUCT_SELECTOR fields
+      const processedFields = formData.fields.map(field => {
+        if (field.fieldType === 'PRODUCT_SELECTOR' && field.selectedProducts) {
+          try {
+            return {
+              ...field,
+              selectedProducts: typeof field.selectedProducts === 'string' 
+                ? JSON.parse(field.selectedProducts) 
+                : field.selectedProducts
+            }
+          } catch (error) {
+            console.error('Error parsing selectedProducts:', error)
+            return field
+          }
+        }
+        return field
+      })
+      
+      const processedFormData = {
+        ...formData,
+        fields: processedFields
+      }
+      
+      setForm(processedFormData)
       
       // Initialize quantities for quantity fields
       const initialQuantities = {}
-      formData.fields.forEach(field => {
+      processedFields.forEach(field => {
         if (field.fieldType === 'AMOUNT' && field.label.toLowerCase().includes('quantity')) {
           initialQuantities[field.label] = 1
           setValue(field.label, 1) // Set default value in react-hook-form
@@ -64,6 +88,7 @@ const ClientFormDynamic = () => {
       })
       setQuantities(initialQuantities)
     } catch (error) {
+      console.error('Error fetching form:', error)
       toast.error('Form not found or not published')
     } finally {
       setLoading(false)
@@ -246,7 +271,7 @@ const ClientFormDynamic = () => {
         required: field.isRequired ? `${field.label} is required` : false,
         validate: field.isRequired ? undefined : () => true // Allow empty values for non-required fields
       }),
-      className: "w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-gray-50 text-gray-900 placeholder-gray-500 text-sm",
+      className: "w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 bg-white text-gray-900 placeholder-gray-400 text-sm transition-colors duration-200",
       placeholder: field.placeholder || `Enter ${field.label.toLowerCase()}`
     }
 
@@ -262,8 +287,8 @@ const ClientFormDynamic = () => {
         return (
           <textarea
             {...commonProps}
-            rows={2}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-gray-50 text-gray-900 placeholder-gray-500 resize-none text-sm"
+            rows={3}
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 bg-white text-gray-900 placeholder-gray-400 resize-none text-sm transition-colors duration-200"
           />
         )
       case 'AMOUNT':
@@ -339,9 +364,24 @@ const ClientFormDynamic = () => {
           }
         }
       case 'DROPDOWN':
-        const options = field.options ? JSON.parse(field.options) : []
+        let options = []
+        if (field.options) {
+          try {
+            // Parse JSON string if it's a string, otherwise use as is
+            options = typeof field.options === 'string' 
+              ? JSON.parse(field.options) 
+              : field.options
+          } catch (error) {
+            console.error('Error parsing dropdown options:', error)
+            options = []
+          }
+        }
+        // Ensure options is an array
+        if (!Array.isArray(options)) {
+          options = []
+        }
         return (
-          <select {...commonProps}>
+          <select {...commonProps} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 bg-white text-gray-900 text-sm transition-colors duration-200">
             <option value="">Select {field.label.toLowerCase()}</option>
             {options.map((option, index) => (
               <option key={index} value={option}>
@@ -351,10 +391,26 @@ const ClientFormDynamic = () => {
           </select>
         )
       case 'PRODUCT_SELECTOR':
+        let products = []
+        if (field.selectedProducts) {
+          try {
+            // Parse JSON string if it's a string, otherwise use as is
+            products = typeof field.selectedProducts === 'string' 
+              ? JSON.parse(field.selectedProducts) 
+              : field.selectedProducts
+          } catch (error) {
+            console.error('Error parsing selectedProducts:', error)
+            products = []
+          }
+        }
+        // Ensure products is an array
+        if (!Array.isArray(products)) {
+          products = []
+        }
         return (
           <div className="space-y-4">
             <ProductDisplay
-              products={field.selectedProducts || []}
+              products={products}
               selectedProducts={selectedProducts}
               onSelectionChange={setSelectedProducts}
               maxSelections={10}
@@ -498,142 +554,193 @@ const ClientFormDynamic = () => {
     )
   }
 
-  // Group fields by sections
+  // Group fields by sections - use more precise filtering to avoid duplicates
   const customerFields = form.fields.filter(f => 
-    ['Customer Name', 'Mobile Number', 'Shipping Address'].includes(f.label)
+    f.label.toLowerCase() === 'customer name' ||
+    f.label.toLowerCase() === 'email address' ||
+    f.label.toLowerCase() === 'phone number' ||
+    f.label.toLowerCase() === 'shipping address'
   )
   const dressFields = form.fields.filter(f => 
-    ['Dress Size', 'Dress Quantity', 'Dress Images'].includes(f.label)
+    f.label.toLowerCase().includes('size') ||
+    f.label.toLowerCase().includes('quantity') ||
+    f.label.toLowerCase().includes('image') ||
+    f.label.toLowerCase().includes('product') ||
+    f.fieldType === 'PRODUCT_SELECTOR'
   )
   const paymentFields = form.fields.filter(f => 
-    ['Payment Amount', 'Payment Receipt'].includes(f.label)
+    f.label.toLowerCase().includes('payment') ||
+    f.label.toLowerCase().includes('receipt') ||
+    (f.label.toLowerCase().includes('amount') && f.label.toLowerCase().includes('payment'))
   )
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Top Header */}
-      <div className="bg-gray-800 text-white py-1.5 px-4 text-center">
-        <p className="text-xs text-gray-300">Custom Dress Ordering System</p>
-      </div>
-      
       {/* Form Container */}
-      <div className="max-w-md mx-auto px-4 py-4">
-        <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
+      <div className="max-w-2xl mx-auto px-4 py-6 sm:py-8">
+        <div className="bg-white rounded-lg shadow-lg overflow-hidden">
           
-          {/* Form Header - Now contains business name instead of form name */}
-          <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-4 text-center">
-            <div className="bg-white bg-opacity-20 rounded-full p-2 mb-2 inline-block">
-              <span className="text-xl">👗</span>
-            </div>
-            <h2 className="text-lg font-bold text-white mb-1">
-              {form.tenant?.businessName || 'Business'}
-            </h2>
-            <p className="text-xs text-pink-100">
-              Seamless ordering experience for custom dresses
-            </p>
+          {/* Form Header */}
+          <div className="bg-gradient-to-r from-pink-500 to-pink-600 px-6 py-6 text-center">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
+              {form.tenant?.businessName || form.name}
+            </h1>
+            {form.description && (
+              <p className="text-pink-100 text-sm sm:text-base">
+                {form.description}
+              </p>
+            )}
           </div>
 
-          <form onSubmit={handleSubmit(onSubmit)} className="p-4 space-y-4">
+          <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-6">
             
             {/* Customer Information Section */}
             {customerFields.length > 0 && (
-              <div>
-                <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center border-b pb-1">
-                  <div className="w-5 h-5 bg-pink-100 rounded-full flex items-center justify-center mr-2">
-                    <span className="text-pink-600 text-xs">👤</span>
-                  </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                  <UserIcon className="h-5 w-5 mr-2 text-pink-500" />
                   Customer Information
                 </h3>
                 
-                {customerFields.map((field) => (
-                  <div key={field.id} className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <span className="inline-flex items-center">
-                        <span className="mr-1">{getFieldIcon(field)}</span>
+                <div className="space-y-4">
+                  {customerFields.map((field) => (
+                    <div key={field.id}>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         {field.label}
                         {field.isRequired && <span className="text-red-500 ml-1">*</span>}
-                      </span>
-                    </label>
-                    {renderField(field)}
-                    {errors[field.label] && (
-                      <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
-                    )}
-                  </div>
-                ))}
+                      </label>
+                      {renderField(field)}
+                      {field.placeholder && (
+                        <p className="text-xs text-gray-500 mt-1">{field.placeholder}</p>
+                      )}
+                      {errors[field.label] && (
+                        <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Dress Information Section */}
+            {/* Product Information Section */}
             {dressFields.length > 0 && (
-              <div>
-                <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center border-b pb-1">
-                  <div className="w-5 h-5 bg-pink-100 rounded-full flex items-center justify-center mr-2">
-                    <span className="text-pink-600 text-xs">👗</span>
-                  </div>
-                  Dress Information
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                  <CubeTransparentIcon className="h-5 w-5 mr-2 text-pink-500" />
+                  Product Information
                 </h3>
                 
-                {dressFields.map((field) => (
-                  <div key={field.id} className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <span className="inline-flex items-center">
-                        <span className="mr-1">{getFieldIcon(field)}</span>
+                <div className="space-y-4">
+                  {dressFields.map((field) => (
+                    <div key={field.id}>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         {field.label}
                         {field.isRequired && <span className="text-red-500 ml-1">*</span>}
-                      </span>
-                    </label>
-                    {renderField(field)}
-                    {errors[field.label] && (
-                      <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
-                    )}
-                  </div>
-                ))}
+                      </label>
+                      {renderField(field)}
+                      {field.placeholder && (
+                        <p className="text-xs text-gray-500 mt-1">{field.placeholder}</p>
+                      )}
+                      {errors[field.label] && (
+                        <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Payment Information Section */}
             {paymentFields.length > 0 && (
-              <div>
-                <h3 className="text-base font-semibold text-gray-800 mb-3 flex items-center border-b pb-1">
-                  <div className="w-5 h-5 bg-pink-100 rounded-full flex items-center justify-center mr-2">
-                    <span className="text-pink-600 text-xs">💰</span>
-                  </div>
+              <div className="bg-gray-50 rounded-lg p-4">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                  <CurrencyDollarIcon className="h-5 w-5 mr-2 text-pink-500" />
                   Payment Information
                 </h3>
                 
-                {paymentFields.map((field) => (
-                  <div key={field.id} className="mb-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      <span className="inline-flex items-center">
-                        <span className="mr-1">{getFieldIcon(field)}</span>
+                <div className="space-y-4">
+                  {paymentFields.map((field) => (
+                    <div key={field.id}>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         {field.label}
                         {field.isRequired && <span className="text-red-500 ml-1">*</span>}
-                      </span>
-                    </label>
-                    {renderField(field)}
-                    {errors[field.label] && (
-                      <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
-                    )}
-                  </div>
-                ))}
+                      </label>
+                      {renderField(field)}
+                      {field.placeholder && (
+                        <p className="text-xs text-gray-500 mt-1">{field.placeholder}</p>
+                      )}
+                      {errors[field.label] && (
+                        <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
+            {/* Additional Fields Section - for any fields not categorized above */}
+            {(() => {
+              const categorizedFields = [...customerFields, ...dressFields, ...paymentFields];
+              const remainingFields = form.fields.filter(f => !categorizedFields.includes(f));
+              
+              if (remainingFields.length > 0) {
+                return (
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
+                      <DocumentTextIcon className="h-5 w-5 mr-2 text-pink-500" />
+                      Additional Information
+                    </h3>
+                    
+                    <div className="space-y-4">
+                      {remainingFields.map((field) => (
+                        <div key={field.id}>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            {field.label}
+                            {field.isRequired && <span className="text-red-500 ml-1">*</span>}
+                          </label>
+                          {renderField(field)}
+                          {field.placeholder && (
+                            <p className="text-xs text-gray-500 mt-1">{field.placeholder}</p>
+                          )}
+                          {errors[field.label] && (
+                            <p className="text-red-500 text-xs mt-1">{errors[field.label].message}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Submit Button */}
-            <button
-              type="submit"
-              disabled={submitting}
-              className="w-full bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-semibold py-3 px-4 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-base shadow-lg"
-            >
-              {submitting ? (
-                <>
-                  <LoadingSpinner size="sm" className="mr-2" />
-                  Submitting Order...
-                </>
-              ) : (
-                'Submit Order'
-              )}
-            </button>
+            <div className="pt-4">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-semibold py-4 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-lg shadow-lg"
+              >
+                {submitting ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Submitting Order...
+                  </>
+                ) : (
+                  <>
+                    <DocumentIcon className="h-5 w-5 mr-2" />
+                    Submit Order
+                  </>
+                )}
+              </button>
+              
+              {/* Help Contact */}
+              <div className="mt-4 text-center">
+                <p className="text-sm text-gray-600">
+                  For help, contact: {form.tenant?.whatsappNumber || 'Contact Support'}
+                </p>
+              </div>
+            </div>
           </form>
         </div>
       </div>

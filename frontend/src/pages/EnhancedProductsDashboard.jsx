@@ -31,6 +31,7 @@ import {
 
 const EnhancedProductsDashboard = () => {
   const { user } = useAuth()
+  const [tenant, setTenant] = useState(null)
   const [products, setProducts] = useState([])
   const [purchaseInvoices, setPurchaseInvoices] = useState([])
   const [deletedInvoices, setDeletedInvoices] = useState([])
@@ -51,8 +52,14 @@ const EnhancedProductsDashboard = () => {
   const [selectedPurchaseItem, setSelectedPurchaseItem] = useState(null)
 
   useEffect(() => {
-    fetchData()
+    fetchTenantData()
   }, [])
+
+  useEffect(() => {
+    if (tenant) {
+      fetchData()
+    }
+  }, [tenant])
 
   useEffect(() => {
     // Fetch purchase items when switching to purchase-items view
@@ -61,11 +68,23 @@ const EnhancedProductsDashboard = () => {
     }
   }, [currentView, selectedInvoice])
 
+  const fetchTenantData = async () => {
+    try {
+      const tenantRes = await api.get('/tenant/owner/me')
+      setTenant(tenantRes.data.tenant)
+    } catch (error) {
+      console.error('Failed to fetch tenant data:', error)
+      toast.error('Failed to fetch tenant data')
+    }
+  }
+
   const fetchData = async () => {
+    if (!tenant) return
+    
     try {
       setLoading(true)
       const [productsRes, invoicesRes, deletedInvoicesRes] = await Promise.all([
-        api.get('/products'),
+        api.get(`/products/tenant/${tenant.id}`),
         api.get('/purchase-invoice'),
         api.get('/purchase-invoice?includeDeleted=true')
       ])

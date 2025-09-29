@@ -76,9 +76,10 @@ router.get('/recent/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         name: product.name,
         description: product.description,
         category: product.category,
-        color: product.color,
-        size: product.size,
-        imageUrl: product.imageUrl,
+        sku: product.sku,
+        image: product.image,
+        currentQuantity: product.currentQuantity,
+        currentRetailPrice: product.currentRetailPrice,
         lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
         lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
         totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0)
@@ -124,7 +125,7 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         { name: { contains: search, mode: 'insensitive' } },
         { description: { contains: search, mode: 'insensitive' } },
         { category: { contains: search, mode: 'insensitive' } },
-        { color: { contains: search, mode: 'insensitive' } }
+        { sku: { contains: search, mode: 'insensitive' } }
       ]
     } : {};
 
@@ -192,9 +193,10 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         name: product.name,
         description: product.description,
         category: product.category,
-        color: product.color,
-        size: product.size,
-        imageUrl: product.imageUrl,
+        sku: product.sku,
+        image: product.image,
+        currentQuantity: product.currentQuantity,
+        currentRetailPrice: product.currentRetailPrice,
         lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
         lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
         totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0)

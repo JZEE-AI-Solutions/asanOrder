@@ -49,7 +49,7 @@ class InventoryService {
               }
             });
 
-            // Find the purchase item to link to the log
+            // Find the purchase item to link to the product
             const purchaseItem = await prisma.purchaseItem.findFirst({
               where: {
                 tenantId: tenantId,
@@ -59,6 +59,14 @@ class InventoryService {
                 quantity: item.quantity
               }
             });
+
+            // Link the purchase item to the product
+            if (purchaseItem) {
+              await prisma.purchaseItem.update({
+                where: { id: purchaseItem.id },
+                data: { productId: existingProduct.id }
+              });
+            }
 
             // Create product log for quantity increase
             await prisma.productLog.create({
@@ -105,7 +113,7 @@ class InventoryService {
               }
             });
 
-            // Find the purchase item to link to the log
+            // Find the purchase item to link to the product
             const purchaseItem = await prisma.purchaseItem.findFirst({
               where: {
                 tenantId: tenantId,
@@ -115,6 +123,14 @@ class InventoryService {
                 quantity: item.quantity
               }
             });
+
+            // Link the purchase item to the product
+            if (purchaseItem) {
+              await prisma.purchaseItem.update({
+                where: { id: purchaseItem.id },
+                data: { productId: newProduct.id }
+              });
+            }
 
             // Create product log for new product
             await prisma.productLog.create({

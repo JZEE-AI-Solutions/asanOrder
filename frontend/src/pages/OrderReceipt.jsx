@@ -54,18 +54,36 @@ const OrderReceipt = () => {
     message += `🏪 *Business:* ${order.tenant.businessName}\n`
     message += `📅 *Date:* ${new Date(order.createdAt).toLocaleDateString()}\n\n`
     
-    message += `👤 *Customer Details:*\n`
-    message += `• Name: ${formData['Customer Name'] || 'N/A'}\n`
-    message += `• Phone: ${formData['Mobile Number'] || 'N/A'}\n`
-    message += `• Address: ${formData['Shipping Address'] || 'N/A'}\n\n`
+    message += `📝 *Order Details:*\n`
     
-    if (formData['Dress Size']) {
-      message += `👗 *Dress Details:*\n`
-      message += `• Size: ${formData['Dress Size']}\n`
-    }
+    // Add all form fields dynamically
+    Object.entries(formData).forEach(([fieldName, fieldValue]) => {
+      if (fieldValue && fieldName !== 'selectedProducts') {
+        let displayValue = fieldValue;
+        if (Array.isArray(fieldValue)) {
+          displayValue = fieldValue.join(', ');
+        } else if (typeof fieldValue === 'object') {
+          displayValue = JSON.stringify(fieldValue);
+        }
+        message += `• ${fieldName}: ${displayValue}\n`
+      }
+    })
     
-    if (formData['Dress Quantity']) {
-      message += `• Quantity: ${formData['Dress Quantity']}\n`
+    // Add selected products if any
+    if (order.selectedProducts) {
+      try {
+        const selectedProducts = JSON.parse(order.selectedProducts);
+        if (selectedProducts.length > 0) {
+          message += `\n🛍️ *Selected Products:*\n`
+          selectedProducts.forEach(product => {
+            message += `• ${product.name}`
+            if (product.sku) message += ` (SKU: ${product.sku})`
+            message += `\n`
+          })
+        }
+      } catch (error) {
+        console.error('Error parsing selected products for WhatsApp:', error);
+      }
     }
     
     if (order.paymentAmount) {
@@ -183,52 +201,77 @@ const OrderReceipt = () => {
           {/* Order Details */}
           <div className="p-3 sm:p-6">
             
-            {/* Customer Information */}
+            {/* Form Fields - Dynamic Display */}
             <div className="mb-4 sm:mb-6">
               <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center">
                 <UserIcon className="h-4 w-4 mr-2 text-blue-500" />
-                Customer Information
+                Order Details
               </h3>
               <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
-                  <div>
-                    <p className="text-xs font-medium text-gray-600">Full Name</p>
-                    <p className="text-sm sm:text-base text-gray-900 break-words">{formData['Customer Name'] || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-medium text-gray-600">Mobile Number</p>
-                    <p className="text-sm sm:text-base text-gray-900 break-all">{formData['Mobile Number'] || 'N/A'}</p>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <p className="text-xs font-medium text-gray-600">Shipping Address</p>
-                    <p className="text-sm sm:text-base text-gray-900 break-words">{formData['Shipping Address'] || 'N/A'}</p>
-                  </div>
+                <div className="space-y-3">
+                  {Object.entries(formData).map(([fieldName, fieldValue]) => {
+                    // Skip empty values and system fields
+                    if (!fieldValue || fieldName === 'selectedProducts') return null;
+                    
+                    // Handle different field types
+                    let displayValue = fieldValue;
+                    if (Array.isArray(fieldValue)) {
+                      displayValue = fieldValue.join(', ');
+                    } else if (typeof fieldValue === 'object') {
+                      displayValue = JSON.stringify(fieldValue);
+                    }
+                    
+                    return (
+                      <div key={fieldName} className="border-b border-gray-200 pb-2 last:border-b-0">
+                        <p className="text-xs font-medium text-gray-600 mb-1">{fieldName}</p>
+                        <p className="text-sm sm:text-base text-gray-900 break-words">{displayValue}</p>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
 
-            {/* Dress Details */}
-            {(formData['Dress Size'] || formData['Dress Quantity']) && (
+            {/* Selected Products */}
+            {order.selectedProducts && (
               <div className="mb-4 sm:mb-6">
                 <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center">
                   <CubeTransparentIcon className="h-4 w-4 mr-2 text-pink-500" />
-                  Dress Details
+                  Selected Products
                 </h3>
                 <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                  <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-2 sm:gap-3">
-                    {formData['Dress Size'] && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600">Dress Size</p>
-                        <p className="text-sm sm:text-base text-gray-900">{formData['Dress Size']}</p>
-                      </div>
-                    )}
-                    {formData['Dress Quantity'] && (
-                      <div>
-                        <p className="text-xs font-medium text-gray-600">Quantity</p>
-                        <p className="text-sm sm:text-base text-gray-900">{formData['Dress Quantity']} piece(s)</p>
-                      </div>
-                    )}
-                  </div>
+                  {(() => {
+                    try {
+                      const selectedProducts = JSON.parse(order.selectedProducts);
+                      return (
+                        <div className="space-y-2">
+                          {selectedProducts.map((product, index) => (
+                            <div key={product.id || index} className="flex items-center space-x-3 p-2 bg-white rounded border">
+                              {product.image && (
+                                <img 
+                                  src={product.image} 
+                                  alt={product.name}
+                                  className="w-12 h-12 object-cover rounded"
+                                  onError={(e) => e.target.style.display = 'none'}
+                                />
+                              )}
+                              <div className="flex-1">
+                                <p className="font-medium text-gray-900">{product.name}</p>
+                                {product.description && (
+                                  <p className="text-sm text-gray-600">{product.description}</p>
+                                )}
+                                {product.sku && (
+                                  <p className="text-xs text-gray-500">SKU: {product.sku}</p>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    } catch (error) {
+                      return <p className="text-gray-500">Error loading selected products</p>;
+                    }
+                  })()}
                 </div>
               </div>
             )}
