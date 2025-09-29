@@ -56,6 +56,12 @@ router.get('/recent/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
             }
           },
           take: 1
+        },
+        productLogs: {
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 10
         }
       },
       orderBy: {
@@ -78,11 +84,15 @@ router.get('/recent/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         category: product.category,
         sku: product.sku,
         image: product.image,
+        imageData: product.imageData,
+        imageType: product.imageType,
+        isActive: product.isActive,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
         lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
         lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
-        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0)
+        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0),
+        productLogs: product.productLogs
       };
     });
 
@@ -163,6 +173,12 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
               }
             },
             take: 1
+          },
+          productLogs: {
+            orderBy: {
+              createdAt: 'desc'
+            },
+            take: 10
           }
         },
         orderBy: {
@@ -195,11 +211,15 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         category: product.category,
         sku: product.sku,
         image: product.image,
+        imageData: product.imageData,
+        imageType: product.imageType,
+        isActive: product.isActive,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
         lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
         lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
-        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0)
+        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0),
+        productLogs: product.productLogs
       };
     });
 
@@ -216,6 +236,95 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
 
   } catch (error) {
     console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// Get products by IDs (public endpoint for forms)
+router.post('/by-ids', async (req, res) => {
+  try {
+    const { productIds, tenantId } = req.body;
+
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ error: 'Product IDs array is required' });
+    }
+
+    if (!tenantId) {
+      return res.status(400).json({ error: 'Tenant ID is required' });
+    }
+
+    // Get products by IDs for the specific tenant
+    const products = await prisma.product.findMany({
+      where: {
+        id: { in: productIds },
+        purchaseItems: {
+          some: {
+            purchaseInvoice: {
+              tenantId: tenantId
+            }
+          }
+        }
+      },
+      include: {
+        purchaseItems: {
+          where: {
+            purchaseInvoice: {
+              tenantId: tenantId
+            }
+          },
+          include: {
+            purchaseInvoice: {
+              select: {
+                invoiceDate: true,
+                invoiceNumber: true
+              }
+            }
+          },
+          orderBy: {
+            purchaseInvoice: {
+              invoiceDate: 'desc'
+            }
+          },
+          take: 1
+        },
+        productLogs: {
+          orderBy: {
+            createdAt: 'desc'
+          },
+          take: 10
+        }
+      }
+    });
+
+    // Format the response
+    const formattedProducts = products.map(product => {
+      const latestPurchase = product.purchaseItems[0];
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        category: product.category,
+        sku: product.sku,
+        image: product.image,
+        imageData: product.imageData,
+        imageType: product.imageType,
+        isActive: product.isActive,
+        currentQuantity: product.currentQuantity,
+        currentRetailPrice: product.currentRetailPrice,
+        lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
+        lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
+        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0),
+        productLogs: product.productLogs
+      };
+    });
+
+    res.json({
+      success: true,
+      products: formattedProducts
+    });
+
+  } catch (error) {
+    console.error('Error fetching products by IDs:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
   }
 });

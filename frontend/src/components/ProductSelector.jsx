@@ -91,9 +91,9 @@ const ProductSelector = ({
                 key={product.id}
                 className="flex items-center bg-white border border-primary-200 rounded-lg px-3 py-2 text-sm"
               >
-                {product.image ? (
+                {(product.imageData || product.image) ? (
                   <img
-                    src={product.image}
+                    src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
                     alt={product.name}
                     className="w-6 h-6 rounded object-cover mr-2"
                     onError={(e) => {
@@ -167,9 +167,9 @@ const ProductSelector = ({
                   <div className="flex items-center space-x-4">
                     {/* Product Image */}
                     <div className="flex-shrink-0">
-                      {product.image ? (
+                      {(product.imageData || product.image) ? (
                         <img
-                          src={product.image}
+                          src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
                           alt={product.name}
                           className="w-16 h-16 rounded-lg object-cover border border-gray-200"
                           onError={(e) => {

@@ -174,6 +174,50 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   }
 });
 
+// Get product history (Business Owner only)
+router.get('/:id/history', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Check if product exists and belongs to tenant
+    const existingProduct = await prisma.product.findFirst({
+      where: {
+        id: id,
+        tenantId: tenant.id
+      }
+    });
+
+    if (!existingProduct) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Get product logs
+    const logs = await prisma.productLog.findMany({
+      where: {
+        productId: id,
+        tenantId: tenant.id
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    res.json({ logs });
+  } catch (error) {
+    console.error('Get product history error:', error);
+    res.status(500).json({ error: 'Failed to get product history' });
+  }
+});
+
 // Delete product (Business Owner only)
 router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {

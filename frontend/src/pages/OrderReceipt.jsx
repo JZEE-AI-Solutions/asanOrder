@@ -247,9 +247,9 @@ const OrderReceipt = () => {
                         <div className="space-y-2">
                           {selectedProducts.map((product, index) => (
                             <div key={product.id || index} className="flex items-center space-x-3 p-2 bg-white rounded border">
-                              {product.image && (
+                              {(product.imageData || product.image) && (
                                 <img 
-                                  src={product.image} 
+                                  src={product.imageData ? `/api/images/public/product/${product.id}` : product.image} 
                                   alt={product.name}
                                   className="w-12 h-12 object-cover rounded"
                                   onError={(e) => e.target.style.display = 'none'}

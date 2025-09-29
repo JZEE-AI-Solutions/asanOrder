@@ -399,7 +399,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
             placeholder: field.placeholder,
             options: field.options ? JSON.stringify(field.options) : null,
             selectedProducts: field.fieldType === 'PRODUCT_SELECTOR' && field.selectedProducts 
-              ? field.selectedProducts 
+              ? JSON.stringify(field.selectedProducts) 
               : null,
             order: index,
             formId: id

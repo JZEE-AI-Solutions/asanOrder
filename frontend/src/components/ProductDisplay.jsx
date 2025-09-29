@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { ChevronLeftIcon, ChevronRightIcon, CheckIcon, XMarkIcon } from '@heroicons/react/24/outline'
 
 const ProductDisplay = ({ 
@@ -10,6 +10,12 @@ const ProductDisplay = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [selectedItems, setSelectedItems] = useState(selectedProducts || [])
+  const [quantities, setQuantities] = useState({})
+
+  // Sync selectedItems with selectedProducts when selectedProducts changes
+  useEffect(() => {
+    setSelectedItems(selectedProducts || [])
+  }, [selectedProducts])
 
   const currentProduct = products[currentIndex]
   const totalProducts = products.length
@@ -20,17 +26,29 @@ const ProductDisplay = ({
     if (isSelected) {
       // Remove product
       const newSelection = selectedItems.filter(item => item.id !== product.id)
+      const newQuantities = { ...quantities }
+      delete newQuantities[product.id]
       setSelectedItems(newSelection)
-      onSelectionChange?.(newSelection)
+      setQuantities(newQuantities)
+      onSelectionChange?.(newSelection, newQuantities)
     } else {
       // Add product (check max limit)
       if (selectedItems.length >= maxSelections) {
         return
       }
       const newSelection = [...selectedItems, product]
+      const newQuantities = { ...quantities, [product.id]: 1 } // Default quantity is 1
       setSelectedItems(newSelection)
-      onSelectionChange?.(newSelection)
+      setQuantities(newQuantities)
+      onSelectionChange?.(newSelection, newQuantities)
     }
+  }
+
+  const handleQuantityChange = (productId, quantity) => {
+    const newQuantity = Math.max(1, Math.min(999, parseInt(quantity) || 1)) // Min 1, Max 999
+    const newQuantities = { ...quantities, [productId]: newQuantity }
+    setQuantities(newQuantities)
+    onSelectionChange?.(selectedItems, newQuantities)
   }
 
   const goToPrevious = () => {
@@ -80,9 +98,9 @@ const ProductDisplay = ({
           {/* Product Image */}
           <div className="space-y-4">
             <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
-              {currentProduct.image ? (
+              {(currentProduct.imageData || currentProduct.image) ? (
                 <img
-                  src={currentProduct.image}
+                  src={currentProduct.imageData ? `/api/images/public/product/${currentProduct.id}` : currentProduct.image}
                   alt={currentProduct.name}
                   className="w-full h-full object-cover"
                   onError={(e) => {
@@ -111,9 +129,9 @@ const ProductDisplay = ({
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
-                    {product.image ? (
+                    {(product.imageData || product.image) ? (
                       <img
-                        src={product.image}
+                        src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
                         alt={product.name}
                         className="w-full h-full object-cover"
                         onError={(e) => {
@@ -194,6 +212,43 @@ const ProductDisplay = ({
                   {isSelected && <CheckIcon className="h-4 w-4 text-white" />}
                 </div>
               </div>
+              
+              {/* Quantity Selection - Only show if product is selected */}
+              {isSelected && (
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-gray-700">
+                      Quantity:
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => handleQuantityChange(currentProduct.id, (quantities[currentProduct.id] || 1) - 1)}
+                        className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        disabled={quantities[currentProduct.id] <= 1}
+                      >
+                        <span className="text-gray-600">-</span>
+                      </button>
+                      <input
+                        type="number"
+                        min="1"
+                        max="999"
+                        value={quantities[currentProduct.id] || 1}
+                        onChange={(e) => handleQuantityChange(currentProduct.id, e.target.value)}
+                        className="w-16 text-center border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleQuantityChange(currentProduct.id, (quantities[currentProduct.id] || 1) + 1)}
+                        className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        disabled={quantities[currentProduct.id] >= 999}
+                      >
+                        <span className="text-gray-600">+</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Action Buttons */}
@@ -275,36 +330,63 @@ const ProductDisplay = ({
           <h5 className="font-medium text-primary-900 mb-2">
             Selected Products ({selectedItems.length})
           </h5>
-          <div className="flex flex-wrap gap-2">
+          <div className="space-y-2">
             {selectedItems.map((product) => (
               <div
                 key={product.id}
-                className="flex items-center bg-white border border-primary-200 rounded-lg px-3 py-2 text-sm"
+                className="flex items-center justify-between bg-white border border-primary-200 rounded-lg px-3 py-2 text-sm"
               >
-                {product.image ? (
-                  <img
-                    src={product.image}
-                    alt={product.name}
-                    className="w-6 h-6 rounded object-cover mr-2"
-                    onError={(e) => {
-                      e.target.style.display = 'none'
-                    }}
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded bg-gray-100 flex items-center justify-center mr-2">
-                    <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
+                <div className="flex items-center">
+                  {(product.imageData || product.image) ? (
+                    <img
+                      src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
+                      alt={product.name}
+                      className="w-6 h-6 rounded object-cover mr-2"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                      }}
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded bg-gray-100 flex items-center justify-center mr-2">
+                      <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                  )}
+                  <span className="text-primary-900">{product.name}</span>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <span className="text-xs text-gray-500">Qty:</span>
+                  <div className="flex items-center space-x-1">
+                    <button
+                      type="button"
+                      onClick={() => handleQuantityChange(product.id, (quantities[product.id] || 1) - 1)}
+                      className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                      disabled={quantities[product.id] <= 1}
+                    >
+                      <span className="text-xs text-gray-600">-</span>
+                    </button>
+                    <span className="w-8 text-center text-sm font-medium">
+                      {quantities[product.id] || 1}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleQuantityChange(product.id, (quantities[product.id] || 1) + 1)}
+                      className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                      disabled={quantities[product.id] >= 999}
+                    >
+                      <span className="text-xs text-gray-600">+</span>
+                    </button>
                   </div>
-                )}
-                <span className="text-primary-900">{product.name}</span>
-                <button
-                  type="button"
-                  onClick={() => handleProductSelect(product)}
-                  className="ml-2 text-primary-500 hover:text-primary-700"
-                >
-                  <XMarkIcon className="h-4 w-4" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleProductSelect(product)}
+                    className="ml-2 text-primary-500 hover:text-primary-700"
+                  >
+                    <XMarkIcon className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>

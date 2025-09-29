@@ -21,6 +21,7 @@ const ClientFormDynamic = () => {
   const [paymentReceipt, setPaymentReceipt] = useState(null)
   const [quantities, setQuantities] = useState({})
   const [selectedProducts, setSelectedProducts] = useState([])
+  const [productQuantities, setProductQuantities] = useState({})
 
   const {
     register,
@@ -87,6 +88,63 @@ const ClientFormDynamic = () => {
         }
       })
       setQuantities(initialQuantities)
+      
+      // Initialize selected products from PRODUCT_SELECTOR fields
+      const productSelectorFields = processedFields.filter(field => field.fieldType === 'PRODUCT_SELECTOR')
+      console.log('Found product selector fields:', productSelectorFields.length)
+      if (productSelectorFields.length > 0) {
+        const firstField = productSelectorFields[0]
+        console.log('First field selectedProducts:', firstField.selectedProducts)
+        console.log('Is array?', Array.isArray(firstField.selectedProducts))
+        
+        // Parse JSON string if needed
+        let selectedProducts = firstField.selectedProducts
+        if (typeof selectedProducts === 'string') {
+          try {
+            selectedProducts = JSON.parse(selectedProducts)
+            console.log('Parsed selectedProducts:', selectedProducts)
+          } catch (error) {
+            console.error('Error parsing selectedProducts JSON:', error)
+            selectedProducts = []
+          }
+        }
+        
+        if (selectedProducts && Array.isArray(selectedProducts)) {
+          // If products only have IDs, we need to fetch full product data
+          const productIds = selectedProducts.map(p => p.id)
+          console.log('Product IDs to fetch:', productIds)
+          if (productIds.length > 0) {
+            try {
+              console.log('Starting to fetch products by IDs...')
+              // Fetch product details using the public endpoint
+              const response = await api.post('/products/by-ids', {
+                productIds: productIds,
+                tenantId: formData.tenantId
+              })
+              
+              console.log('Products API response:', response.data)
+              const fullProducts = response.data.products || []
+              console.log('Fetched full products:', fullProducts)
+              
+              // Update the form field with full product data (these are available products)
+              firstField.selectedProducts = fullProducts
+              
+              // Don't pre-select products - let user choose
+              setSelectedProducts([])
+            } catch (error) {
+              console.error('Error fetching full product data:', error)
+              setSelectedProducts([])
+            }
+          } else {
+            console.log('No product IDs to fetch')
+            setSelectedProducts([])
+          }
+        } else {
+          console.log('SelectedProducts is not an array or is empty')
+        }
+      } else {
+        console.log('No product selector fields found')
+      }
     } catch (error) {
       console.error('Error fetching form:', error)
       toast.error('Form not found or not published')
@@ -407,12 +465,17 @@ const ClientFormDynamic = () => {
         if (!Array.isArray(products)) {
           products = []
         }
+        console.log('PRODUCT_SELECTOR field - products:', products)
+        console.log('PRODUCT_SELECTOR field - selectedProducts:', selectedProducts)
         return (
           <div className="space-y-4">
             <ProductDisplay
               products={products}
               selectedProducts={selectedProducts}
-              onSelectionChange={setSelectedProducts}
+              onSelectionChange={(products, quantities) => {
+                setSelectedProducts(products)
+                setProductQuantities(quantities)
+              }}
               maxSelections={10}
               showNavigation={true}
             />
@@ -489,6 +552,12 @@ const ClientFormDynamic = () => {
               formData[fieldLabel] = quantities[fieldLabel]
             }
           })
+
+          // Add selected products and quantities to form data
+          if (selectedProducts.length > 0) {
+            formData.selectedProducts = selectedProducts
+            formData.productQuantities = productQuantities
+          }
 
       // Submit order
       const orderData = {

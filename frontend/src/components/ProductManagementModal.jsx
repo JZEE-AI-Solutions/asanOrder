@@ -7,47 +7,97 @@ import ProductSelector from './ProductSelector'
 
 const ProductManagementModal = ({ form, onClose, onSuccess }) => {
   const [selectedProducts, setSelectedProducts] = useState([])
+  const [selectedProductIds, setSelectedProductIds] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (form) {
-      // Find Product Selector fields and get their selected products
-      const productSelectorFields = form.fields?.filter(field => field.fieldType === 'PRODUCT_SELECTOR')
-      if (productSelectorFields.length > 0) {
-        // For now, we'll use the first Product Selector field's products
-        // In a more complex scenario, you might want to manage each field separately
-        const firstField = productSelectorFields[0]
-        let products = []
-        
-        if (firstField.selectedProducts) {
-          try {
-            // Parse JSON string if it's a string, otherwise use as is
-            products = typeof firstField.selectedProducts === 'string' 
-              ? JSON.parse(firstField.selectedProducts) 
-              : firstField.selectedProducts
-          } catch (error) {
-            console.error('Error parsing selectedProducts:', error)
-            products = []
-          }
-        }
-        
-        setSelectedProducts(Array.isArray(products) ? products : [])
-      }
+      loadSelectedProducts()
     }
   }, [form])
+
+  const loadSelectedProducts = async () => {
+    // Find Product Selector fields and get their selected product IDs
+    const productSelectorFields = form.fields?.filter(field => field.fieldType === 'PRODUCT_SELECTOR')
+    if (productSelectorFields.length > 0) {
+      const firstField = productSelectorFields[0]
+      let productIds = []
+      
+      if (firstField.selectedProducts) {
+        try {
+          let products;
+          if (typeof firstField.selectedProducts === 'string') {
+            // Try to parse the JSON string
+            const parsed = JSON.parse(firstField.selectedProducts)
+            
+            // If it's still a string, try parsing again (double-encoded JSON)
+            if (typeof parsed === 'string') {
+              products = JSON.parse(parsed)
+            } else {
+              products = parsed
+            }
+          } else {
+            products = firstField.selectedProducts
+          }
+          
+          // Extract product IDs
+          if (Array.isArray(products)) {
+            productIds = products.map(p => p.id).filter(id => id)
+          } else {
+            productIds = []
+          }
+        } catch (error) {
+          console.error('Error parsing selectedProducts:', error)
+          productIds = []
+        }
+      }
+      
+      setSelectedProductIds(productIds)
+      
+      // If we have product IDs, fetch the full product data
+      if (productIds.length > 0 && form.tenant?.id) {
+        try {
+          setLoading(true)
+          const response = await api.get(`/products/tenant/${form.tenant.id}`)
+          const allProducts = response.data.products || []
+          
+          // Filter to get only the selected products
+          const selectedProductsData = allProducts.filter(product => 
+            productIds.includes(product.id)
+          )
+          
+          setSelectedProducts(selectedProductsData)
+        } catch (error) {
+          console.error('Error fetching selected products:', error)
+          toast.error('Failed to load selected products')
+        } finally {
+          setLoading(false)
+        }
+      } else {
+        setSelectedProducts([])
+      }
+    }
+  }
+
+  const handleProductsChange = (products) => {
+    setSelectedProducts(products)
+  }
 
   const handleSave = async () => {
     if (!form) return
 
     setSaving(true)
     try {
-      // Update the form with new selected products
+      // Store only product IDs to keep the JSON small and simple
+      const productIds = selectedProducts.map(product => ({ id: product.id }))
+
+      // Update the form with new selected product IDs
       const updatedFields = form.fields.map(field => {
         if (field.fieldType === 'PRODUCT_SELECTOR') {
           return {
             ...field,
-            selectedProducts: JSON.stringify(selectedProducts)
+            selectedProducts: JSON.stringify(productIds)
           }
         }
         return field
@@ -115,7 +165,20 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
                         {field.isRequired && <span className="text-red-500 ml-1">*</span>}
                       </span>
                       <span className="text-xs text-gray-500">
-                        {field.selectedProducts?.length || 0} products
+                        {(() => {
+                          let count = 0;
+                          if (field.selectedProducts) {
+                            try {
+                              const parsed = typeof field.selectedProducts === 'string' 
+                                ? JSON.parse(field.selectedProducts) 
+                                : field.selectedProducts;
+                              count = Array.isArray(parsed) ? parsed.length : 0;
+                            } catch (error) {
+                              count = 0;
+                            }
+                          }
+                          return count;
+                        })()} products
                       </span>
                     </div>
                   ))}
@@ -134,7 +197,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
                 <ProductSelector
                   tenantId={form.tenant?.id}
                   selectedProducts={selectedProducts}
-                  onProductsChange={setSelectedProducts}
+                  onProductsChange={handleProductsChange}
                   maxProducts={50}
                   showSearch={true}
                 />
