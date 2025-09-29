@@ -58,7 +58,9 @@ const OrderReceipt = () => {
     
     // Add all form fields dynamically
     Object.entries(formData).forEach(([fieldName, fieldValue]) => {
-      if (fieldValue && fieldName !== 'selectedProducts') {
+      if (fieldValue && 
+          fieldName !== 'selectedProducts' && 
+          fieldName !== 'productQuantities') {
         let displayValue = fieldValue;
         if (Array.isArray(fieldValue)) {
           displayValue = fieldValue.join(', ');
@@ -73,13 +75,38 @@ const OrderReceipt = () => {
     if (order.selectedProducts) {
       try {
         const selectedProducts = JSON.parse(order.selectedProducts);
+        const productQuantities = order.productQuantities ? JSON.parse(order.productQuantities) : {};
+        
         if (selectedProducts.length > 0) {
           message += `\n🛍️ *Selected Products:*\n`
           selectedProducts.forEach(product => {
-            message += `• ${product.name}`
-            if (product.sku) message += ` (SKU: ${product.sku})`
+            const quantity = productQuantities[product.id] || 1;
+            message += `• ${product.name} (Qty: ${quantity})`
+            if (product.sku) message += ` - SKU: ${product.sku}`
+            if (product.currentRetailPrice) {
+              const total = product.currentRetailPrice * quantity;
+              message += ` - Rs. ${product.currentRetailPrice.toLocaleString()} × ${quantity} = Rs. ${total.toLocaleString()}`
+            }
             message += `\n`
           })
+          
+          // Add order summary
+          const totalItems = selectedProducts.reduce((total, product) => {
+            const quantity = productQuantities[product.id] || 1;
+            return total + quantity;
+          }, 0);
+          
+          message += `\n📊 *Order Summary:*\n`
+          message += `• Total Items: ${totalItems}\n`
+          
+          if (selectedProducts.some(p => p.currentRetailPrice)) {
+            const totalAmount = selectedProducts.reduce((total, product) => {
+              const quantity = productQuantities[product.id] || 1;
+              const price = product.currentRetailPrice || 0;
+              return total + (price * quantity);
+            }, 0);
+            message += `• Total Amount: Rs. ${totalAmount.toLocaleString()}\n`
+          }
         }
       } catch (error) {
         console.error('Error parsing selected products for WhatsApp:', error);
@@ -211,7 +238,9 @@ const OrderReceipt = () => {
                 <div className="space-y-3">
                   {Object.entries(formData).map(([fieldName, fieldValue]) => {
                     // Skip empty values and system fields
-                    if (!fieldValue || fieldName === 'selectedProducts') return null;
+                    if (!fieldValue || 
+                        fieldName === 'selectedProducts' || 
+                        fieldName === 'productQuantities') return null;
                     
                     // Handle different field types
                     let displayValue = fieldValue;
@@ -243,29 +272,80 @@ const OrderReceipt = () => {
                   {(() => {
                     try {
                       const selectedProducts = JSON.parse(order.selectedProducts);
+                      const productQuantities = order.productQuantities ? JSON.parse(order.productQuantities) : {};
+                      
                       return (
-                        <div className="space-y-2">
-                          {selectedProducts.map((product, index) => (
-                            <div key={product.id || index} className="flex items-center space-x-3 p-2 bg-white rounded border">
-                              {(product.imageData || product.image) && (
-                                <img 
-                                  src={product.imageData ? `/api/images/public/product/${product.id}` : product.image} 
-                                  alt={product.name}
-                                  className="w-12 h-12 object-cover rounded"
-                                  onError={(e) => e.target.style.display = 'none'}
-                                />
-                              )}
-                              <div className="flex-1">
-                                <p className="font-medium text-gray-900">{product.name}</p>
-                                {product.description && (
-                                  <p className="text-sm text-gray-600">{product.description}</p>
+                        <div className="space-y-3">
+                          {selectedProducts.map((product, index) => {
+                            const quantity = productQuantities[product.id] || 1;
+                            return (
+                              <div key={product.id || index} className="flex items-center space-x-3 p-3 bg-white rounded-lg border shadow-sm">
+                                {(product.imageData || product.image) && (
+                                  <img 
+                                    src={product.imageData ? `/api/images/public/product/${product.id}` : product.image} 
+                                    alt={product.name}
+                                    className="w-16 h-16 object-cover rounded-lg"
+                                    onError={(e) => e.target.style.display = 'none'}
+                                  />
                                 )}
-                                {product.sku && (
-                                  <p className="text-xs text-gray-500">SKU: {product.sku}</p>
-                                )}
+                                <div className="flex-1">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <p className="font-medium text-gray-900">{product.name}</p>
+                                      {product.description && (
+                                        <p className="text-sm text-gray-600 mt-1">{product.description}</p>
+                                      )}
+                                      {product.sku && (
+                                        <p className="text-xs text-gray-500 mt-1">SKU: {product.sku}</p>
+                                      )}
+                                      {product.currentRetailPrice && (
+                                        <p className="text-sm font-medium text-green-600 mt-1">
+                                          Price: Rs. {product.currentRetailPrice.toLocaleString()}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="bg-pink-100 text-pink-800 px-3 py-1 rounded-full text-sm font-medium">
+                                        Qty: {quantity}
+                                      </div>
+                                      {product.currentRetailPrice && (
+                                        <p className="text-sm font-bold text-gray-900 mt-1">
+                                          Total: Rs. {(product.currentRetailPrice * quantity).toLocaleString()}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
+                            );
+                          })}
+                          
+                          {/* Order Summary */}
+                          {selectedProducts.length > 0 && (
+                            <div className="mt-4 pt-3 border-t border-gray-200">
+                              <div className="flex justify-between items-center">
+                                <span className="font-medium text-gray-900">Total Items:</span>
+                                <span className="font-bold text-gray-900">
+                                  {selectedProducts.reduce((total, product) => {
+                                    const quantity = productQuantities[product.id] || 1;
+                                    return total + quantity;
+                                  }, 0)}
+                                </span>
+                              </div>
+                              {selectedProducts.some(p => p.currentRetailPrice) && (
+                                <div className="flex justify-between items-center mt-2">
+                                  <span className="font-medium text-gray-900">Total Amount:</span>
+                                  <span className="font-bold text-green-600 text-lg">
+                                    Rs. {selectedProducts.reduce((total, product) => {
+                                      const quantity = productQuantities[product.id] || 1;
+                                      const price = product.currentRetailPrice || 0;
+                                      return total + (price * quantity);
+                                    }, 0).toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
                             </div>
-                          ))}
+                          )}
                         </div>
                       );
                     } catch (error) {

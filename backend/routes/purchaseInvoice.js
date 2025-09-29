@@ -140,24 +140,78 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       invoiceDate,
       totalAmount,
       image,
-      notes
+      notes,
+      items = []
     } = req.body;
 
-    const purchaseInvoice = await prisma.purchaseInvoice.create({
-      data: {
-        invoiceNumber,
-        supplierName,
-        invoiceDate: new Date(invoiceDate),
-        totalAmount,
-        image,
-        notes,
-        tenantId: tenant.id
+    // Create purchase invoice and items in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the purchase invoice
+      const purchaseInvoice = await tx.purchaseInvoice.create({
+        data: {
+          invoiceNumber,
+          supplierName,
+          invoiceDate: new Date(invoiceDate),
+          totalAmount,
+          image,
+          notes,
+          tenantId: tenant.id
+        }
+      });
+
+      // Create purchase items if provided
+      if (items && items.length > 0) {
+        const purchaseItems = await Promise.all(
+          items.map(item => 
+            tx.purchaseItem.create({
+              data: {
+                name: item.name,
+                description: item.description,
+                purchasePrice: item.purchasePrice,
+                quantity: item.quantity,
+                category: item.category,
+                sku: item.sku,
+                tenantId: tenant.id,
+                purchaseInvoiceId: purchaseInvoice.id
+              }
+            })
+          )
+        );
+
+        // Create corresponding products
+        const products = await Promise.all(
+          items.map(item => 
+            tx.product.create({
+              data: {
+                name: item.name,
+                description: item.description,
+                category: item.category,
+                sku: item.sku,
+                currentQuantity: item.quantity,
+                lastPurchasePrice: item.purchasePrice,
+                tenantId: tenant.id
+              }
+            })
+          )
+        );
+
+        // Link products to purchase items
+        await Promise.all(
+          purchaseItems.map((item, index) =>
+            tx.purchaseItem.update({
+              where: { id: item.id },
+              data: { productId: products[index].id }
+            })
+          )
+        );
       }
+
+      return purchaseInvoice;
     });
 
     res.status(201).json({
       message: 'Purchase invoice created successfully',
-      purchaseInvoice
+      purchaseInvoice: result
     });
   } catch (error) {
     console.error('Create purchase invoice error:', error);

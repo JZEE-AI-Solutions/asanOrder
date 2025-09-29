@@ -94,6 +94,7 @@ model Order {
   tenantId           String
   businessOwnerId    String?
   selectedProducts   String?  @db.NVarChar(MAX)
+  productQuantities  String?  @db.NVarChar(MAX)
   businessOwner      User?    @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   form               Form     @relation(fields: [formId], references: [id], onUpdate: NoAction)
   tenant             Tenant   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)

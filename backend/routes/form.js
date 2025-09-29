@@ -347,7 +347,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
     }
 
     const { id } = req.params;
-    const { name, description, fields } = req.body;
+    const { name, description, fields, isPublished } = req.body;
 
     const form = await prisma.form.findUnique({
       where: { id },
@@ -374,7 +374,8 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
       where: { id },
       data: {
         ...(name && { name }),
-        ...(description !== undefined && { description })
+        ...(description !== undefined && { description }),
+        ...(isPublished !== undefined && { isPublished })
       }
     });
 

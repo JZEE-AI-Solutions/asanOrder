@@ -122,7 +122,12 @@ const ProductDisplay = ({
                 {products.map((product, index) => (
                   <button
                     key={product.id}
-                    onClick={() => goToSlide(index)}
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      goToSlide(index);
+                    }}
                     className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 ${
                       index === currentIndex 
                         ? 'border-primary-500' 
@@ -223,7 +228,11 @@ const ProductDisplay = ({
                     <div className="flex items-center space-x-2">
                       <button
                         type="button"
-                        onClick={() => handleQuantityChange(currentProduct.id, (quantities[currentProduct.id] || 1) - 1)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleQuantityChange(currentProduct.id, (quantities[currentProduct.id] || 1) - 1);
+                        }}
                         className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
                         disabled={quantities[currentProduct.id] <= 1}
                       >
@@ -239,7 +248,11 @@ const ProductDisplay = ({
                       />
                       <button
                         type="button"
-                        onClick={() => handleQuantityChange(currentProduct.id, (quantities[currentProduct.id] || 1) + 1)}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleQuantityChange(currentProduct.id, (quantities[currentProduct.id] || 1) + 1);
+                        }}
                         className="w-8 h-8 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
                         disabled={quantities[currentProduct.id] >= 999}
                       >
@@ -255,7 +268,11 @@ const ProductDisplay = ({
             <div className="space-y-3">
               <button
                 type="button"
-                onClick={() => handleProductSelect(currentProduct)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleProductSelect(currentProduct);
+                }}
                 disabled={!isSelected && selectedItems.length >= maxSelections}
                 className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
                   isSelected
@@ -293,7 +310,11 @@ const ProductDisplay = ({
         <div className="bg-gray-50 px-6 py-4 flex items-center justify-between">
           <button
             type="button"
-            onClick={goToPrevious}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              goToPrevious();
+            }}
             className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             <ChevronLeftIcon className="h-4 w-4 mr-1" />
@@ -305,7 +326,11 @@ const ProductDisplay = ({
               <button
                 key={index}
                 type="button"
-                onClick={() => goToSlide(index)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  goToSlide(index);
+                }}
                 className={`w-2 h-2 rounded-full ${
                   index === currentIndex ? 'bg-primary-600' : 'bg-gray-300'
                 }`}
@@ -315,7 +340,11 @@ const ProductDisplay = ({
           
           <button
             type="button"
-            onClick={goToNext}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              goToNext();
+            }}
             className="flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-primary-500"
           >
             Next
@@ -361,7 +390,11 @@ const ProductDisplay = ({
                   <div className="flex items-center space-x-1">
                     <button
                       type="button"
-                      onClick={() => handleQuantityChange(product.id, (quantities[product.id] || 1) - 1)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleQuantityChange(product.id, (quantities[product.id] || 1) - 1);
+                      }}
                       className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-500"
                       disabled={quantities[product.id] <= 1}
                     >
@@ -372,7 +405,11 @@ const ProductDisplay = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => handleQuantityChange(product.id, (quantities[product.id] || 1) + 1)}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleQuantityChange(product.id, (quantities[product.id] || 1) + 1);
+                      }}
                       className="w-6 h-6 rounded-full border border-gray-300 flex items-center justify-center hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-primary-500"
                       disabled={quantities[product.id] >= 999}
                     >
@@ -381,7 +418,11 @@ const ProductDisplay = ({
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleProductSelect(product)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleProductSelect(product);
+                    }}
                     className="ml-2 text-primary-500 hover:text-primary-700"
                   >
                     <XMarkIcon className="h-4 w-4" />

@@ -479,20 +479,7 @@ const ClientFormDynamic = () => {
               maxSelections={10}
               showNavigation={true}
             />
-            {/* Hidden input to store selected products */}
-            <input
-              type="hidden"
-              {...register(field.label, {
-                required: field.isRequired ? `${field.label} is required` : false,
-                validate: () => {
-                  if (field.isRequired && selectedProducts.length === 0) {
-                    return 'Please select at least one product'
-                  }
-                  return true
-                }
-              })}
-              value={JSON.stringify(selectedProducts)}
-            />
+            {/* Note: selectedProducts are handled separately, not as form data */}
           </div>
         )
       default:
@@ -553,11 +540,8 @@ const ClientFormDynamic = () => {
             }
           })
 
-          // Add selected products and quantities to form data
-          if (selectedProducts.length > 0) {
-            formData.selectedProducts = selectedProducts
-            formData.productQuantities = productQuantities
-          }
+          // Note: selectedProducts and productQuantities are sent separately in orderData
+          // We don't add them to formData to avoid cluttering the order details display
 
       // Submit order
       const orderData = {
@@ -569,7 +553,8 @@ const ClientFormDynamic = () => {
           : null,
         images: uploadedImages.map(img => img.url),
         paymentReceipt: paymentReceipt?.url || null,
-        selectedProducts: selectedProducts
+        selectedProducts: selectedProducts,
+        productQuantities: productQuantities
       }
 
       console.log('📤 Submitting order data:', orderData)
