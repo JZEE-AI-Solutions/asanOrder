@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import api from '../services/api'
+import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import InvoiceUploadModal from '../components/InvoiceUploadModal'
@@ -207,18 +207,19 @@ const ProductsDashboard = () => {
                 <div className="p-4 sm:p-6">
                   {/* Product Image */}
                   <div className="w-full h-32 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
-                    {(product.imageData || product.image) ? (
-                      <img 
-                        src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
-                        alt={product.name}
-                        className="w-full h-full object-cover rounded-lg"
-                      />
-                    ) : (
-                      <div className="text-center">
-                        <DocumentArrowUpIcon className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                        <p className="text-xs text-gray-500">No image</p>
-                      </div>
-                    )}
+                    <img 
+                      src={getImageUrl('product', product.id)}
+                      alt={product.name}
+                      className="w-full h-full object-cover rounded-lg"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                        e.target.nextElementSibling.style.display = 'flex'
+                      }}
+                    />
+                    <div style={{display: 'none'}} className="text-center">
+                      <DocumentArrowUpIcon className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                      <p className="text-xs text-gray-500">No image</p>
+                    </div>
                   </div>
 
                   {/* Product Info */}

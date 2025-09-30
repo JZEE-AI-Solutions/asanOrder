@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { MagnifyingGlassIcon, XMarkIcon, CheckIcon } from '@heroicons/react/24/outline'
-import api from '../services/api'
+import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from './LoadingSpinner'
 
@@ -91,22 +91,20 @@ const ProductSelector = ({
                 key={product.id}
                 className="flex items-center bg-white border border-primary-200 rounded-lg px-3 py-2 text-sm"
               >
-                {(product.imageData || product.image) ? (
-                  <img
-                    src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
-                    alt={product.name}
-                    className="w-6 h-6 rounded object-cover mr-2"
-                    onError={(e) => {
-                      e.target.style.display = 'none'
-                    }}
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded bg-gray-100 flex items-center justify-center mr-2">
-                    <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                )}
+                <img
+                  src={getImageUrl('product', product.id)}
+                  alt={product.name}
+                  className="w-6 h-6 rounded object-cover mr-2"
+                  onError={(e) => {
+                    e.target.style.display = 'none'
+                    e.target.nextElementSibling.style.display = 'flex'
+                  }}
+                />
+                <div style={{display: 'none'}} className="w-6 h-6 rounded bg-gray-100 flex items-center justify-center mr-2">
+                  <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
                 <span className="text-primary-900">{product.name}</span>
                 <button
                   type="button"
@@ -167,22 +165,20 @@ const ProductSelector = ({
                   <div className="flex items-center space-x-4">
                     {/* Product Image */}
                     <div className="flex-shrink-0">
-                      {(product.imageData || product.image) ? (
-                        <img
-                          src={product.imageData ? `/api/images/public/product/${product.id}` : product.image}
-                          alt={product.name}
-                          className="w-16 h-16 rounded-lg object-cover border border-gray-200"
-                          onError={(e) => {
-                            e.target.style.display = 'none'
-                          }}
-                        />
-                      ) : (
-                        <div className="w-16 h-16 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">
-                          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                        </div>
-                      )}
+                      <img
+                        src={getImageUrl('product', product.id)}
+                        alt={product.name}
+                        className="w-16 h-16 rounded-lg object-cover border border-gray-200"
+                        onError={(e) => {
+                          e.target.style.display = 'none'
+                          e.target.nextElementSibling.style.display = 'flex'
+                        }}
+                      />
+                      <div style={{display: 'none'}} className="w-16 h-16 rounded-lg bg-gray-100 border border-gray-200 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
                     </div>
                     
                     {/* Product Details */}

@@ -13,7 +13,7 @@ import {
   CurrencyDollarIcon,
   CubeTransparentIcon
 } from '@heroicons/react/24/outline'
-import api from '../services/api'
+import api, { getImageUrl } from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 
@@ -280,14 +280,12 @@ const OrderReceipt = () => {
                             const quantity = productQuantities[product.id] || 1;
                             return (
                               <div key={product.id || index} className="flex items-center space-x-3 p-3 bg-white rounded-lg border shadow-sm">
-                                {(product.imageData || product.image) && (
-                                  <img 
-                                    src={product.imageData ? `/api/images/public/product/${product.id}` : product.image} 
-                                    alt={product.name}
-                                    className="w-16 h-16 object-cover rounded-lg"
-                                    onError={(e) => e.target.style.display = 'none'}
-                                  />
-                                )}
+                                <img 
+                                  src={getImageUrl('product', product.id)} 
+                                  alt={product.name}
+                                  className="w-16 h-16 object-cover rounded-lg"
+                                  onError={(e) => e.target.style.display = 'none'}
+                                />
                                 <div className="flex-1">
                                   <div className="flex items-start justify-between">
                                     <div>

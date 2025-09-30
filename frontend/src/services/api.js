@@ -45,4 +45,10 @@ api.interceptors.response.use(
   }
 )
 
+// Helper function to get the correct image URL
+export const getImageUrl = (entityType, entityId) => {
+  const baseUrl = import.meta.env.VITE_API_URL || ''
+  return `${baseUrl}/api/images/public/${entityType}/${entityId}`
+}
+
 export default api
