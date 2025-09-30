@@ -48,30 +48,42 @@ router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, 
             name: true,
             purchasePrice: true,
             quantity: true,
-            category: true
+            category: true,
+            sku: true,
+            image: true,
+            // Exclude imageData and imageType - frontend uses getImageUrl() to fetch images
+            isDeleted: true,
+            deletedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            tenantId: true,
+            purchaseInvoiceId: true,
+            productId: true
           }
         },
         _count: {
           select: {
-            purchaseItems: {
-              where: {
-                isDeleted: false
-              }
-            }
+            purchaseItems: true
           }
         }
       },
-      orderBy: { invoiceDate: 'desc' }
+      orderBy: {
+        invoiceDate: 'desc'
+      }
     });
 
-    res.json({ purchaseInvoices });
+    res.json({ 
+      success: true, 
+      purchaseInvoices 
+    });
+
   } catch (error) {
     console.error('Get purchase invoices error:', error);
     res.status(500).json({ error: 'Failed to get purchase invoices' });
   }
 });
 
-// Get single purchase invoice with products (Business Owner only)
+// Get single purchase invoice by ID (Business Owner only)
 router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
     const { id } = req.params;
@@ -91,7 +103,26 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
         tenantId: tenant.id
       },
       include: {
-        purchaseItems: true,
+        purchaseItems: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            purchasePrice: true,
+            quantity: true,
+            category: true,
+            sku: true,
+            image: true,
+            // Exclude imageData and imageType - frontend uses getImageUrl() to fetch images
+            isDeleted: true,
+            deletedAt: true,
+            createdAt: true,
+            updatedAt: true,
+            tenantId: true,
+            purchaseInvoiceId: true,
+            productId: true
+          }
+        },
         _count: {
           select: {
             purchaseItems: true
@@ -122,8 +153,20 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: errors.array() 
+      });
     }
+
+    const { 
+      invoiceNumber, 
+      invoiceDate, 
+      totalAmount, 
+      supplierName, 
+      notes,
+      items = []
+    } = req.body;
 
     // Get tenant for the business owner
     const tenant = await prisma.tenant.findUnique({
@@ -134,85 +177,96 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const {
-      invoiceNumber,
-      supplierName,
-      invoiceDate,
-      totalAmount,
-      image,
-      notes,
-      items = []
-    } = req.body;
-
-    // Create purchase invoice and items in a transaction
+    // Use transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
       // Create the purchase invoice
       const purchaseInvoice = await tx.purchaseInvoice.create({
         data: {
           invoiceNumber,
-          supplierName,
           invoiceDate: new Date(invoiceDate),
-          totalAmount,
-          image,
-          notes,
+          totalAmount: parseFloat(totalAmount),
+          supplierName: supplierName || null,
+          notes: notes || null,
           tenantId: tenant.id
         }
       });
 
-      // Create purchase items if provided
+      // Create purchase items and products if items are provided
       if (items && items.length > 0) {
-        const purchaseItems = await Promise.all(
-          items.map(item => 
-            tx.purchaseItem.create({
-              data: {
-                name: item.name,
-                description: item.description,
-                purchasePrice: item.purchasePrice,
-                quantity: item.quantity,
-                category: item.category,
-                sku: item.sku,
-                tenantId: tenant.id,
-                purchaseInvoiceId: purchaseInvoice.id
-              }
-            })
-          )
-        );
+        // Prepare purchase items data
+        const purchaseItemsData = items.map(item => ({
+          name: item.name,
+          description: item.description || null,
+          purchasePrice: parseFloat(item.purchasePrice),
+          quantity: parseInt(item.quantity),
+          category: item.category || null,
+          sku: item.sku || null,
+          image: item.image || null,
+          tenantId: tenant.id,
+          purchaseInvoiceId: purchaseInvoice.id
+        }));
 
-        // Create corresponding products
-        const products = await Promise.all(
-          items.map(item => 
-            tx.product.create({
-              data: {
-                name: item.name,
-                description: item.description,
-                category: item.category,
-                sku: item.sku,
-                currentQuantity: item.quantity,
-                lastPurchasePrice: item.purchasePrice,
-                tenantId: tenant.id
-              }
-            })
-          )
-        );
+        // Use createMany for better performance with large batches
+        const createdPurchaseItems = await tx.purchaseItem.createMany({
+          data: purchaseItemsData
+        });
 
-        // Link products to purchase items
-        await Promise.all(
-          purchaseItems.map((item, index) =>
-            tx.purchaseItem.update({
+        // Fetch the created items to return them
+        const createdItems = await tx.purchaseItem.findMany({
+          where: { purchaseInvoiceId: purchaseInvoice.id },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            purchasePrice: true,
+            quantity: true,
+            category: true,
+            sku: true,
+            image: true,
+            // Exclude imageData and imageType - frontend uses getImageUrl() to fetch images
+            tenantId: true,
+            purchaseInvoiceId: true
+          }
+        });
+
+        // Create products for each purchase item
+        const products = await Promise.all(items.map(async (item) => {
+          return await tx.product.create({
+            data: {
+              name: item.name,
+              description: item.description || null,
+              category: item.category || null,
+              sku: item.sku || null,
+              currentQuantity: parseInt(item.quantity),
+              lastPurchasePrice: parseFloat(item.purchasePrice),
+              tenantId: tenant.id
+            }
+          });
+        }));
+
+        // Link purchase items to products
+        await Promise.all(createdItems.map(async (item, index) => {
+          if (products[index]) {
+            await tx.purchaseItem.update({
               where: { id: item.id },
               data: { productId: products[index].id }
-            })
-          )
-        );
+            });
+          }
+        }));
+
+        return { purchaseInvoice, items: createdItems };
       }
 
-      return purchaseInvoice;
+      return { purchaseInvoice, items: [] };
     });
 
     res.status(201).json({
+      success: true,
       message: 'Purchase invoice created successfully',
-      purchaseInvoice: result
+      purchaseInvoice: result.purchaseInvoice,
+      items: result.items
     });
+
   } catch (error) {
     console.error('Create purchase invoice error:', error);
     res.status(500).json({ error: 'Failed to create purchase invoice' });
@@ -230,10 +284,14 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: errors.array() 
+      });
     }
 
     const { id } = req.params;
+    const { invoiceNumber, invoiceDate, totalAmount, supplierName, notes } = req.body;
 
     // Get tenant for the business owner
     const tenant = await prisma.tenant.findUnique({
@@ -244,7 +302,7 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Check if purchase invoice exists and belongs to tenant
+    // Check if invoice exists and belongs to tenant
     const existingInvoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
@@ -256,38 +314,35 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       return res.status(404).json({ error: 'Purchase invoice not found' });
     }
 
-    const updateData = { ...req.body };
-    if (updateData.invoiceDate) {
-      updateData.invoiceDate = new Date(updateData.invoiceDate);
-    }
-
-    const purchaseInvoice = await prisma.purchaseInvoice.update({
-      where: { id },
-      data: updateData,
-      include: {
-        products: true,
-        _count: {
-          select: {
-            products: true
-          }
-        }
+    // Update the invoice
+    const updatedInvoice = await prisma.purchaseInvoice.update({
+      where: { id: id },
+      data: {
+        ...(invoiceNumber && { invoiceNumber }),
+        ...(invoiceDate && { invoiceDate: new Date(invoiceDate) }),
+        ...(totalAmount && { totalAmount: parseFloat(totalAmount) }),
+        ...(supplierName !== undefined && { supplierName: supplierName || null }),
+        ...(notes !== undefined && { notes: notes || null })
       }
     });
 
     res.json({
+      success: true,
       message: 'Purchase invoice updated successfully',
-      purchaseInvoice
+      purchaseInvoice: updatedInvoice
     });
+
   } catch (error) {
     console.error('Update purchase invoice error:', error);
     res.status(500).json({ error: 'Failed to update purchase invoice' });
   }
 });
 
-// Delete purchase invoice (Business Owner only)
+// Soft delete purchase invoice (Business Owner only)
 router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
     const { id } = req.params;
+    const { reason } = req.body;
 
     // Get tenant for the business owner
     const tenant = await prisma.tenant.findUnique({
@@ -298,7 +353,7 @@ router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async 
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Check if purchase invoice exists and belongs to tenant
+    // Check if invoice exists and belongs to tenant
     const existingInvoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
@@ -310,24 +365,41 @@ router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async 
       return res.status(404).json({ error: 'Purchase invoice not found' });
     }
 
-    // Use inventory service to properly delete the invoice
-    const results = await InventoryService.deletePurchaseInvoice(
-      tenant.id,
-      id,
-      existingInvoice.invoiceNumber
-    );
+    // Use transaction to ensure data consistency
+    await prisma.$transaction(async (tx) => {
+      // Soft delete the invoice
+      await tx.purchaseInvoice.update({
+        where: { id: id },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: req.user.id,
+          deleteReason: reason || 'Deleted by business owner'
+        }
+      });
 
-    res.json({ 
-      message: 'Purchase invoice deleted successfully',
-      results: results
+      // Soft delete all associated purchase items
+      await tx.purchaseItem.updateMany({
+        where: { purchaseInvoiceId: id },
+        data: {
+          isDeleted: true,
+          deletedAt: new Date()
+        }
+      });
     });
+
+    res.json({
+      success: true,
+      message: 'Purchase invoice deleted successfully'
+    });
+
   } catch (error) {
     console.error('Delete purchase invoice error:', error);
     res.status(500).json({ error: 'Failed to delete purchase invoice' });
   }
 });
 
-// Restore soft-deleted purchase invoice (Business Owner only)
+// Restore soft deleted purchase invoice (Business Owner only)
 router.post('/:id/restore', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
     const { id } = req.params;
@@ -341,148 +413,49 @@ router.post('/:id/restore', authenticateToken, requireRole(['BUSINESS_OWNER']), 
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    // Check if soft-deleted purchase invoice exists and belongs to tenant
+    // Check if invoice exists and belongs to tenant
     const existingInvoice = await prisma.purchaseInvoice.findFirst({
       where: {
         id: id,
-        tenantId: tenant.id,
-        isDeleted: true
+        tenantId: tenant.id
       }
     });
 
     if (!existingInvoice) {
-      return res.status(404).json({ error: 'Deleted purchase invoice not found' });
+      return res.status(404).json({ error: 'Purchase invoice not found' });
     }
 
-    // Use inventory service to properly restore the invoice
-    const results = await InventoryService.restorePurchaseInvoice(
-      tenant.id,
-      id,
-      existingInvoice.invoiceNumber
-    );
+    // Use transaction to ensure data consistency
+    await prisma.$transaction(async (tx) => {
+      // Restore the invoice
+      await tx.purchaseInvoice.update({
+        where: { id: id },
+        data: {
+          isDeleted: false,
+          deletedAt: null,
+          deletedBy: null,
+          deleteReason: null
+        }
+      });
 
-    res.json({ 
-      message: 'Purchase invoice restored successfully',
-      results: results
+      // Restore all associated purchase items
+      await tx.purchaseItem.updateMany({
+        where: { purchaseInvoiceId: id },
+        data: {
+          isDeleted: false,
+          deletedAt: null
+        }
+      });
     });
+
+    res.json({
+      success: true,
+      message: 'Purchase invoice restored successfully'
+    });
+
   } catch (error) {
     console.error('Restore purchase invoice error:', error);
     res.status(500).json({ error: 'Failed to restore purchase invoice' });
-  }
-});
-
-// Create purchase invoice with products (for bulk import)
-router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER']), [
-  body('invoiceNumber').optional().trim().isLength({ min: 1 }),
-  body('invoiceDate').isISO8601(),
-  body('totalAmount').isFloat({ min: 0 }),
-  body('products').isArray({ min: 1 }),
-  body('products.*.name').trim().isLength({ min: 1 }),
-  body('products.*.purchasePrice').isFloat({ min: 0 }),
-  body('products.*.quantity').isInt({ min: 0 })
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      console.log('Validation errors:', errors.array());
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    // Get tenant for the business owner
-    const tenant = await prisma.tenant.findUnique({
-      where: { ownerId: req.user.id }
-    });
-
-    if (!tenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
-
-    const {
-      invoiceNumber,
-      supplierName,
-      invoiceDate,
-      totalAmount,
-      image,
-      notes,
-      products
-    } = req.body;
-
-    // Generate invoice number if not provided
-    const finalInvoiceNumber = invoiceNumber || await generateInvoiceNumber(tenant.id);
-
-    // Create purchase invoice and purchase items in a transaction with increased timeout
-    const result = await prisma.$transaction(async (tx) => {
-      // Create purchase invoice
-      const purchaseInvoice = await tx.purchaseInvoice.create({
-        data: {
-          invoiceNumber: finalInvoiceNumber,
-          supplierName,
-          invoiceDate: new Date(invoiceDate),
-          totalAmount,
-          image,
-          notes,
-          tenantId: tenant.id
-        }
-      });
-
-      // Create purchase items using createMany for better performance
-      const purchaseItemsData = products.map(product => ({
-        name: product.name,
-        description: product.description || null,
-        purchasePrice: product.purchasePrice,
-        quantity: product.quantity,
-        category: product.category || null,
-        sku: product.sku || null,
-        image: product.image || null,
-        imageData: product.imageData || null,
-        imageType: product.imageType || null,
-        tenantId: tenant.id,
-        purchaseInvoiceId: purchaseInvoice.id
-      }));
-
-      // Use createMany for better performance with large batches
-      const createdPurchaseItems = await tx.purchaseItem.createMany({
-        data: purchaseItemsData
-      });
-
-      // Fetch the created items to return them
-      const createdItems = await tx.purchaseItem.findMany({
-        where: {
-          purchaseInvoiceId: purchaseInvoice.id,
-          tenantId: tenant.id
-        }
-      });
-
-      return { purchaseInvoice, purchaseItems: createdItems };
-    }, {
-      timeout: 30000, // Increase timeout to 30 seconds
-      maxWait: 10000, // Maximum time to wait for a transaction slot
-    });
-
-    // Update inventory using the inventory service
-    try {
-      const inventoryResult = await InventoryService.updateInventoryFromPurchase(
-        tenant.id,
-        products,
-        result.purchaseInvoice.id,
-        invoiceNumber
-      );
-      
-      console.log('Inventory update result:', inventoryResult);
-    } catch (inventoryError) {
-      console.error('Inventory update failed:', inventoryError);
-      // Don't fail the entire request if inventory update fails
-    }
-
-    res.status(201).json({
-      message: 'Purchase invoice and products created successfully',
-      purchaseInvoice: result.purchaseInvoice,
-      purchaseItems: result.purchaseItems,
-      count: result.purchaseItems.length
-    });
-  } catch (error) {
-    console.error('Create purchase invoice with products error:', error);
-    res.status(500).json({ error: 'Failed to create purchase invoice with products' });
   }
 });
 

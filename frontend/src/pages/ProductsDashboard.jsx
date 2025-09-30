@@ -208,7 +208,7 @@ const ProductsDashboard = () => {
                   {/* Product Image */}
                   <div className="w-full h-32 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
                     <img 
-                      src={getImageUrl('product', product.id)}
+                      src={getImageUrl('product', product.id, true)}
                       alt={product.name}
                       className="w-full h-full object-cover rounded-lg"
                       onError={(e) => {

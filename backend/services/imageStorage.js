@@ -143,31 +143,31 @@ class ImageStorageService {
         case 'product':
           entity = await prisma.product.findUnique({
             where: { id: entityId },
-            select: { imageData: true, imageType: true }
+            select: { imageData: true, imageType: true, updatedAt: true }
           });
           break;
         case 'invoice':
           entity = await prisma.purchaseInvoice.findUnique({
             where: { id: entityId },
-            select: { imageData: true, imageType: true }
+            select: { imageData: true, imageType: true, updatedAt: true }
           });
           break;
         case 'return':
           entity = await prisma.return.findUnique({
             where: { id: entityId },
-            select: { imageData: true, imageType: true }
+            select: { imageData: true, imageType: true, updatedAt: true }
           });
           break;
         case 'order':
           entity = await prisma.order.findUnique({
             where: { id: entityId },
-            select: { imagesData: true, imagesType: true }
+            select: { imagesData: true, imagesType: true, updatedAt: true }
           });
           break;
         case 'purchase-item':
           entity = await prisma.purchaseItem.findUnique({
             where: { id: entityId },
-            select: { imageData: true, imageType: true }
+            select: { imageData: true, imageType: true, updatedAt: true }
           });
           break;
         default:
@@ -181,7 +181,8 @@ class ImageStorageService {
       return {
         data: entity.imageData,
         mimeType: entity.imageType,
-        size: entity.imageData.length
+        size: entity.imageData.length,
+        updatedAt: entity.updatedAt
       };
     } catch (error) {
       console.error('Error retrieving image from database:', error);

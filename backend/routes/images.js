@@ -6,36 +6,65 @@ const router = express.Router();
 
 // Public image serving endpoint (no authentication required)
 router.get('/public/:entityType/:entityId', async (req, res) => {
-  try {
-    const { entityType, entityId } = req.params;
+  const startTime = Date.now();
+  const { entityType, entityId } = req.params;
 
+  try {
     // Validate entity type
     const validEntityTypes = ['product', 'invoice', 'return', 'order', 'purchase-item'];
     if (!validEntityTypes.includes(entityType)) {
       return res.status(400).json({ error: 'Invalid entity type' });
     }
 
-    // Get image data
-    const imageData = await imageStorage.getImage(entityType, entityId);
+    // Create ETag for cache validation (before database query)
+    const etag = `"${entityId}-${Date.now()}"`;
+    
+    // Check if client has cached version first (optimization)
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end(); // Not Modified
+    }
+
+    // Get image data with timeout
+    const imageData = await Promise.race([
+      imageStorage.getImage(entityType, entityId),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Image fetch timeout')), 10000) // 10 second timeout
+      )
+    ]);
 
     if (!imageData) {
       return res.status(404).json({ error: 'Image not found' });
     }
 
-    // Set appropriate headers
+    // Log performance for debugging
+    const fetchTime = Date.now() - startTime;
+    if (fetchTime > 1000) { // Log if it takes more than 1 second
+      console.log(`Slow image fetch: ${entityType}/${entityId} took ${fetchTime}ms`);
+    }
+
+    // Set appropriate headers with compression and caching
     res.set({
       'Content-Type': imageData.mimeType,
       'Content-Length': imageData.size,
-      'Cache-Control': 'public, max-age=31536000', // Cache for 1 year
-      'ETag': `"${entityId}"`
+      'Cache-Control': 'public, max-age=3600, immutable', // Cache for 1 hour, immutable
+      'ETag': etag,
+      'Last-Modified': imageData.updatedAt ? new Date(imageData.updatedAt).toUTCString() : new Date().toUTCString(),
+      'Vary': 'Accept-Encoding', // Support compression
+      'X-Content-Type-Options': 'nosniff' // Security header
     });
 
-    // Send image data
+    // Send image data with compression
     res.send(imageData.data);
 
   } catch (error) {
-    console.error('Error serving public image:', error);
-    res.status(500).json({ error: 'Failed to serve image' });
+    const fetchTime = Date.now() - startTime;
+    console.error(`Error serving public image ${entityType}/${entityId} (${fetchTime}ms):`, error.message);
+    
+    if (error.message === 'Image fetch timeout') {
+      res.status(504).json({ error: 'Image request timeout' });
+    } else {
+      res.status(500).json({ error: 'Failed to serve image' });
+    }
   }
 });
 

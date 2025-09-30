@@ -92,7 +92,7 @@ const ProductSelector = ({
                 className="flex items-center bg-white border border-primary-200 rounded-lg px-3 py-2 text-sm"
               >
                 <img
-                  src={getImageUrl('product', product.id)}
+                  src={getImageUrl('product', product.id, true)}
                   alt={product.name}
                   className="w-6 h-6 rounded object-cover mr-2"
                   onError={(e) => {
@@ -166,7 +166,7 @@ const ProductSelector = ({
                     {/* Product Image */}
                     <div className="flex-shrink-0">
                       <img
-                        src={getImageUrl('product', product.id)}
+                        src={getImageUrl('product', product.id, true)}
                         alt={product.name}
                         className="w-16 h-16 rounded-lg object-cover border border-gray-200"
                         onError={(e) => {

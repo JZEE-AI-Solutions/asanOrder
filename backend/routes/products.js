@@ -84,8 +84,7 @@ router.get('/recent/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         category: product.category,
         sku: product.sku,
         image: product.image,
-        imageData: product.imageData,
-        imageType: product.imageType,
+        hasImage: !!product.imageData, // Just indicate if image exists, don't send the data
         isActive: product.isActive,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
@@ -211,8 +210,7 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         category: product.category,
         sku: product.sku,
         image: product.image,
-        imageData: product.imageData,
-        imageType: product.imageType,
+        hasImage: !!product.imageData, // Just indicate if image exists, don't send the data
         isActive: product.isActive,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
@@ -240,7 +238,7 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
   }
 });
 
-// Get products by IDs (public endpoint for forms)
+// Public endpoint to get products by IDs (for public forms)
 router.post('/by-ids', async (req, res) => {
   try {
     const { productIds, tenantId } = req.body;
@@ -253,7 +251,6 @@ router.post('/by-ids', async (req, res) => {
       return res.status(400).json({ error: 'Tenant ID is required' });
     }
 
-    // Get products by IDs for the specific tenant
     const products = await prisma.product.findMany({
       where: {
         id: { in: productIds },
@@ -306,8 +303,7 @@ router.post('/by-ids', async (req, res) => {
         category: product.category,
         sku: product.sku,
         image: product.image,
-        imageData: product.imageData,
-        imageType: product.imageType,
+        hasImage: !!product.imageData, // Just indicate if image exists, don't send the data
         isActive: product.isActive,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
@@ -318,9 +314,9 @@ router.post('/by-ids', async (req, res) => {
       };
     });
 
-    res.json({
-      success: true,
-      products: formattedProducts
+    res.json({ 
+      success: true, 
+      products: formattedProducts 
     });
 
   } catch (error) {

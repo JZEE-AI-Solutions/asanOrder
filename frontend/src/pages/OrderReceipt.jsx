@@ -281,7 +281,7 @@ const OrderReceipt = () => {
                             return (
                               <div key={product.id || index} className="flex items-center space-x-3 p-3 bg-white rounded-lg border shadow-sm">
                                 <img 
-                                  src={getImageUrl('product', product.id)} 
+                                  src={getImageUrl('product', product.id, true)} 
                                   alt={product.name}
                                   className="w-16 h-16 object-cover rounded-lg"
                                   onError={(e) => e.target.style.display = 'none'}

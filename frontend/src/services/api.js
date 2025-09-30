@@ -45,10 +45,17 @@ api.interceptors.response.use(
   }
 )
 
-// Helper function to get the correct image URL
-export const getImageUrl = (entityType, entityId) => {
+// Helper function to get the correct image URL with cache-busting
+export const getImageUrl = (entityType, entityId, bustCache = false) => {
   const baseUrl = import.meta.env.VITE_API_URL || ''
-  return `${baseUrl}/api/images/public/${entityType}/${entityId}`
+  const url = `${baseUrl}/api/images/public/${entityType}/${entityId}`
+  
+  // Add cache-busting parameter if requested
+  if (bustCache) {
+    return `${url}?t=${Date.now()}`
+  }
+  
+  return url
 }
 
 export default api

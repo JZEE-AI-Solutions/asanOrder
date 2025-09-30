@@ -50,6 +50,7 @@ const EnhancedProductsDashboard = () => {
   const [isEditing, setIsEditing] = useState(false)
   const [showImageUpload, setShowImageUpload] = useState(false)
   const [selectedPurchaseItem, setSelectedPurchaseItem] = useState(null)
+  const [imageRefreshKey, setImageRefreshKey] = useState(0)
 
   useEffect(() => {
     fetchTenantData()
@@ -253,6 +254,10 @@ const EnhancedProductsDashboard = () => {
         // If viewing all purchase items, fetch all purchase items
         await fetchAllPurchaseItems()
       }
+      
+      // Force refresh images by adding a cache-busting parameter
+      // This will trigger a re-render with new image URLs
+      setImageRefreshKey(Date.now())
       
       toast.success('Product image uploaded successfully!')
     } catch (error) {
@@ -939,7 +944,7 @@ const ProductsView = ({ products, displayMode, selectedInvoice, onEditProduct, o
             {/* Product Image */}
             <div className="w-full h-32 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
               <img 
-                src={getImageUrl('product', product.id)}
+                src={getImageUrl('product', product.id, true)}
                 alt={product.name}
                 className="w-full h-full object-cover rounded-lg"
                 onError={(e) => {
@@ -1147,7 +1152,7 @@ const PurchaseItemsView = ({ purchaseItems, displayMode, selectedInvoice, onImag
             {/* Product Image */}
             <div className="w-full h-32 bg-gray-100 rounded-lg mb-4 flex items-center justify-center relative group">
               <img 
-                src={getImageUrl('purchase-item', item.id)}
+                src={getImageUrl('purchase-item', item.id, true)}
                 alt={item.name}
                 className="w-full h-full object-cover rounded-lg"
                 onError={(e) => {

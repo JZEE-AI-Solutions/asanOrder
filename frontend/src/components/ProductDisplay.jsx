@@ -100,7 +100,7 @@ const ProductDisplay = ({
           <div className="space-y-4">
             <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
               <img
-                src={getImageUrl('product', currentProduct.id)}
+                src={getImageUrl('product', currentProduct.id, true)}
                 alt={currentProduct.name}
                 className="w-full h-full object-cover"
                 onError={(e) => {
