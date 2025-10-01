@@ -72,6 +72,7 @@ class CustomerService {
           name: customerData.name || null,
           email: customerData.email || null,
           address: customerData.address || null,
+          shippingAddress: customerData.shippingAddress || null,
           city: customerData.city || null,
           state: customerData.state || null,
           country: customerData.country || null,
@@ -136,6 +137,10 @@ class CustomerService {
         updateData.address = customerData.address;
         changes.push({ field: 'address', old: currentCustomer.address, new: customerData.address });
       }
+      if (customerData.shippingAddress && customerData.shippingAddress !== currentCustomer.shippingAddress) {
+        updateData.shippingAddress = customerData.shippingAddress;
+        changes.push({ field: 'shippingAddress', old: currentCustomer.shippingAddress, new: customerData.shippingAddress });
+      }
       if (customerData.city && customerData.city !== currentCustomer.city) {
         updateData.city = customerData.city;
         changes.push({ field: 'city', old: currentCustomer.city, new: customerData.city });
@@ -193,14 +198,15 @@ class CustomerService {
     
     // Common field mappings
     const fieldMappings = {
-      name: ['name', 'fullName', 'customerName', 'clientName'],
-      email: ['email', 'emailAddress'],
-      address: ['address', 'shippingAddress', 'billingAddress', 'streetAddress'],
-      city: ['city'],
-      state: ['state', 'province'],
-      country: ['country'],
-      postalCode: ['postalCode', 'zipCode', 'postcode'],
-      notes: ['notes', 'comments', 'specialInstructions']
+      name: ['Customer Name', 'name', 'fullName', 'customerName', 'clientName'],
+      email: ['Email', 'email', 'emailAddress'],
+      address: ['Address', 'address', 'billingAddress', 'streetAddress'],
+      shippingAddress: ['Shipping Address', 'shippingAddress', 'shipping', 'deliveryAddress', 'delivery'],
+      city: ['City', 'city'],
+      state: ['State', 'state', 'province'],
+      country: ['Country', 'country'],
+      postalCode: ['Postal Code', 'Zip Code', 'postalCode', 'zipCode', 'postcode'],
+      notes: ['Notes', 'notes', 'comments', 'specialInstructions']
     };
 
     // Extract information based on field mappings

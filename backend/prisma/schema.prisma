@@ -246,6 +246,7 @@ model Customer {
   name              String?
   email             String?
   address           String?
+  shippingAddress   String?
   city              String?
   state             String?
   country           String?

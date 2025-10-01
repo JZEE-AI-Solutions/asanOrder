@@ -8,6 +8,7 @@ import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
 import ProductManagementModal from '../components/ProductManagementModal'
 import CustomerDetailsModal from '../components/CustomerDetailsModal'
+import AddCustomerModal from '../components/AddCustomerModal'
 import { 
   DocumentTextIcon, 
   ShoppingBagIcon,
@@ -20,6 +21,7 @@ import {
   ClockIcon,
   CurrencyDollarIcon,
   UsersIcon,
+  UserPlusIcon,
   ArrowTopRightOnSquareIcon,
   CubeIcon,
   ChartBarIcon as ChartBarIconOutline
@@ -43,6 +45,7 @@ const BusinessDashboard = () => {
   const [customerStats, setCustomerStats] = useState(null)
   const [selectedCustomer, setSelectedCustomer] = useState(null)
   const [showCustomerDetails, setShowCustomerDetails] = useState(false)
+  const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [customerSearch, setCustomerSearch] = useState('')
   const [customerPage, setCustomerPage] = useState(1)
   const [customerLoading, setCustomerLoading] = useState(false)
@@ -124,6 +127,12 @@ const BusinessDashboard = () => {
     } catch (error) {
       toast.error('Failed to fetch customer details')
     }
+  }
+
+  const handleCustomerCreated = () => {
+    // Refresh customer list and stats
+    fetchCustomers(customerPage, customerSearch)
+    fetchCustomerStats()
   }
 
   // Fetch customers when customers tab is activated
@@ -547,12 +556,21 @@ const BusinessDashboard = () => {
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
                   />
                 </div>
-                <button
-                  onClick={() => fetchCustomers()}
-                  className="px-6 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
-                >
-                  Refresh
-                </button>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowAddCustomer(true)}
+                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+                  >
+                    <UserPlusIcon className="h-4 w-4 mr-2" />
+                    Add Customer
+                  </button>
+                  <button
+                    onClick={() => fetchCustomers()}
+                    className="px-6 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
+                  >
+                    Refresh
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -676,6 +694,13 @@ const BusinessDashboard = () => {
           }}
         />
       )}
+
+      {/* Add Customer Modal */}
+      <AddCustomerModal
+        isOpen={showAddCustomer}
+        onClose={() => setShowAddCustomer(false)}
+        onSuccess={handleCustomerCreated}
+      />
     </div>
   )
 }

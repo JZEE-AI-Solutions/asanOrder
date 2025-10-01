@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { XMarkIcon, PhoneIcon, EnvelopeIcon, MapPinIcon, CalendarIcon, CurrencyDollarIcon, ShoppingBagIcon, ClockIcon } from '@heroicons/react/24/outline'
+import { XMarkIcon, PhoneIcon, EnvelopeIcon, MapPinIcon, CalendarIcon, CurrencyDollarIcon, ShoppingBagIcon, ClockIcon, PencilIcon, CheckIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from './LoadingSpinner'
+import toast from 'react-hot-toast'
 
 const CustomerDetailsModal = ({ customer, isOpen, onClose }) => {
   const [customerDetails, setCustomerDetails] = useState(null)
@@ -9,6 +10,9 @@ const CustomerDetailsModal = ({ customer, isOpen, onClose }) => {
   const [customerLogs, setCustomerLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [activeTab, setActiveTab] = useState('overview')
+  const [isEditing, setIsEditing] = useState(false)
+  const [editForm, setEditForm] = useState({})
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (isOpen && customer) {
@@ -60,6 +64,49 @@ const CustomerDetailsModal = ({ customer, isOpen, onClose }) => {
     }
   }
 
+  const handleEditClick = () => {
+    setIsEditing(true)
+    setEditForm({
+      name: customerDetails?.name || '',
+      email: customerDetails?.email || '',
+      address: customerDetails?.address || '',
+      shippingAddress: customerDetails?.shippingAddress || '',
+      city: customerDetails?.city || '',
+      state: customerDetails?.state || '',
+      country: customerDetails?.country || '',
+      postalCode: customerDetails?.postalCode || '',
+      notes: customerDetails?.notes || ''
+    })
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setEditForm({})
+  }
+
+  const handleSaveEdit = async () => {
+    try {
+      setSaving(true)
+      await api.put(`/customer/${customer.id}`, editForm)
+      toast.success('Customer updated successfully!')
+      setIsEditing(false)
+      setEditForm({})
+      fetchCustomerDetails() // Refresh customer details
+    } catch (error) {
+      console.error('Failed to update customer:', error)
+      toast.error('Failed to update customer')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleInputChange = (field, value) => {
+    setEditForm(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
   if (!isOpen || !customer) return null
 
   return (
@@ -80,12 +127,23 @@ const CustomerDetailsModal = ({ customer, isOpen, onClose }) => {
               <p className="text-sm text-gray-500">{customer.phoneNumber}</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <XMarkIcon className="h-6 w-6" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {!isEditing && (
+              <button
+                onClick={handleEditClick}
+                className="flex items-center space-x-1 px-3 py-1.5 text-sm font-medium text-pink-600 bg-pink-50 rounded-md hover:bg-pink-100 transition-colors"
+              >
+                <PencilIcon className="h-4 w-4" />
+                <span>Edit</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <XMarkIcon className="h-6 w-6" />
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -144,18 +202,72 @@ const CustomerDetailsModal = ({ customer, isOpen, onClose }) => {
                           <PhoneIcon className="h-5 w-5 text-gray-400" />
                           <span className="text-gray-900">{customerDetails.phoneNumber}</span>
                         </div>
+                        <div className="flex items-center space-x-3">
+                          <span className="text-sm font-medium text-gray-600 w-16">Name:</span>
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editForm.name}
+                              onChange={(e) => handleInputChange('name', e.target.value)}
+                              className="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                              placeholder="Customer name"
+                            />
+                          ) : (
+                            <span className="text-gray-900">{customerDetails.name || 'Not provided'}</span>
+                          )}
+                        </div>
                         {customerDetails.email && (
                           <div className="flex items-center space-x-3">
                             <EnvelopeIcon className="h-5 w-5 text-gray-400" />
-                            <span className="text-gray-900">{customerDetails.email}</span>
+                            {isEditing ? (
+                              <input
+                                type="email"
+                                value={editForm.email}
+                                onChange={(e) => handleInputChange('email', e.target.value)}
+                                className="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                placeholder="Email address"
+                              />
+                            ) : (
+                              <span className="text-gray-900">{customerDetails.email}</span>
+                            )}
                           </div>
                         )}
                         {customerDetails.address && (
                           <div className="flex items-start space-x-3">
                             <MapPinIcon className="h-5 w-5 text-gray-400 mt-0.5" />
-                            <span className="text-gray-900">{customerDetails.address}</span>
+                            {isEditing ? (
+                              <textarea
+                                value={editForm.address}
+                                onChange={(e) => handleInputChange('address', e.target.value)}
+                                className="flex-1 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                placeholder="Address"
+                                rows={2}
+                              />
+                            ) : (
+                              <span className="text-gray-900">{customerDetails.address}</span>
+                            )}
                           </div>
                         )}
+                        <div className="flex items-start space-x-3">
+                          <MapPinIcon className="h-5 w-5 text-gray-400 mt-0.5" />
+                          <div className="flex-1">
+                            <span className="text-sm font-medium text-gray-600">Shipping Address:</span>
+                            {isEditing ? (
+                              <textarea
+                                value={editForm.shippingAddress}
+                                onChange={(e) => handleInputChange('shippingAddress', e.target.value)}
+                                className="w-full mt-1 px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                                placeholder="Shipping address (required)"
+                                rows={2}
+                                required
+                              />
+                            ) : (
+                              <span className="text-gray-900 block mt-1">
+                                {customerDetails.shippingAddress || 'Not provided'}
+                              </span>
+                            )}
+                          </div>
+                        </div>
                         {customerDetails.city && (
                           <div className="flex items-center space-x-3 ml-8">
                             <span className="text-gray-500">{customerDetails.city}</span>
@@ -197,10 +309,50 @@ const CustomerDetailsModal = ({ customer, isOpen, onClose }) => {
                   </div>
 
                   {/* Notes */}
-                  {customerDetails.notes && (
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-2">Notes</h3>
-                      <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">{customerDetails.notes}</p>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Notes</h3>
+                    {isEditing ? (
+                      <textarea
+                        value={editForm.notes}
+                        onChange={(e) => handleInputChange('notes', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-pink-500"
+                        placeholder="Customer notes"
+                        rows={3}
+                      />
+                    ) : (
+                      <p className="text-gray-700 bg-gray-50 p-4 rounded-lg">
+                        {customerDetails.notes || 'No notes available'}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Edit Actions */}
+                  {isEditing && (
+                    <div className="flex items-center justify-end space-x-3 pt-4 border-t border-gray-200">
+                      <button
+                        onClick={handleCancelEdit}
+                        disabled={saving}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleSaveEdit}
+                        disabled={saving}
+                        className="flex items-center space-x-2 px-4 py-2 text-sm font-medium text-white bg-pink-600 border border-transparent rounded-md hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50"
+                      >
+                        {saving ? (
+                          <>
+                            <LoadingSpinner />
+                            <span>Saving...</span>
+                          </>
+                        ) : (
+                          <>
+                            <CheckIcon className="h-4 w-4" />
+                            <span>Save Changes</span>
+                          </>
+                        )}
+                      </button>
                     </div>
                   )}
                 </div>
