@@ -31,6 +31,7 @@ model Tenant {
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   ownerId          String            @unique
+  customers        Customer[]
   forms            Form[]
   orders           Order[]
   productLogs      ProductLog[]
@@ -38,7 +39,6 @@ model Tenant {
   purchaseInvoices PurchaseInvoice[]
   purchaseItems    PurchaseItem[]
   returns          Return[]
-  customers        Customer[]
   owner            User              @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
 
   @@map("tenants")
@@ -71,15 +71,15 @@ model FormField {
   order            Int
   createdAt        DateTime @default(now())
   formId           String
-  selectedProducts String?  @db.NVarChar(MAX)
+  selectedProducts String?  @db.NVarChar(Max)
   form             Form     @relation(fields: [formId], references: [id], onUpdate: NoAction)
 
   @@map("form_fields")
 }
 
 model Order {
-  id                 String   @id @default(cuid())
-  orderNumber        String   @unique
+  id                 String    @id @default(cuid())
+  orderNumber        String    @unique
   formData           String
   images             String?
   imagesData         Bytes?
@@ -88,19 +88,19 @@ model Order {
   paymentReceipt     String?
   paymentReceiptData Bytes?
   paymentReceiptType String?
-  status             String   @default("PENDING")
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  status             String    @default("PENDING")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
   formId             String
   tenantId           String
   businessOwnerId    String?
+  selectedProducts   String?   @db.NVarChar(Max)
+  productQuantities  String?   @db.NVarChar(Max)
   customerId         String?
-  selectedProducts   String?  @db.NVarChar(MAX)
-  productQuantities  String?  @db.NVarChar(MAX)
-  businessOwner      User?    @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  form               Form     @relation(fields: [formId], references: [id], onUpdate: NoAction)
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  businessOwner      User?     @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   customer           Customer? @relation(fields: [customerId], references: [id], onUpdate: NoAction)
+  form               Form      @relation(fields: [formId], references: [id], onUpdate: NoAction)
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
 
   @@map("orders")
 }
@@ -241,27 +241,27 @@ model ReturnItem {
 }
 
 model Customer {
-  id                String        @id @default(cuid())
-  phoneNumber       String
-  name              String?
-  email             String?
-  address           String?
-  shippingAddress   String?
-  city              String?
-  state             String?
-  country           String?
-  postalCode        String?
-  notes             String?
-  isActive          Boolean       @default(true)
-  totalOrders       Int           @default(0)
-  totalSpent        Float         @default(0)
-  lastOrderDate     DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  tenantId          String
-  orders            Order[]
-  customerLogs      CustomerLog[]
-  tenant            Tenant        @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  id              String        @id @default(cuid())
+  phoneNumber     String
+  name            String?
+  email           String?
+  address         String?
+  city            String?
+  state           String?
+  country         String?
+  postalCode      String?
+  notes           String?
+  isActive        Boolean       @default(true)
+  totalOrders     Int           @default(0)
+  totalSpent      Float         @default(0)
+  lastOrderDate   DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  tenantId        String
+  shippingAddress String?
+  customerLogs    CustomerLog[]
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  orders          Order[]
 
   @@unique([phoneNumber, tenantId])
   @@map("customers")
@@ -269,12 +269,12 @@ model Customer {
 
 model CustomerLog {
   id          String   @id @default(cuid())
-  action      String   // 'CREATED', 'UPDATED', 'ORDER_PLACED', 'INFO_CHANGED', etc.
-  fieldName   String?  // Which field was changed (if applicable)
-  oldValue    String?  // Previous value
-  newValue    String?  // New value
-  description String?  // Human-readable description
-  metadata    String?  // Additional JSON data
+  action      String
+  fieldName   String?
+  oldValue    String?
+  newValue    String?
+  description String?
+  metadata    String?
   createdAt   DateTime @default(now())
   customerId  String
   customer    Customer @relation(fields: [customerId], references: [id], onUpdate: NoAction)
