@@ -9,10 +9,7 @@ BEGIN TRY
 BEGIN TRAN;
 
 -- AlterTable
-ALTER TABLE [dbo].[form_fields] ALTER COLUMN [selectedProducts] NVARCHAR(max) NULL;
-
--- AlterTable
-ALTER TABLE [dbo].[orders] ALTER COLUMN [selectedProducts] NVARCHAR(max) NULL;
+ALTER TABLE [dbo].[orders] ADD [selectedProducts] NVARCHAR(max);
 ALTER TABLE [dbo].[orders] ADD [productQuantities] NVARCHAR(max);
 
 -- CreateIndex

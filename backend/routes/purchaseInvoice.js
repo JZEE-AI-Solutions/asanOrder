@@ -16,6 +16,106 @@ router.get('/test-auth', authenticateToken, requireRole(['BUSINESS_OWNER']), (re
   });
 });
 
+// Create purchase invoice with products (Business Owner only)
+router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('invoiceNumber').trim().notEmpty(),
+  body('invoiceDate').isISO8601(),
+  body('totalAmount').isFloat({ min: 0 }),
+  body('products').isArray({ min: 1 }),
+  body('products.*.name').trim().notEmpty(),
+  body('products.*.purchasePrice').isFloat({ min: 0 }),
+  body('products.*.quantity').isInt({ min: 1 }),
+  body('supplierName').optional().trim(),
+  body('notes').optional().trim()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { invoiceNumber, invoiceDate, totalAmount, products, supplierName, notes } = req.body;
+
+    // Check if invoice number already exists
+    const existingInvoice = await prisma.purchaseInvoice.findFirst({
+      where: {
+        invoiceNumber: invoiceNumber,
+        tenantId: tenant.id,
+        isDeleted: false
+      }
+    });
+
+    if (existingInvoice) {
+      return res.status(400).json({ error: 'Invoice number already exists' });
+    }
+
+    // Create purchase invoice with products in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the purchase invoice
+      const purchaseInvoice = await tx.purchaseInvoice.create({
+        data: {
+          invoiceNumber: invoiceNumber,
+          supplierName: supplierName || null,
+          invoiceDate: new Date(invoiceDate),
+          totalAmount: totalAmount,
+          notes: notes || null,
+          tenantId: tenant.id
+        }
+      });
+
+      // Create purchase items
+      const purchaseItems = await Promise.all(
+        products.map(async (product) => {
+          return await tx.purchaseItem.create({
+            data: {
+              name: product.name,
+              description: product.description || null,
+              purchasePrice: product.purchasePrice,
+              quantity: product.quantity,
+              category: product.category || null,
+              sku: product.sku || null,
+              image: product.image || null,
+              imageData: product.imageData || null,
+              imageType: product.imageType || null,
+              tenantId: tenant.id,
+              purchaseInvoiceId: purchaseInvoice.id
+            }
+          });
+        })
+      );
+
+      return { purchaseInvoice, purchaseItems };
+    });
+
+    // Update inventory using the inventory service (outside transaction)
+    await InventoryService.updateInventoryFromPurchase(
+      tenant.id,
+      result.purchaseItems,
+      result.purchaseInvoice.id,
+      invoiceNumber
+    );
+
+    res.status(201).json({
+      message: 'Purchase invoice created successfully',
+      invoice: result.purchaseInvoice,
+      items: result.purchaseItems
+    });
+
+  } catch (error) {
+    console.error('Create purchase invoice with products error:', error);
+    res.status(500).json({ error: 'Failed to create purchase invoice' });
+  }
+});
+
 // Get all purchase invoices for a tenant (Business Owner only)
 router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {

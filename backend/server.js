@@ -16,6 +16,7 @@ const returnRoutes = require('./routes/return');
 const invoiceRoutes = require('./routes/invoice');
 const uploadRoutes = require('./routes/upload');
 const imageRoutes = require('./routes/images');
+const customerRoutes = require('./routes/customer');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -47,6 +48,7 @@ app.use('/api/return', returnRoutes);
 app.use('/api/invoice', invoiceRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/images', imageRoutes);
+app.use('/api/customer', customerRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

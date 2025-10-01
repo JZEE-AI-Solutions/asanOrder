@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: asanorder-backend
+    name: asanorder
     env: node
     plan: free
     buildCommand: npm install && cd backend && npm install && npx prisma generate
@@ -20,11 +20,11 @@ services:
         value: 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
 
   - type: web
-    name: asanorder-frontend
+    name: asanorderui
     env: node
     plan: free
     buildCommand: npm install && cd frontend && npm install && npm run build
     startCommand: cd frontend && npx serve -s dist -l $PORT
     envVars:
       - key: VITE_API_URL
-        value: https://asanorder-backend.onrender.com
+        value: https://asanorder.onrender.com

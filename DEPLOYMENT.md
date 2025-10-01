@@ -76,7 +76,7 @@ You have several options for MS SQL Server hosting:
    - Click "New +" → "Web Service"
    - Connect your GitHub repository
    - Configure:
-     - **Name:** `asanorder-backend`
+     - **Name:** `asanorder`
      - **Environment:** `Node`
      - **Build Command:** `cd backend && npm install && npx prisma generate`
      - **Start Command:** `cd backend && npm start`
@@ -99,14 +99,14 @@ You have several options for MS SQL Server hosting:
    - Click "New +" → "Static Site"
    - Connect your GitHub repository
    - Configure:
-     - **Name:** `asanorder-frontend`
+     - **Name:** `asanorderui`
      - **Build Command:** `cd frontend && npm install && npm run build`
      - **Publish Directory:** `frontend/dist`
      - **Plan:** Free
 
 2. **Environment Variables:**
    ```
-   VITE_API_URL=https://asanorder-backend.onrender.com
+   VITE_API_URL=https://asanorder.onrender.com
    ```
 
 ## 🔄 Step 3: Database Migration
@@ -139,13 +139,13 @@ npx prisma generate
 1. Push your changes to GitHub
 2. Render.com will automatically build and deploy
 3. Check the logs for any errors
-4. Note the backend URL (e.g., `https://asanorder-backend.onrender.com`)
+4. Note the backend URL (e.g., `https://asanorder.onrender.com`)
 
 ### 4.2 Deploy Frontend
 1. Update `frontend/env.production` with your backend URL
 2. Push changes to GitHub
 3. Render.com will build and deploy the frontend
-4. Note the frontend URL (e.g., `https://asanorder-frontend.onrender.com`)
+4. Note the frontend URL (e.g., `https://asanorderui.onrender.com`)
 
 ## 🔧 Step 5: Post-Deployment Configuration
 
@@ -153,7 +153,7 @@ npx prisma generate
 In your backend `server.js`, update CORS to allow your frontend domain:
 ```javascript
 app.use(cors({
-  origin: ['https://asanorder-frontend.onrender.com', 'http://localhost:3000'],
+  origin: ['https://asanorderui.onrender.com', 'http://localhost:3000'],
   credentials: true
 }));
 ```
@@ -172,10 +172,10 @@ app.use(cors({
 ### 6.1 Test Backend
 ```bash
 # Health check
-curl https://asanorder-backend.onrender.com/api/health
+curl https://asanorder.onrender.com/api/health
 
 # Test API endpoints
-curl https://asanorder-backend.onrender.com/api/auth/login \
+curl https://asanorder.onrender.com/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@orderms.com","password":"admin123"}'
 ```

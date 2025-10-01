@@ -38,6 +38,7 @@ model Tenant {
   purchaseInvoices PurchaseInvoice[]
   purchaseItems    PurchaseItem[]
   returns          Return[]
+  customers        Customer[]
   owner            User              @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
 
   @@map("tenants")
@@ -93,11 +94,13 @@ model Order {
   formId             String
   tenantId           String
   businessOwnerId    String?
+  customerId         String?
   selectedProducts   String?  @db.NVarChar(MAX)
   productQuantities  String?  @db.NVarChar(MAX)
   businessOwner      User?    @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   form               Form     @relation(fields: [formId], references: [id], onUpdate: NoAction)
   tenant             Tenant   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  customer           Customer? @relation(fields: [customerId], references: [id], onUpdate: NoAction)
 
   @@map("orders")
 }
@@ -235,4 +238,45 @@ model ReturnItem {
   return        Return   @relation(fields: [returnId], references: [id], onUpdate: NoAction)
 
   @@map("return_items")
+}
+
+model Customer {
+  id                String        @id @default(cuid())
+  phoneNumber       String
+  name              String?
+  email             String?
+  address           String?
+  city              String?
+  state             String?
+  country           String?
+  postalCode        String?
+  notes             String?
+  isActive          Boolean       @default(true)
+  totalOrders       Int           @default(0)
+  totalSpent        Float         @default(0)
+  lastOrderDate     DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  tenantId          String
+  orders            Order[]
+  customerLogs      CustomerLog[]
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+
+  @@unique([phoneNumber, tenantId])
+  @@map("customers")
+}
+
+model CustomerLog {
+  id          String   @id @default(cuid())
+  action      String   // 'CREATED', 'UPDATED', 'ORDER_PLACED', 'INFO_CHANGED', etc.
+  fieldName   String?  // Which field was changed (if applicable)
+  oldValue    String?  // Previous value
+  newValue    String?  // New value
+  description String?  // Human-readable description
+  metadata    String?  // Additional JSON data
+  createdAt   DateTime @default(now())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onUpdate: NoAction)
+
+  @@map("customer_logs")
 }

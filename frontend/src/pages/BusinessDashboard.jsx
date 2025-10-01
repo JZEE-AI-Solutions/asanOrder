@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
 import ProductManagementModal from '../components/ProductManagementModal'
+import CustomerDetailsModal from '../components/CustomerDetailsModal'
 import { 
   DocumentTextIcon, 
   ShoppingBagIcon,
@@ -36,6 +37,15 @@ const BusinessDashboard = () => {
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedForm, setSelectedForm] = useState(null)
   const [showProductManagement, setShowProductManagement] = useState(false)
+  
+  // Customer management state
+  const [customers, setCustomers] = useState([])
+  const [customerStats, setCustomerStats] = useState(null)
+  const [selectedCustomer, setSelectedCustomer] = useState(null)
+  const [showCustomerDetails, setShowCustomerDetails] = useState(false)
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [customerPage, setCustomerPage] = useState(1)
+  const [customerLoading, setCustomerLoading] = useState(false)
 
   useEffect(() => {
     fetchDashboardData()
@@ -77,6 +87,52 @@ const BusinessDashboard = () => {
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
   }
+
+  // Customer management functions
+  const fetchCustomers = async (page = 1, search = '') => {
+    try {
+      setCustomerLoading(true)
+      const response = await api.get(`/customer?page=${page}&limit=20&search=${search}`)
+      setCustomers(response.data.customers)
+      setCustomerPage(page)
+    } catch (error) {
+      toast.error('Failed to fetch customers')
+    } finally {
+      setCustomerLoading(false)
+    }
+  }
+
+  const fetchCustomerStats = async () => {
+    try {
+      const response = await api.get('/customer/stats/overview')
+      setCustomerStats(response.data.stats)
+    } catch (error) {
+      console.error('Failed to fetch customer stats:', error)
+    }
+  }
+
+  const handleCustomerSearch = (searchTerm) => {
+    setCustomerSearch(searchTerm)
+    fetchCustomers(1, searchTerm)
+  }
+
+  const handleCustomerClick = async (customer) => {
+    try {
+      const response = await api.get(`/customer/${customer.id}`)
+      setSelectedCustomer(response.data.customer)
+      setShowCustomerDetails(true)
+    } catch (error) {
+      toast.error('Failed to fetch customer details')
+    }
+  }
+
+  // Fetch customers when customers tab is activated
+  useEffect(() => {
+    if (activeTab === 'customers') {
+      fetchCustomers()
+      fetchCustomerStats()
+    }
+  }, [activeTab])
 
   const copyFormLink = (form) => {
     const url = `${window.location.origin}/form/${form.formLink}`
@@ -181,6 +237,17 @@ const BusinessDashboard = () => {
             >
               <CubeIcon className="h-5 w-5 inline mr-2" />
               Products
+            </button>
+            <button
+              onClick={() => setActiveTab('customers')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'customers'
+                  ? 'border-pink-500 text-pink-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <UsersIcon className="h-5 w-5 inline mr-2" />
+              Customers
             </button>
           </nav>
         </div>
@@ -412,6 +479,165 @@ const BusinessDashboard = () => {
         {activeTab === 'products' && (
           <EnhancedProductsDashboard />
         )}
+
+        {activeTab === 'customers' && (
+          <div className="space-y-6">
+            {/* Customer Stats */}
+            {customerStats && (
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-pink-100 rounded-lg">
+                      <UsersIcon className="h-6 w-6 text-pink-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Total Customers</p>
+                      <p className="text-2xl font-bold text-gray-900">{customerStats.totalCustomers}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-green-100 rounded-lg">
+                      <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Total Revenue</p>
+                      <p className="text-2xl font-bold text-gray-900">Rs. {customerStats.totalRevenue?.toLocaleString() || 0}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-blue-100 rounded-lg">
+                      <ChartBarIcon className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">Avg Order Value</p>
+                      <p className="text-2xl font-bold text-gray-900">Rs. {customerStats.averageOrderValue?.toLocaleString() || 0}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="bg-white p-6 rounded-lg shadow-sm border">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-purple-100 rounded-lg">
+                      <ClockIcon className="h-6 w-6 text-purple-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">New (30 days)</p>
+                      <p className="text-2xl font-bold text-gray-900">{customerStats.newCustomersLast30Days}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Search and Filters */}
+            <div className="bg-white p-6 rounded-lg shadow-sm border">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="flex-1">
+                  <input
+                    type="text"
+                    placeholder="Search customers by name, phone, or email..."
+                    value={customerSearch}
+                    onChange={(e) => handleCustomerSearch(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                  />
+                </div>
+                <button
+                  onClick={() => fetchCustomers()}
+                  className="px-6 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors"
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            {/* Customer List */}
+            <div className="bg-white rounded-lg shadow-sm border">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">Customers</h3>
+              </div>
+              
+              {customerLoading ? (
+                <div className="p-8 text-center">
+                  <LoadingSpinner />
+                  <p className="mt-2 text-gray-600">Loading customers...</p>
+                </div>
+              ) : customers.length === 0 ? (
+                <div className="p-8 text-center">
+                  <UsersIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">No customers found</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-200">
+                  {customers.map((customer) => (
+                    <div
+                      key={customer.id}
+                      onClick={() => handleCustomerClick(customer)}
+                      className="p-6 hover:bg-gray-50 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center space-x-3">
+                            <div className="flex-shrink-0">
+                              <div className="h-10 w-10 bg-pink-100 rounded-full flex items-center justify-center">
+                                <span className="text-pink-600 font-semibold text-sm">
+                                  {customer.name ? customer.name.charAt(0).toUpperCase() : 'C'}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">
+                                {customer.name || 'Unknown Customer'}
+                              </p>
+                              <p className="text-sm text-gray-500 truncate">
+                                {customer.phoneNumber}
+                              </p>
+                              {customer.email && (
+                                <p className="text-sm text-gray-500 truncate">
+                                  {customer.email}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex items-center space-x-6">
+                          <div className="text-right">
+                            <p className="text-sm font-medium text-gray-900">
+                              {customer.totalOrders} orders
+                            </p>
+                            <p className="text-sm text-gray-500">
+                              Rs. {customer.totalSpent?.toLocaleString() || 0}
+                            </p>
+                          </div>
+                          
+                          <div className="text-right">
+                            <p className="text-sm text-gray-500">
+                              Last order
+                            </p>
+                            <p className="text-sm font-medium text-gray-900">
+                              {customer.lastOrderDate 
+                                ? new Date(customer.lastOrderDate).toLocaleDateString()
+                                : 'Never'
+                              }
+                            </p>
+                          </div>
+                          
+                          <ArrowRightIcon className="h-5 w-5 text-gray-400" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Order Details Modal */}
@@ -435,6 +661,18 @@ const BusinessDashboard = () => {
             setShowProductManagement(false)
             setSelectedForm(null)
             fetchDashboardData() // Refresh forms to get updated product data
+          }}
+        />
+      )}
+
+      {/* Customer Details Modal */}
+      {showCustomerDetails && selectedCustomer && (
+        <CustomerDetailsModal
+          customer={selectedCustomer}
+          isOpen={showCustomerDetails}
+          onClose={() => {
+            setShowCustomerDetails(false)
+            setSelectedCustomer(null)
           }}
         />
       )}

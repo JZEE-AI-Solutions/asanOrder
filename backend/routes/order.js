@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { generateOrderNumber } = require('../utils/orderNumberGenerator');
+const customerService = require('../services/customerService');
 
 const router = express.Router();
 
@@ -66,6 +67,49 @@ router.post('/submit', [
       });
     }
 
+    // Extract phone number for customer lookup
+    let phoneNumber = null;
+    const phoneField = form.fields.find(field => 
+      field.fieldType === 'PHONE' || 
+      field.label.toLowerCase().includes('phone') ||
+      field.label.toLowerCase().includes('mobile') ||
+      field.label.toLowerCase().includes('contact')
+    );
+    
+    console.log('Phone field found:', phoneField);
+    console.log('Form data keys:', Object.keys(formData));
+    
+    if (phoneField && formData[phoneField.label]) {
+      phoneNumber = formData[phoneField.label].trim();
+      console.log('Phone number extracted:', phoneNumber);
+    } else {
+      console.log('No phone number found in form data');
+    }
+
+    // Handle customer creation/update
+    let customer = null;
+    if (phoneNumber) {
+      try {
+        customer = await customerService.findOrCreateCustomer(
+          phoneNumber, 
+          form.tenant.id, 
+          { 
+            formData: JSON.stringify(formData), // Ensure formData is stringified
+            paymentAmount, 
+            selectedProducts, 
+            productQuantities 
+          }
+        );
+        console.log('Customer created/updated successfully:', customer?.id);
+      } catch (error) {
+        console.error('Error handling customer:', error);
+        // Don't fail the order if customer handling fails, but log the error
+        console.error('Customer creation failed, order will be created without customer association');
+      }
+    } else {
+      console.log('No phone number found, skipping customer creation');
+    }
+
     // Generate order number
     const orderNumber = await generateOrderNumber(form.tenant.id);
 
@@ -75,6 +119,7 @@ router.post('/submit', [
         orderNumber: orderNumber,
         formId: form.id,
         tenantId: form.tenant.id,
+        customerId: customer ? customer.id : null,
         formData: JSON.stringify(formData),
         paymentAmount: paymentAmount || null,
         images: images ? JSON.stringify(images) : null,
