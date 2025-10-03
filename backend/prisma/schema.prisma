@@ -147,6 +147,7 @@ model Product {
   currentQuantity    Int            @default(0)
   currentRetailPrice Float?
   lastPurchasePrice  Float?
+  lastSalePrice      Float?
   lastUpdated        DateTime       @default(now())
   maxStockLevel      Int?
   minStockLevel      Int            @default(0)

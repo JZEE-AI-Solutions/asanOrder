@@ -34,7 +34,7 @@ const ProductHistoryModal = ({ product, isOpen, onClose }) => {
   const fetchProductHistory = async () => {
     try {
       setLoading(true)
-      const response = await api.get(`/products/${product.id}/history`)
+      const response = await api.get(`/product/${product.id}/history`)
       setLogs(response.data.logs)
     } catch (error) {
       console.error('Failed to fetch product history:', error)

@@ -4,7 +4,9 @@ import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import InvoiceUploadModal from '../components/InvoiceUploadModal'
-import ProductModal from '../components/ProductModal'
+import EnhancedProductModal from '../components/EnhancedProductModal'
+import ProductHistoryModal from '../components/ProductHistoryModal'
+import ProductImageUpload from '../components/ProductImageUpload'
 import {
   PlusIcon,
   CameraIcon,
@@ -14,7 +16,8 @@ import {
   EyeIcon,
   EyeSlashIcon,
   MagnifyingGlassIcon,
-  FunnelIcon
+  FunnelIcon,
+  PhotoIcon
 } from '@heroicons/react/24/outline'
 
 const ProductsDashboard = () => {
@@ -27,6 +30,10 @@ const ProductsDashboard = () => {
   const [showProductModal, setShowProductModal] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
+  const [showHistoryModal, setShowHistoryModal] = useState(false)
+  const [historyProduct, setHistoryProduct] = useState(null)
+  const [showImageUpload, setShowImageUpload] = useState(false)
+  const [selectedProductForImage, setSelectedProductForImage] = useState(null)
 
   useEffect(() => {
     fetchProducts()
@@ -91,6 +98,22 @@ const ProductsDashboard = () => {
     setShowInvoiceUpload(false)
     toast.success(`${extractedProducts.length} products extracted from invoice!`)
     fetchProducts()
+  }
+
+  const handleViewProductHistory = (product) => {
+    setHistoryProduct(product)
+    setShowHistoryModal(true)
+  }
+
+  const handleImageUpload = (product) => {
+    setSelectedProductForImage(product)
+    setShowImageUpload(true)
+  }
+
+  const handleImageUploaded = () => {
+    setShowImageUpload(false)
+    setSelectedProductForImage(null)
+    fetchProducts() // Refresh products to show new image
   }
 
   // Filter products based on search and category
@@ -243,18 +266,24 @@ const ProductsDashboard = () => {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Purchase Price:</span>
-                      <span className="font-semibold">Rs. {product.purchasePrice}</span>
+                      <span className="font-semibold">Rs. {product.lastPurchasePrice || 0}</span>
                     </div>
-                    {product.sellingPrice && (
+                    {product.currentRetailPrice && (
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Selling Price:</span>
-                        <span className="font-semibold text-green-600">Rs. {product.sellingPrice}</span>
+                        <span className="text-gray-600">Retail Price:</span>
+                        <span className="font-semibold text-green-600">Rs. {product.currentRetailPrice}</span>
+                      </div>
+                    )}
+                    {product.lastSalePrice && (
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Sale Price:</span>
+                        <span className="font-semibold text-blue-600">Rs. {product.lastSalePrice}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
                       <span className="text-gray-600">Quantity:</span>
-                      <span className={`font-semibold ${product.quantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                        {product.quantity}
+                      <span className={`font-semibold ${product.currentQuantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                        {product.currentQuantity}
                       </span>
                     </div>
                     {product.sku && (
@@ -272,9 +301,52 @@ const ProductsDashboard = () => {
                     </span>
                   </div>
 
+                  {/* Recent Activity */}
+                  {product.productLogs && product.productLogs.length > 0 && (
+                    <div 
+                      className="mt-4 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                      onClick={() => handleViewProductHistory(product)}
+                      title="Click to view complete history"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-semibold text-gray-700">Recent Activity</h4>
+                        <span className="text-xs text-pink-600 font-medium">View All</span>
+                      </div>
+                      <div className="space-y-1">
+                        {product.productLogs.slice(0, 2).map((log, index) => (
+                          <div key={index} className="text-xs text-gray-600">
+                            <span className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                              log.action === 'PRICE_UPDATE' ? 'bg-green-500' :
+                              log.action === 'PURCHASE_PRICE_UPDATE' ? 'bg-blue-500' :
+                              log.action === 'SALE_PRICE_UPDATE' ? 'bg-purple-500' :
+                              log.action === 'QUANTITY_ADJUSTMENT' ? 'bg-orange-500' :
+                              log.action === 'INFO_UPDATE' ? 'bg-indigo-500' :
+                              'bg-gray-500'
+                            }`}></span>
+                            <span className="font-medium">{log.action.replace(/_/g, ' ')}</span>
+                            {log.quantity && (
+                              <span className="ml-1">({log.quantity > 0 ? '+' : ''}{log.quantity})</span>
+                            )}
+                            <span className="ml-1 text-gray-500">
+                              {new Date(log.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Actions */}
                   <div className="flex justify-between items-center">
                     <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleImageUpload(product)}
+                        className="flex items-center space-x-1 text-white bg-blue-600 hover:bg-blue-700 px-3 py-2 rounded-lg transition-colors shadow-md"
+                        title="Upload/Change image"
+                      >
+                        <CameraIcon className="h-4 w-4" />
+                        <span className="text-sm font-medium">Image</span>
+                      </button>
                       <button
                         onClick={() => handleEditProduct(product)}
                         className="text-primary-600 hover:text-primary-900 p-1"
@@ -319,7 +391,7 @@ const ProductsDashboard = () => {
             </div>
             <div className="card p-4 text-center">
               <div className="text-2xl font-bold text-blue-600">
-                {products.reduce((sum, p) => sum + p.quantity, 0)}
+                {products.reduce((sum, p) => sum + (p.currentQuantity || 0), 0)}
               </div>
               <div className="text-gray-600">Total Quantity</div>
             </div>
@@ -336,7 +408,7 @@ const ProductsDashboard = () => {
       )}
 
       {showProductModal && (
-        <ProductModal
+        <EnhancedProductModal
           product={selectedProduct}
           isEditing={isEditing}
           onClose={() => {
@@ -345,6 +417,29 @@ const ProductsDashboard = () => {
             setIsEditing(false)
           }}
           onSaved={handleProductSaved}
+        />
+      )}
+
+      {showHistoryModal && (
+        <ProductHistoryModal
+          product={historyProduct}
+          isOpen={showHistoryModal}
+          onClose={() => {
+            setShowHistoryModal(false)
+            setHistoryProduct(null)
+          }}
+        />
+      )}
+
+      {showImageUpload && selectedProductForImage && (
+        <ProductImageUpload
+          product={selectedProductForImage}
+          isOpen={showImageUpload}
+          onClose={() => {
+            setShowImageUpload(false)
+            setSelectedProductForImage(null)
+          }}
+          onImageUploaded={handleImageUploaded}
         />
       )}
     </div>

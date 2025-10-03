@@ -72,28 +72,35 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
         }
       });
 
-      // Create purchase items
-      const purchaseItems = await Promise.all(
-        products.map(async (product) => {
-          return await tx.purchaseItem.create({
-            data: {
-              name: product.name,
-              description: product.description || null,
-              purchasePrice: product.purchasePrice,
-              quantity: product.quantity,
-              category: product.category || null,
-              sku: product.sku || null,
-              image: product.image || null,
-              imageData: product.imageData || null,
-              imageType: product.imageType || null,
-              tenantId: tenant.id,
-              purchaseInvoiceId: purchaseInvoice.id
-            }
-          });
-        })
-      );
+      // Create purchase items using createMany for better performance
+      const purchaseItemsData = products.map((product) => ({
+        name: product.name,
+        description: product.description || null,
+        purchasePrice: product.purchasePrice,
+        quantity: product.quantity,
+        category: product.category || null,
+        sku: product.sku || null,
+        image: product.image || null,
+        imageData: product.imageData || null,
+        imageType: product.imageType || null,
+        tenantId: tenant.id,
+        purchaseInvoiceId: purchaseInvoice.id
+      }));
+
+      // Use createMany instead of individual creates
+      await tx.purchaseItem.createMany({
+        data: purchaseItemsData
+      });
+
+      // Get the created purchase items
+      const purchaseItems = await tx.purchaseItem.findMany({
+        where: { purchaseInvoiceId: purchaseInvoice.id }
+      });
 
       return { purchaseInvoice, purchaseItems };
+    }, {
+      timeout: 30000, // 30 seconds timeout
+      maxWait: 10000  // 10 seconds max wait
     });
 
     // Update inventory using the inventory service (outside transaction)
@@ -329,20 +336,30 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           }
         });
 
-        // Create products for each purchase item
-        const products = await Promise.all(items.map(async (item) => {
-          return await tx.product.create({
-            data: {
-              name: item.name,
-              description: item.description || null,
-              category: item.category || null,
-              sku: item.sku || null,
-              currentQuantity: parseInt(item.quantity),
-              lastPurchasePrice: parseFloat(item.purchasePrice),
-              tenantId: tenant.id
-            }
-          });
+        // Create products for each purchase item using createMany
+        const productsData = items.map(item => ({
+          name: item.name,
+          description: item.description || null,
+          category: item.category || null,
+          sku: item.sku || null,
+          currentQuantity: parseInt(item.quantity),
+          lastPurchasePrice: parseFloat(item.purchasePrice),
+          tenantId: tenant.id
         }));
+
+        await tx.product.createMany({
+          data: productsData
+        });
+
+        // Get the created products
+        const products = await tx.product.findMany({
+          where: { 
+            tenantId: tenant.id,
+            name: { in: items.map(item => item.name) }
+          },
+          orderBy: { createdAt: 'desc' },
+          take: items.length
+        });
 
         // Link purchase items to products
         await Promise.all(createdItems.map(async (item, index) => {
@@ -358,6 +375,9 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       }
 
       return { purchaseInvoice, items: [] };
+    }, {
+      timeout: 30000, // 30 seconds timeout
+      maxWait: 10000  // 10 seconds max wait
     });
 
     res.status(201).json({
@@ -486,6 +506,9 @@ router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async 
           deletedAt: new Date()
         }
       });
+    }, {
+      timeout: 10000, // 10 seconds timeout
+      maxWait: 5000   // 5 seconds max wait
     });
 
     res.json({
@@ -546,6 +569,9 @@ router.post('/:id/restore', authenticateToken, requireRole(['BUSINESS_OWNER']), 
           deletedAt: null
         }
       });
+    }, {
+      timeout: 10000, // 10 seconds timeout
+      maxWait: 5000   // 5 seconds max wait
     });
 
     res.json({

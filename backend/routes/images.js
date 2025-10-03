@@ -132,8 +132,53 @@ router.post('/:entityType/:entityId', authenticateToken, async (req, res) => {
       entityId
     );
 
+    // If this is a product image upload, update product directly
+    if (entityType === 'product') {
+      try {
+        const prisma = require('../lib/db');
+        
+        // Get the product to verify it exists and belongs to the user's tenant
+        const product = await prisma.product.findUnique({
+          where: { id: entityId },
+          include: { tenant: true }
+        });
+
+        if (product) {
+          // Update the product with the new image
+          await prisma.product.update({
+            where: { id: entityId },
+            data: {
+              imageData: imageBuffer,
+              imageType: req.body.mimeType
+            }
+          });
+
+          // Create a product log entry for the image upload
+          try {
+            await prisma.productLog.create({
+              data: {
+                action: 'IMAGE_UPLOADED',
+                reason: 'Product image uploaded',
+                reference: `Product: ${product.name}`,
+                notes: 'Product image was uploaded/updated',
+                tenantId: product.tenantId,
+                productId: product.id
+              }
+            });
+          } catch (logError) {
+            console.error('Error creating product log for image upload:', logError);
+            // Don't fail the image upload if logging fails
+          }
+        } else {
+          return res.status(404).json({ error: 'Product not found' });
+        }
+      } catch (error) {
+        console.error('Error updating product with image:', error);
+        return res.status(500).json({ error: 'Failed to update product with image' });
+      }
+    }
     // If this is a purchase item image upload, update purchase item and sync with product
-    if (entityType === 'purchase-item') {
+    else if (entityType === 'purchase-item') {
       try {
         const prisma = require('../lib/db');
         

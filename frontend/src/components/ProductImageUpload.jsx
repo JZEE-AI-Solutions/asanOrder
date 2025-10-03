@@ -6,6 +6,7 @@ import LoadingSpinner from './LoadingSpinner'
 
 const ProductImageUpload = ({ 
   purchaseItem, 
+  product,
   onImageUploaded, 
   onClose, 
   isOpen = false 
@@ -117,11 +118,14 @@ const ProductImageUpload = ({
 
   const uploadImageToServer = async (base64Data, mimeType) => {
     try {
-      console.log('Uploading image for purchase item:', purchaseItem.id)
+      const entityType = product ? 'product' : 'purchase-item'
+      const entityId = product ? product.id : purchaseItem.id
+      
+      console.log('Uploading image for:', entityType, entityId)
       console.log('Image data length:', base64Data.length)
       console.log('MIME type:', mimeType)
       
-      const response = await api.post(`/images/purchase-item/${purchaseItem.id}`, {
+      const response = await api.post(`/images/${entityType}/${entityId}`, {
         imageData: base64Data,
         mimeType: mimeType
       })
@@ -168,7 +172,7 @@ const ProductImageUpload = ({
 
         <div className="mb-4">
           <p className="text-sm text-gray-600 mb-2">
-            Product: <span className="font-semibold">{purchaseItem.name}</span>
+            Product: <span className="font-semibold">{product ? product.name : purchaseItem.name}</span>
           </p>
         </div>
 

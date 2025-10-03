@@ -4,7 +4,7 @@ import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import InvoiceUploadModal from '../components/InvoiceUploadModal'
-import ProductModal from '../components/ProductModal'
+import EnhancedProductModal from '../components/EnhancedProductModal'
 import PurchaseInvoiceModal from '../components/PurchaseInvoiceModal'
 import ProductHistoryModal from '../components/ProductHistoryModal'
 import ProductImageUpload from '../components/ProductImageUpload'
@@ -50,6 +50,8 @@ const EnhancedProductsDashboard = () => {
   const [isEditing, setIsEditing] = useState(false)
   const [showImageUpload, setShowImageUpload] = useState(false)
   const [selectedPurchaseItem, setSelectedPurchaseItem] = useState(null)
+  const [showProductImageUpload, setShowProductImageUpload] = useState(false)
+  const [selectedProductForImage, setSelectedProductForImage] = useState(null)
   const [imageRefreshKey, setImageRefreshKey] = useState(0)
 
   useEffect(() => {
@@ -85,7 +87,7 @@ const EnhancedProductsDashboard = () => {
     try {
       setLoading(true)
       const [productsRes, invoicesRes, deletedInvoicesRes] = await Promise.all([
-        api.get(`/products/tenant/${tenant.id}`),
+        api.get('/product'),
         api.get('/purchase-invoice'),
         api.get('/purchase-invoice?includeDeleted=true')
       ])
@@ -259,10 +261,29 @@ const EnhancedProductsDashboard = () => {
       // This will trigger a re-render with new image URLs
       setImageRefreshKey(Date.now())
       
-      toast.success('Product image uploaded successfully!')
+      toast.success('Image uploaded successfully!')
     } catch (error) {
       console.error('Failed to refresh data after image upload:', error)
       toast.error('Image uploaded but failed to refresh view')
+    }
+  }
+
+  const handleProductImageUpload = (product) => {
+    setSelectedProductForImage(product)
+    setShowProductImageUpload(true)
+  }
+
+  const handleProductImageUploaded = async (result) => {
+    console.log('Product image upload result:', result)
+    
+    // Refresh data to get the updated image data
+    try {
+      await fetchData()
+      setImageRefreshKey(Date.now())
+      toast.success('Product image uploaded successfully!')
+    } catch (error) {
+      console.error('Error refreshing data after product image upload:', error)
+      toast.error('Image uploaded but failed to refresh data')
     }
   }
 
@@ -547,6 +568,7 @@ const EnhancedProductsDashboard = () => {
             onDeleteProduct={handleDeleteProduct}
             onToggleStatus={handleToggleProductStatus}
             onViewProductHistory={handleViewProductHistory}
+            onProductImageUpload={handleProductImageUpload}
           />
         ) : currentView === 'purchase-items' ? (
           <PurchaseItemsView
@@ -621,8 +643,20 @@ const EnhancedProductsDashboard = () => {
         />
       )}
 
+      {showProductImageUpload && selectedProductForImage && (
+        <ProductImageUpload
+          isOpen={showProductImageUpload}
+          onClose={() => {
+            setShowProductImageUpload(false)
+            setSelectedProductForImage(null)
+          }}
+          product={selectedProductForImage}
+          onImageUploaded={handleProductImageUploaded}
+        />
+      )}
+
       {showProductModal && (
-        <ProductModal
+        <EnhancedProductModal
           product={selectedProduct}
           isEditing={isEditing}
           onClose={() => {
@@ -816,7 +850,7 @@ const PurchaseInvoicesView = ({ invoices, displayMode, onViewProducts, onEditInv
 }
 
 // Products View Component
-const ProductsView = ({ products, displayMode, selectedInvoice, onEditProduct, onDeleteProduct, onToggleStatus, onViewProductHistory }) => {
+const ProductsView = ({ products, displayMode, selectedInvoice, onEditProduct, onDeleteProduct, onToggleStatus, onViewProductHistory, onProductImageUpload }) => {
   if (products.length === 0) {
     return (
       <div className="card p-8 text-center">
@@ -942,7 +976,7 @@ const ProductsView = ({ products, displayMode, selectedInvoice, onEditProduct, o
         <div key={product.id} className="card hover:shadow-xl transition-all duration-300 group">
           <div className="p-4 sm:p-6">
             {/* Product Image */}
-            <div className="w-full h-32 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
+            <div className="w-full h-32 bg-gray-100 rounded-lg mb-4 flex items-center justify-center relative group">
               <img 
                 src={getImageUrl('product', product.id, true)}
                 alt={product.name}
@@ -955,6 +989,17 @@ const ProductsView = ({ products, displayMode, selectedInvoice, onEditProduct, o
               <div style={{display: 'none'}} className="text-center">
                 <DocumentArrowUpIcon className="h-12 w-12 text-gray-400 mx-auto mb-2" />
                 <p className="text-xs text-gray-500">No image</p>
+              </div>
+              
+              {/* Image Upload Overlay */}
+              <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all duration-200 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100">
+                <button
+                  onClick={() => onProductImageUpload(product)}
+                  className="bg-white bg-opacity-90 hover:bg-opacity-100 text-gray-700 hover:text-gray-900 p-3 rounded-full shadow-lg transition-all duration-200 transform hover:scale-110"
+                  title="Upload/Change image"
+                >
+                  <CameraIcon className="h-6 w-6" />
+                </button>
               </div>
             </div>
 
