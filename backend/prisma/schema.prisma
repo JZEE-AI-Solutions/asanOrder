@@ -96,6 +96,7 @@ model Order {
   businessOwnerId    String?
   selectedProducts   String?   @db.NVarChar(Max)
   productQuantities  String?   @db.NVarChar(Max)
+  productPrices      String?   @db.NVarChar(Max)
   customerId         String?
   businessOwner      User?     @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   customer           Customer? @relation(fields: [customerId], references: [id], onUpdate: NoAction)

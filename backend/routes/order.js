@@ -404,6 +404,152 @@ router.post('/:id/dispatch', authenticateToken, requireRole(['STOCK_KEEPER']), a
   }
 });
 
+// Update order (business owner only)
+router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('formData').optional().custom((value) => {
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch (e) {
+        throw new Error('Invalid JSON string');
+      }
+    }
+    return true;
+  }),
+  body('images').optional().custom((value) => {
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch (e) {
+        throw new Error('Invalid JSON string');
+      }
+    }
+    return true;
+  }),
+  body('paymentReceipt').optional().custom((value) => {
+    return value === null || typeof value === 'string';
+  }),
+  body('productQuantities').optional().custom((value) => {
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch (e) {
+        throw new Error('Invalid JSON string');
+      }
+    }
+    return true;
+  }),
+  body('productPrices').optional().custom((value) => {
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch (e) {
+        throw new Error('Invalid JSON string');
+      }
+    }
+    return true;
+  }),
+  body('selectedProducts').optional().custom((value) => {
+    if (typeof value === 'string') {
+      try {
+        JSON.parse(value);
+        return true;
+      } catch (e) {
+        throw new Error('Invalid JSON string');
+      }
+    }
+    return true;
+  }),
+  body('paymentAmount').optional().custom((value) => {
+    return value === null || !isNaN(parseFloat(value));
+  })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { id } = req.params;
+    const { 
+      formData, 
+      images, 
+      paymentReceipt, 
+      productQuantities, 
+      productPrices, 
+      selectedProducts, 
+      paymentAmount 
+    } = req.body;
+
+    // Check if order exists and belongs to user's tenant
+    const existingOrder = await prisma.order.findFirst({
+      where: { 
+        id,
+        form: {
+          tenant: {
+            ownerId: req.user.id
+          }
+        }
+      }
+    });
+
+    if (!existingOrder) {
+      return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Prepare update data
+    const updateData = {};
+    
+    if (formData !== undefined) {
+      updateData.formData = typeof formData === 'string' ? formData : JSON.stringify(formData);
+    }
+    if (images !== undefined) {
+      updateData.images = typeof images === 'string' ? images : JSON.stringify(images);
+    }
+    if (paymentReceipt !== undefined) {
+      updateData.paymentReceipt = paymentReceipt;
+    }
+    if (productQuantities !== undefined) {
+      updateData.productQuantities = typeof productQuantities === 'string' ? productQuantities : JSON.stringify(productQuantities);
+    }
+    if (productPrices !== undefined) {
+      updateData.productPrices = typeof productPrices === 'string' ? productPrices : JSON.stringify(productPrices);
+    }
+    if (selectedProducts !== undefined) {
+      updateData.selectedProducts = typeof selectedProducts === 'string' ? selectedProducts : JSON.stringify(selectedProducts);
+    }
+    if (paymentAmount !== undefined) {
+      updateData.paymentAmount = paymentAmount;
+    }
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: updateData,
+      include: {
+        form: {
+          select: {
+            name: true,
+            tenant: {
+              select: {
+                businessName: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    res.json({ order });
+  } catch (error) {
+    console.error('Error updating order:', error);
+    res.status(500).json({ error: 'Failed to update order' });
+  }
+});
+
 // Update order status (Admin only)
 router.put('/:id/status', authenticateToken, requireRole(['ADMIN']), [
   body('status').isIn(['PENDING', 'CONFIRMED', 'DISPATCHED', 'COMPLETED', 'CANCELLED'])
