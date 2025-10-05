@@ -20,6 +20,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
     formState: { errors }
   } = useForm({
     defaultValues: {
+      formCategory: 'SIMPLE_CART',
       fields: [
         { label: 'Customer Name', fieldType: 'TEXT', isRequired: false, placeholder: 'Enter your full name', isVisible: true },
         { label: 'Email Address', fieldType: 'EMAIL', isRequired: false, placeholder: 'Enter your email address', isVisible: true },
@@ -91,6 +92,9 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
   const onSubmit = async (data) => {
     setIsSubmitting(true)
     try {
+      console.log('Form submission data:', data)
+      console.log('Form category:', data.formCategory)
+      
       // Filter only visible fields and process options
       const processedData = {
         ...data,
@@ -115,10 +119,13 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
           })
       }
       
+      console.log('Processed form data:', processedData)
+      
       await api.post('/form', processedData)
       toast.success('Form created successfully!')
       onSuccess()
     } catch (error) {
+      console.error('Form creation error:', error)
       toast.error('Failed to create form')
     } finally {
       setIsSubmitting(false)
@@ -182,6 +189,24 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
               rows={2}
               placeholder="Enter form description (optional)"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Form Category</label>
+            <select
+              {...register('formCategory', { required: 'Form category is required' })}
+              className="input-field"
+              defaultValue="SIMPLE_CART"
+            >
+              <option value="SIMPLE_CART">Simple Cart (Order Entry Form)</option>
+              <option value="SHOPPING_CART">Shopping Cart (Product Catalog)</option>
+            </select>
+            <p className="text-sm text-gray-500 mt-1">
+              Simple Cart: Traditional form with fields. Shopping Cart: Product catalog with cart functionality.
+            </p>
+            {errors.formCategory && (
+              <p className="form-error">{errors.formCategory.message}</p>
+            )}
           </div>
 
 

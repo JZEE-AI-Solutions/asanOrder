@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ProductDisplay from '../components/ProductDisplay'
+import ShoppingCartForm from '../components/ShoppingCartForm'
 import { 
   PhotoIcon, DocumentIcon, UserIcon, PhoneIcon, MapPinIcon, ScaleIcon, 
   CubeTransparentIcon, XMarkIcon, CheckIcon, DocumentTextIcon, TagIcon, 
@@ -627,6 +628,19 @@ const ClientFormDynamic = () => {
     f.label.toLowerCase().includes('receipt') ||
     (f.label.toLowerCase().includes('amount') && f.label.toLowerCase().includes('payment'))
   )
+
+  // Render different components based on form category
+  // Only render ShoppingCartForm if explicitly set to SHOPPING_CART
+  if (form.formCategory === 'SHOPPING_CART') {
+    return (
+      <ShoppingCartForm 
+        form={form} 
+        onSubmit={onSubmit}
+      />
+    )
+  }
+  
+  // For all other cases (including undefined/null), use Simple Cart form
 
   return (
     <div className="min-h-screen bg-gray-50">

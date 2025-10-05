@@ -243,12 +243,76 @@ router.post('/by-ids', async (req, res) => {
   try {
     const { productIds, tenantId } = req.body;
 
-    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
-      return res.status(400).json({ error: 'Product IDs array is required' });
-    }
-
     if (!tenantId) {
       return res.status(400).json({ error: 'Tenant ID is required' });
+    }
+
+    // If no productIds provided, get all products for the tenant (for shopping cart)
+    if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      // Get all products for the tenant
+      const allProducts = await prisma.product.findMany({
+        where: {
+          purchaseItems: {
+            some: {
+              purchaseInvoice: {
+                tenantId: tenantId
+              }
+            }
+          }
+        },
+        include: {
+          purchaseItems: {
+            where: {
+              purchaseInvoice: {
+                tenantId: tenantId
+              }
+            },
+            include: {
+              purchaseInvoice: {
+                select: {
+                  invoiceDate: true,
+                  invoiceNumber: true
+                }
+              }
+            },
+            orderBy: {
+              purchaseInvoice: {
+                invoiceDate: 'desc'
+              }
+            },
+            take: 1
+          }
+        },
+        orderBy: {
+          name: 'asc'
+        }
+      });
+
+      // Format the response for shopping cart
+      const formattedProducts = allProducts.map(product => {
+        const latestPurchase = product.purchaseItems[0];
+        return {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          category: product.category,
+          sku: product.sku,
+          image: product.image,
+          hasImage: !!product.imageData,
+          isActive: product.isActive,
+          currentQuantity: product.currentQuantity,
+          currentRetailPrice: product.currentRetailPrice,
+          lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
+          lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
+          totalPurchased: product.purchaseItems.reduce((sum, item) => sum + item.quantity, 0),
+          productLogs: product.productLogs
+        };
+      });
+
+      return res.json({ 
+        success: true, 
+        products: formattedProducts 
+      });
     }
 
     const products = await prisma.product.findMany({

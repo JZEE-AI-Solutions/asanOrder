@@ -59,6 +59,7 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
       reset({
         name: formData.name,
         description: formData.description || '',
+        formCategory: formData.formCategory || 'SIMPLE_CART',
         tenantId: formData.tenantId,
         fields: fieldsData
       })
@@ -173,6 +174,23 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
               rows={2}
               placeholder="Enter form description (optional)"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Form Category</label>
+            <select
+              {...register('formCategory', { required: 'Form category is required' })}
+              className="input-field"
+            >
+              <option value="SIMPLE_CART">Simple Cart (Order Entry Form)</option>
+              <option value="SHOPPING_CART">Shopping Cart (Product Catalog)</option>
+            </select>
+            <p className="text-sm text-gray-500 mt-1">
+              Simple Cart: Traditional form with fields. Shopping Cart: Product catalog with cart functionality.
+            </p>
+            {errors.formCategory && (
+              <p className="form-error">{errors.formCategory.message}</p>
+            )}
           </div>
 
           <div>

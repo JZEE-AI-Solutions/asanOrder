@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Form Category Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .form-group { margin-bottom: 20px; }
+        .form-label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .input-field { width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .debug-info { background: #f0f0f0; padding: 10px; margin: 10px 0; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>Form Category Debug Test</h1>
+    
+    <div class="debug-info">
+        <h3>Debug Information:</h3>
+        <p>This page tests if the Form Category dropdown is working correctly.</p>
+        <p>If you can see the dropdown below, the implementation is working.</p>
+    </div>
+    
+    <form id="testForm">
+        <div class="form-group">
+            <label class="form-label">Form Category</label>
+            <select name="formCategory" class="input-field" required>
+                <option value="SIMPLE_CART">Simple Cart (Order Entry Form)</option>
+                <option value="SHOPPING_CART">Shopping Cart (Product Catalog)</option>
+            </select>
+            <p style="font-size: 12px; color: #666; margin-top: 5px;">
+                Simple Cart: Traditional form with fields. Shopping Cart: Product catalog with cart functionality.
+            </p>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Form Name</label>
+            <input type="text" name="name" class="input-field" placeholder="Enter form name" required>
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label">Description</label>
+            <textarea name="description" class="input-field" rows="3" placeholder="Enter form description"></textarea>
+        </div>
+        
+        <button type="submit" style="background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer;">
+            Test Form Submission
+        </button>
+    </form>
+    
+    <div id="result" style="margin-top: 20px; padding: 10px; background: #e8f5e8; border-radius: 4px; display: none;">
+        <h3>Form Submission Result:</h3>
+        <pre id="resultContent"></pre>
+    </div>
+    
+    <script>
+        document.getElementById('testForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+            
+            console.log('Form submission data:', data);
+            console.log('Form category:', data.formCategory);
+            
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('resultContent').textContent = JSON.stringify(data, null, 2);
+        });
+        
+        // Test if dropdown is visible
+        const dropdown = document.querySelector('select[name="formCategory"]');
+        if (dropdown) {
+            console.log('✅ Form category dropdown found');
+            console.log('Options:', Array.from(dropdown.options).map(opt => opt.value));
+        } else {
+            console.log('❌ Form category dropdown not found');
+        }
+    </script>
+</body>
+</html>

@@ -10,6 +10,7 @@ const router = express.Router();
 router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
   body('name').trim().isLength({ min: 2 }),
   body('description').optional().trim(),
+  body('formCategory').optional().isIn(['SIMPLE_CART', 'SHOPPING_CART']),
   body('fields').isArray({ min: 1 }),
   body('fields.*.label').trim().isLength({ min: 1 }),
   body('fields.*.fieldType').isIn(['TEXT', 'EMAIL', 'PHONE', 'ADDRESS', 'FILE_UPLOAD', 'AMOUNT', 'TEXTAREA', 'DROPDOWN', 'PRODUCT_SELECTOR']),
@@ -23,7 +24,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, description, fields } = req.body;
+    const { name, description, formCategory = 'SIMPLE_CART', fields } = req.body;
     
     console.log('Form creation request:', { name, description, fieldsLength: fields?.length });
     console.log('Fields:', fields);
@@ -55,6 +56,7 @@ router.post('/', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
       data: {
         name,
         description,
+        formCategory,
         tenantId,
         formLink
       }
@@ -338,6 +340,7 @@ router.post('/:id/unpublish', authenticateToken, requireRole(['ADMIN', 'BUSINESS
 router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), [
   body('name').optional().trim().isLength({ min: 2 }),
   body('description').optional().trim(),
+  body('formCategory').optional().isIn(['SIMPLE_CART', 'SHOPPING_CART']),
   body('fields').optional().isArray({ min: 1 })
 ], async (req, res) => {
   try {
@@ -347,7 +350,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
     }
 
     const { id } = req.params;
-    const { name, description, fields, isPublished } = req.body;
+    const { name, description, formCategory, fields, isPublished } = req.body;
 
     const form = await prisma.form.findUnique({
       where: { id },
@@ -375,6 +378,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
       data: {
         ...(name && { name }),
         ...(description !== undefined && { description }),
+        ...(formCategory && { formCategory }),
         ...(isPublished !== undefined && { isPublished })
       }
     });
