@@ -99,6 +99,8 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
       });
 
       return tenant;
+    }, {
+      timeout: 20000
     });
 
     res.status(201).json({
@@ -139,7 +141,11 @@ router.get('/', authenticateToken, requireRole(['ADMIN']), async (req, res) => {
     res.json({ tenants });
   } catch (error) {
     console.error('Get tenants error:', error);
-    res.status(500).json({ error: 'Failed to get tenants' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to get tenants',
+      message: error.message 
+    });
   }
 });
 

@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cmg9v7250000igorwi4rfqrng",
+    "returnNumber": "1001-OCT-25-001",
+    "reason": "INVOICE_RETURN",
+    "returnDate": "2025-10-02T20:25:11.955Z",
+    "totalAmount": 9400,
+    "status": "PENDING",
+    "notes": "Return processed from invoice 1001-OCT-25-002",
+    "image": null,
+    "imageData": null,
+    "imageType": null,
+    "createdAt": "2025-10-02T20:25:20.532Z",
+    "updatedAt": "2025-10-02T20:25:20.532Z",
+    "tenantId": "cmg8c1aqe0004pyhedamylik5",
+    "purchaseInvoiceId": "cmg9v700c000bgorwx5qylo2z"
+  },
+  {
+    "id": "cmg9xstz30013nyhax0uep50n",
+    "returnNumber": "1001-OCT-25-002",
+    "reason": "INVOICE_RETURN",
+    "returnDate": "2025-10-02T21:38:09.136Z",
+    "totalAmount": 9400,
+    "status": "PENDING",
+    "notes": "Return processed from invoice 1001-OCT-25-004",
+    "image": null,
+    "imageData": null,
+    "imageType": null,
+    "createdAt": "2025-10-02T21:38:15.615Z",
+    "updatedAt": "2025-10-02T21:38:15.615Z",
+    "tenantId": "cmg8c1aqe0004pyhedamylik5",
+    "purchaseInvoiceId": "cmg9xsslj000unyha5bg6w01n"
+  },
+  {
+    "id": "cmgb7z0im001htiawy2l2sd1d",
+    "returnNumber": "1002-OCT-25-001",
+    "reason": "INVOICE_RETURN",
+    "returnDate": "2025-10-03T19:10:11.996Z",
+    "totalAmount": 100,
+    "status": "PENDING",
+    "notes": "Return processed from invoice 1002-OCT-25-001",
+    "image": null,
+    "imageData": null,
+    "imageType": null,
+    "createdAt": "2025-10-03T19:10:46.366Z",
+    "updatedAt": "2025-10-03T19:10:46.366Z",
+    "tenantId": "cmgb7vg8y0003tiawzyvwppx5",
+    "purchaseInvoiceId": "cmgb7yyy3000mtiaw06rbea6d"
+  }
+]

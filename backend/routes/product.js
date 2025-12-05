@@ -8,27 +8,59 @@ const router = express.Router();
 // Get all products for a tenant (Business Owner only)
 router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
-    // Get tenant for the business owner
-    const tenant = await prisma.tenant.findUnique({
-      where: { ownerId: req.user.id }
-    });
-
-    if (!tenant) {
+    // Optimize: Use tenant from authenticated user
+    if (!req.user.tenant?.id) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const products = await prisma.product.findMany({
-      where: { tenantId: tenant.id },
-      include: {
-        productLogs: {
-          orderBy: { createdAt: 'desc' },
-          take: 5 // Only get the 5 most recent logs for the card display
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const { page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit) || 50));
+    const skipNum = (pageNum - 1) * limitNum;
 
-    res.json({ products });
+    // Optimize: Use select, limit productLogs, add pagination
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where: { tenantId: req.user.tenant.id },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          category: true,
+          sku: true,
+          image: true,
+          isActive: true,
+          currentQuantity: true,
+          currentRetailPrice: true,
+          lastPurchasePrice: true,
+          lastSalePrice: true,
+          createdAt: true,
+          updatedAt: true,
+          // Only fetch recent logs count, not all logs
+          _count: {
+            select: {
+              productLogs: true
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: skipNum,
+        take: limitNum
+      }),
+      prisma.product.count({
+        where: { tenantId: req.user.tenant.id }
+      })
+    ]);
+
+    res.json({ 
+      products,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error) {
     console.error('Get products error:', error);
     res.status(500).json({ error: 'Failed to get products' });
@@ -40,19 +72,30 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
   try {
     const { id } = req.params;
 
-    // Get tenant for the business owner
-    const tenant = await prisma.tenant.findUnique({
-      where: { ownerId: req.user.id }
-    });
-
-    if (!tenant) {
+    // Optimize: Use tenant from authenticated user
+    if (!req.user.tenant?.id) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
     const product = await prisma.product.findFirst({
       where: {
         id: id,
-        tenantId: tenant.id
+        tenantId: req.user.tenant.id
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        category: true,
+        sku: true,
+        image: true,
+        isActive: true,
+        currentQuantity: true,
+        currentRetailPrice: true,
+        lastPurchasePrice: true,
+        lastSalePrice: true,
+        createdAt: true,
+        updatedAt: true
       }
     });
 

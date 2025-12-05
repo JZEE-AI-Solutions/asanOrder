@@ -279,8 +279,9 @@ model CustomerLog {
   description String?
   metadata    String?
   createdAt   DateTime @default(now())
-  customerId  String
+  customerId String
   customer    Customer @relation(fields: [customerId], references: [id], onUpdate: NoAction)
 
   @@map("customer_logs")
 }
+

@@ -1,0 +1,65 @@
+[
+  {
+    "id": "cmg8c174s0000pyheiow71h09",
+    "email": "admin@orderms.com",
+    "password": "$2a$12$6bh8XtGOjkZTOQbZn/T9xOL.IUP7JNDB6qwoBFuSiHJb1d3pRyHJy",
+    "name": "System Administrator",
+    "role": "ADMIN",
+    "createdAt": "2025-10-01T18:41:08.189Z",
+    "updatedAt": "2025-10-01T18:41:08.189Z"
+  },
+  {
+    "id": "cmg8c18er0001pyhecezhod01",
+    "email": "stock@orderms.com",
+    "password": "$2a$12$1CurJcVFLcuJ/0chVRnDC.cN3KghW850lLOx9Yv4CNQtVAvpJ23GO",
+    "name": "Stock Keeper",
+    "role": "STOCK_KEEPER",
+    "createdAt": "2025-10-01T18:41:09.843Z",
+    "updatedAt": "2025-10-01T18:41:09.843Z"
+  },
+  {
+    "id": "cmg8c19oi0002pyhe8l39wwu0",
+    "email": "business@dressshop.com",
+    "password": "$2a$12$3wL3nA2VMBxsM6EHH6PbjOAW4/IkNPcR6frnjQT1D9kQQCCcy3DzG",
+    "name": "Sarah Ahmed",
+    "role": "BUSINESS_OWNER",
+    "createdAt": "2025-10-01T18:41:11.491Z",
+    "updatedAt": "2025-10-01T18:41:11.491Z"
+  },
+  {
+    "id": "cmgb7vfuh0001tiaw6xqsih4r",
+    "email": "company1@test.com",
+    "password": "$2a$12$uTmyzABTBMpd26oQYqfy2unhtknx1ehEZfxiVnXRli4hrWgzq9t3i",
+    "name": "Jazey",
+    "role": "BUSINESS_OWNER",
+    "createdAt": "2025-10-03T19:07:59.609Z",
+    "updatedAt": "2025-10-03T19:07:59.609Z"
+  },
+  {
+    "id": "cmisw2vse0001qza4b4htvshq",
+    "email": "happy@owner.com",
+    "password": "$2a$12$/6WhKbNyR85jL6rVD/eqLeZklzYvzBxgtjK8L5Op.bcsOArRR1cTq",
+    "name": "Happy Owner",
+    "role": "BUSINESS_OWNER",
+    "createdAt": "2025-12-05T13:17:07.310Z",
+    "updatedAt": "2025-12-05T13:17:07.310Z"
+  },
+  {
+    "id": "cmisx6fdq00011fbxwynpvamd",
+    "email": "jtwo@test.com",
+    "password": "$2a$12$9ODaBHkJ3MzN3Tb2jSa.0uS4Lm.kzvs8awQ8GmMDosi8bP6YJzE/2",
+    "name": "jazey tow",
+    "role": "BUSINESS_OWNER",
+    "createdAt": "2025-12-05T13:47:52.287Z",
+    "updatedAt": "2025-12-05T13:47:52.287Z"
+  },
+  {
+    "id": "cmit1gv2h0001xhn8ap33y96d",
+    "email": "jazeyone@test.com",
+    "password": "$2a$12$03Evraz2o0WvYH75dDdScuIO61Y6y2tZC6yqS2jBt862BtWZlvJaS",
+    "name": "Jazey one",
+    "role": "BUSINESS_OWNER",
+    "createdAt": "2025-12-05T15:47:57.641Z",
+    "updatedAt": "2025-12-05T15:47:57.641Z"
+  }
+]

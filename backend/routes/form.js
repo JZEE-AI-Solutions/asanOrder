@@ -111,28 +111,45 @@ router.get('/', authenticateToken, async (req, res) => {
 
     if (req.user.role === 'BUSINESS_OWNER') {
       // Business owner can only see their own published, visible forms
-      const tenant = await prisma.tenant.findUnique({
-        where: { ownerId: req.user.id }
-      });
-      if (!tenant) {
+      // Optimize: Use tenant from authenticated user (already loaded)
+      if (!req.user.tenant?.id) {
         return res.status(404).json({ error: 'No tenant found for this user' });
       }
-      whereClause.tenantId = tenant.id;
+      whereClause.tenantId = req.user.tenant.id;
       whereClause.isPublished = true; // Only published forms
       whereClause.isHidden = false; // Only visible forms
     } else if (req.query.tenantId && req.user.role === 'ADMIN') {
       // Admin can filter by tenant ID
       whereClause.tenantId = req.query.tenantId;
     }
+    // Admin can see all forms (including hidden ones) - don't add isHidden filter
 
+    // Optimize: Use select instead of include, limit fields
     const forms = await prisma.form.findMany({
-      where: {
-        ...whereClause,
-        isHidden: false // Exclude hidden forms by default
-      },
-      include: {
+      where: whereClause,
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        formCategory: true,
+        isPublished: true,
+        isHidden: true,
+        formLink: true,
+        createdAt: true,
         fields: {
-          orderBy: { order: 'asc' }
+          select: {
+            id: true,
+            label: true,
+            fieldType: true,
+            isRequired: true,
+            placeholder: true,
+            order: true
+            // Exclude options and selectedProducts unless needed
+          },
+          orderBy: [
+            { order: 'asc' },
+            { createdAt: 'asc' }
+          ]
         },
         tenant: {
           select: {
@@ -149,13 +166,18 @@ router.get('/', authenticateToken, async (req, res) => {
       },
       orderBy: {
         createdAt: 'desc'
-      }
+      },
+      take: 100 // Always limit results
     });
 
     res.json({ forms });
   } catch (error) {
     console.error('Get forms error:', error);
-    res.status(500).json({ error: 'Failed to get forms' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to get forms',
+      message: error.message 
+    });
   }
 });
 

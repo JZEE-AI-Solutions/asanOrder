@@ -1,0 +1,35 @@
+[
+  {
+    "id": "cmg9v72q4000jgorwn2b7lkt0",
+    "productName": "MIX BLACK / WHITE 3PC",
+    "description": null,
+    "purchasePrice": 2350,
+    "quantity": 4,
+    "reason": "INVOICE_RETURN",
+    "sku": null,
+    "createdAt": "2025-10-02T20:25:21.292Z",
+    "returnId": "cmg9v7250000igorwi4rfqrng"
+  },
+  {
+    "id": "cmg9xsudb0014nyha9fdlettd",
+    "productName": "MIX BLACK / WHITE 3PC",
+    "description": null,
+    "purchasePrice": 2350,
+    "quantity": 4,
+    "reason": "INVOICE_RETURN",
+    "sku": null,
+    "createdAt": "2025-10-02T21:38:16.127Z",
+    "returnId": "cmg9xstz30013nyhax0uep50n"
+  },
+  {
+    "id": "cmgb7z0x4001itiawemay31ed",
+    "productName": "New Return",
+    "description": null,
+    "purchasePrice": 100,
+    "quantity": 1,
+    "reason": "INVOICE_RETURN",
+    "sku": null,
+    "createdAt": "2025-10-03T19:10:46.888Z",
+    "returnId": "cmgb7z0im001htiawy2l2sd1d"
+  }
+]

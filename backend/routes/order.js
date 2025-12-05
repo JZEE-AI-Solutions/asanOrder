@@ -164,19 +164,19 @@ router.post('/submit', [
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { status, page = 1, limit = 10, tenantId } = req.query;
-    const skip = (page - 1) * limit;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit) || 10));
+    const skipNum = (pageNum - 1) * limitNum;
 
     let whereClause = {};
 
     // Filter based on user role
+    // Optimize: Use tenant from authenticated user (already loaded in middleware)
     if (req.user.role === 'BUSINESS_OWNER') {
-      const tenant = await prisma.tenant.findUnique({
-        where: { ownerId: req.user.id }
-      });
-      if (!tenant) {
+      if (!req.user.tenant?.id) {
         return res.status(404).json({ error: 'No tenant found for this user' });
       }
-      whereClause.tenantId = tenant.id;
+      whereClause.tenantId = req.user.tenant.id;
     } else if (req.user.role === 'STOCK_KEEPER') {
       // Stock keeper sees only confirmed orders
       whereClause.status = { in: ['CONFIRMED', 'DISPATCHED'] };
@@ -185,10 +185,11 @@ router.get('/', authenticateToken, async (req, res) => {
       whereClause.tenantId = tenantId;
     }
 
-    // Filter by status if provided
-    if (status && status !== 'all') {
+    // Filter by status if provided (don't override STOCK_KEEPER filter)
+    if (status && status !== 'all' && req.user.role !== 'STOCK_KEEPER') {
       whereClause.status = status.toUpperCase();
     }
+
 
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
@@ -196,11 +197,14 @@ router.get('/', authenticateToken, async (req, res) => {
         include: {
           form: {
             select: {
-              name: true
+              id: true,
+              name: true,
+              formLink: true
             }
           },
           tenant: {
             select: {
+              id: true,
               businessName: true,
               businessType: true
             }
@@ -209,24 +213,28 @@ router.get('/', authenticateToken, async (req, res) => {
         orderBy: {
           createdAt: 'desc'
         },
-        skip: parseInt(skip),
-        take: parseInt(limit)
+        skip: skipNum,
+        take: limitNum
       }),
       prisma.order.count({ where: whereClause })
     ]);
 
     res.json({
-      orders,
+      orders: orders || [],
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
+        page: parseInt(page) || 1,
+        limit: limitNum,
+        total: total || 0,
+        pages: Math.ceil((total || 0) / limitNum)
       }
     });
   } catch (error) {
     console.error('Get orders error:', error);
-    res.status(500).json({ error: 'Failed to get orders' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to get orders',
+      message: error.message 
+    });
   }
 });
 
@@ -592,14 +600,12 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
     let whereClause = {};
 
     // Filter based on user role
+    // Optimize: Use tenant from authenticated user (already loaded in middleware)
     if (req.user.role === 'BUSINESS_OWNER') {
-      const tenant = await prisma.tenant.findUnique({
-        where: { ownerId: req.user.id }
-      });
-      if (!tenant) {
+      if (!req.user.tenant?.id) {
         return res.status(404).json({ error: 'No tenant found for this user' });
       }
-      whereClause.tenantId = tenant.id;
+      whereClause.tenantId = req.user.tenant.id;
     }
 
     const [
@@ -615,7 +621,11 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
       prisma.order.count({ where: { ...whereClause, status: 'DISPATCHED' } }),
       prisma.order.findMany({
         where: whereClause,
-        include: {
+        select: {
+          id: true,
+          orderNumber: true,
+          status: true,
+          createdAt: true,
           form: {
             select: {
               name: true
@@ -641,14 +651,15 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
         confirmedOrders,
         dispatchedOrders
       },
-      recentOrders: recentOrders.map(order => ({
-        ...order,
-        formData: JSON.parse(order.formData)
-      }))
+      recentOrders
     });
   } catch (error) {
     console.error('Get order stats error:', error);
-    res.status(500).json({ error: 'Failed to get order statistics' });
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      error: 'Failed to get order statistics',
+      message: error.message 
+    });
   }
 });
 

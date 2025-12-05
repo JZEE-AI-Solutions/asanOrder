@@ -25,6 +25,7 @@ const AdminDashboard = () => {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const [stats, setStats] = useState(null)
+  const [recentOrders, setRecentOrders] = useState([])
   const [tenants, setTenants] = useState([])
   const [forms, setForms] = useState([])
   const [orders, setOrders] = useState([])
@@ -60,11 +61,13 @@ const AdminDashboard = () => {
       ])
 
       setStats(statsRes.data.stats)
-      setTenants(tenantsRes.data.tenants)
-      setForms(formsRes.data.forms)
-      setOrders(ordersRes.data.orders)
+      setRecentOrders(statsRes.data.recentOrders || [])
+      setTenants(tenantsRes.data.tenants || [])
+      setForms(formsRes.data.forms || [])
+      setOrders(ordersRes.data.orders || [])
     } catch (error) {
-      toast.error('Failed to fetch dashboard data')
+      console.error('Dashboard data fetch error:', error)
+      toast.error(error.response?.data?.error || 'Failed to fetch dashboard data')
     } finally {
       setLoading(false)
     }
@@ -305,17 +308,21 @@ const AdminDashboard = () => {
                 Recent Orders
               </h3>
               <div className="space-y-3">
-                {stats?.recentOrders?.slice(0, 5).map((order) => (
-                  <div key={order.id} className="card-compact flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm truncate">{order.tenant.businessName}</p>
-                      <p className="text-xs text-gray-600 truncate">{order.form.name}</p>
+                {recentOrders && recentOrders.length > 0 ? (
+                  recentOrders.slice(0, 5).map((order) => (
+                    <div key={order.id} className="card-compact flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-sm truncate">{order.tenant?.businessName || 'N/A'}</p>
+                        <p className="text-xs text-gray-600 truncate">{order.form?.name || 'N/A'}</p>
+                      </div>
+                      <span className={`badge ${getStatusBadge(order.status)} text-xs ml-2`}>
+                        {order.status}
+                      </span>
                     </div>
-                    <span className={`badge ${getStatusBadge(order.status)} text-xs ml-2`}>
-                      {order.status}
-                    </span>
-                  </div>
-                )) || <p className="text-gray-500 text-sm">No recent orders</p>}
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-sm">No recent orders</p>
+                )}
               </div>
             </div>
 
@@ -363,7 +370,8 @@ const AdminDashboard = () => {
             
             {/* Mobile Card View */}
             <div className="block sm:hidden space-y-4">
-              {tenants.map((tenant) => (
+              {tenants && tenants.length > 0 ? (
+                tenants.map((tenant) => (
                 <div key={tenant.id} className="card-compact">
                   <div className="flex justify-between items-start mb-3">
                     <h4 className="font-semibold text-gray-900 text-sm">{tenant.businessName}</h4>
@@ -388,7 +396,12 @@ const AdminDashboard = () => {
                     <ArrowRightIcon className="h-4 w-4 ml-1" />
                   </button>
                 </div>
-              ))}
+                ))
+              ) : (
+                <div className="card-compact text-center py-8">
+                  <p className="text-gray-500 text-sm">No tenants found</p>
+                </div>
+              )}
             </div>
 
             {/* Desktop Table View */}
@@ -420,7 +433,8 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {tenants.map((tenant) => (
+                  {tenants && tenants.length > 0 ? (
+                    tenants.map((tenant) => (
                     <tr key={tenant.id}>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
@@ -466,7 +480,14 @@ const AdminDashboard = () => {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                  ))
+                  ) : (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-4 text-center text-sm text-gray-500">
+                        No tenants found
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -486,7 +507,7 @@ const AdminDashboard = () => {
               </button>
             </div>
             
-            {forms.length === 0 ? (
+            {!forms || forms.length === 0 ? (
               <div className="text-center py-8">
                 <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Forms Created Yet</h3>
@@ -524,7 +545,8 @@ const AdminDashboard = () => {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {forms.map((form) => (
+                    {forms && forms.length > 0 ? (
+                      forms.map((form) => (
                       <tr key={form.id}>
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {form.name}
@@ -591,7 +613,14 @@ const AdminDashboard = () => {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    ))
+                    ) : (
+                      <tr>
+                        <td colSpan="6" className="px-6 py-4 text-center text-sm text-gray-500">
+                          No forms found
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -625,27 +654,35 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {orders.map((order) => (
-                    <tr key={order.id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                        {order.orderNumber}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {order.tenant.businessName}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {order.form.name}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={getStatusBadge(order.status)}>
-                          {order.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(order.createdAt).toLocaleDateString()}
+                  {orders && orders.length > 0 ? (
+                    orders.map((order) => (
+                      <tr key={order.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                          {order.orderNumber || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {order.tenant?.businessName || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {order.form?.name || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={getStatusBadge(order.status)}>
+                            {order.status || 'UNKNOWN'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'N/A'}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="5" className="px-6 py-4 text-center text-sm text-gray-500">
+                        No orders found
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
             </div>

@@ -1,0 +1,22 @@
+[
+  {
+    "id": "cmgb7wyj4000ftiawo0n1bxzx",
+    "phoneNumber": "+923426491425",
+    "name": "Syed Jahanzeb",
+    "email": null,
+    "address": null,
+    "city": null,
+    "state": null,
+    "country": null,
+    "postalCode": null,
+    "notes": null,
+    "isActive": true,
+    "totalOrders": 2,
+    "totalSpent": 0,
+    "lastOrderDate": "2025-10-03T20:53:12.916Z",
+    "createdAt": "2025-10-03T19:09:10.480Z",
+    "updatedAt": "2025-10-03T20:53:12.918Z",
+    "tenantId": "cmgb7vg8y0003tiawzyvwppx5",
+    "shippingAddress": "110 A Pia\n6311"
+  }
+]

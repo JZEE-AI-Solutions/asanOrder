@@ -1,0 +1,24 @@
+[
+  {
+    "id": "cmgb7wzbj000htiawdtbei4p0",
+    "action": "CREATED",
+    "fieldName": null,
+    "oldValue": null,
+    "newValue": "New customer created from order",
+    "description": null,
+    "metadata": null,
+    "createdAt": "2025-10-03T19:09:11.503Z",
+    "customerId": "cmgb7wyj4000ftiawo0n1bxzx"
+  },
+  {
+    "id": "cmgbbms77000b28abhma123v1",
+    "action": "ORDER_PLACED",
+    "fieldName": null,
+    "oldValue": null,
+    "newValue": "Customer placed a new order",
+    "description": null,
+    "metadata": null,
+    "createdAt": "2025-10-03T20:53:14.179Z",
+    "customerId": "cmgb7wyj4000ftiawo0n1bxzx"
+  }
+]

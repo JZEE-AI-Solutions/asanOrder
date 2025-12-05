@@ -11,10 +11,20 @@ const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Optimize: Only fetch tenant id, not full tenant object
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
-      include: {
-        tenant: true
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        createdAt: true,
+        tenant: {
+          select: {
+            id: true
+          }
+        }
       }
     });
 

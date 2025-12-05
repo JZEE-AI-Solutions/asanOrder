@@ -1,0 +1,57 @@
+[
+  {
+    "id": "cmg8c1aqe0004pyhedamylik5",
+    "businessName": "Elegant Dress Orders",
+    "contactPerson": "Sarah Ahmed",
+    "whatsappNumber": "+923001234567",
+    "businessType": "DRESS_SHOP",
+    "businessCode": "1001",
+    "createdAt": "2025-10-01T18:41:12.855Z",
+    "updatedAt": "2025-10-01T18:41:12.855Z",
+    "ownerId": "cmg8c19oi0002pyhe8l39wwu0"
+  },
+  {
+    "id": "cmgb7vg8y0003tiawzyvwppx5",
+    "businessName": "JZ Company",
+    "contactPerson": "Syed Jahanzeb",
+    "whatsappNumber": "+923426491425",
+    "businessType": "DRESS_SHOP",
+    "businessCode": "1002",
+    "createdAt": "2025-10-03T19:08:00.130Z",
+    "updatedAt": "2025-10-03T19:08:00.130Z",
+    "ownerId": "cmgb7vfuh0001tiaw6xqsih4r"
+  },
+  {
+    "id": "cmisw2wlk0003qza4k7lf585u",
+    "businessName": "HappyTenant",
+    "contactPerson": "Happy Manager",
+    "whatsappNumber": "+923001234567",
+    "businessType": "DRESS_SHOP",
+    "businessCode": "1003",
+    "createdAt": "2025-12-05T13:17:08.360Z",
+    "updatedAt": "2025-12-05T13:17:08.360Z",
+    "ownerId": "cmisw2vse0001qza4b4htvshq"
+  },
+  {
+    "id": "cmisx6gra00031fbxtrdxcp8p",
+    "businessName": "jazey tow",
+    "contactPerson": "jazey tow",
+    "whatsappNumber": "+923666666666",
+    "businessType": "DRESS_SHOP",
+    "businessCode": "1004",
+    "createdAt": "2025-12-05T13:47:54.071Z",
+    "updatedAt": "2025-12-05T13:47:54.071Z",
+    "ownerId": "cmisx6fdq00011fbxwynpvamd"
+  },
+  {
+    "id": "cmit1gvrw0003xhn8lbcxpzgh",
+    "businessName": "jazey one",
+    "contactPerson": "jazey one",
+    "whatsappNumber": "+923145556699",
+    "businessType": "DRESS_SHOP",
+    "businessCode": "1005",
+    "createdAt": "2025-12-05T15:47:58.556Z",
+    "updatedAt": "2025-12-05T15:47:58.556Z",
+    "ownerId": "cmit1gv2h0001xhn8ap33y96d"
+  }
+]

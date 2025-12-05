@@ -126,62 +126,64 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
 // Get all purchase invoices for a tenant (Business Owner only)
 router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
-    // Get tenant for the business owner
-    const tenant = await prisma.tenant.findUnique({
-      where: { ownerId: req.user.id }
-    });
-
-    if (!tenant) {
+    // Optimize: Use tenant from authenticated user
+    if (!req.user.tenant?.id) {
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { includeDeleted } = req.query;
-    const whereClause = { tenantId: tenant.id };
+    const { includeDeleted, page = 1, limit = 50 } = req.query;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit) || 50));
+    const skipNum = (pageNum - 1) * limitNum;
+
+    const whereClause = { tenantId: req.user.tenant.id };
     
     // Only include non-deleted invoices by default
     if (includeDeleted !== 'true') {
       whereClause.isDeleted = false;
     }
 
-    const purchaseInvoices = await prisma.purchaseInvoice.findMany({
-      where: whereClause,
-      include: {
-        purchaseItems: {
-          where: {
-            isDeleted: false
-          },
-          select: {
-            id: true,
-            name: true,
-            purchasePrice: true,
-            quantity: true,
-            category: true,
-            sku: true,
-            image: true,
-            // Exclude imageData and imageType - frontend uses getImageUrl() to fetch images
-            isDeleted: true,
-            deletedAt: true,
-            createdAt: true,
-            updatedAt: true,
-            tenantId: true,
-            purchaseInvoiceId: true,
-            productId: true
+    // Optimize: Add pagination, use select instead of include, limit purchaseItems
+    const [purchaseInvoices, total] = await Promise.all([
+      prisma.purchaseInvoice.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          supplierName: true,
+          invoiceDate: true,
+          totalAmount: true,
+          image: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true,
+          isDeleted: true,
+          deletedAt: true,
+          // Only get count of items, not all items (unless needed)
+          _count: {
+            select: {
+              purchaseItems: true
+            }
           }
         },
-        _count: {
-          select: {
-            purchaseItems: true
-          }
-        }
-      },
-      orderBy: {
-        invoiceDate: 'desc'
-      }
-    });
+        orderBy: {
+          invoiceDate: 'desc'
+        },
+        skip: skipNum,
+        take: limitNum
+      }),
+      prisma.purchaseInvoice.count({ where: whereClause })
+    ]);
 
     res.json({ 
       success: true, 
-      purchaseInvoices 
+      purchaseInvoices,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        pages: Math.ceil(total / limitNum)
+      }
     });
 
   } catch (error) {
