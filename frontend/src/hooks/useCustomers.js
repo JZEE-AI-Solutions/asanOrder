@@ -16,7 +16,14 @@ export const useCustomers = (options = {}) => {
     try {
       setLoading(true)
       setError(null)
-      const response = await api.get('/customer', { params })
+      // Convert boolean to string for query params
+      const queryParams = {
+        ...params,
+        ...(params.hasPendingPayment !== undefined && {
+          hasPendingPayment: params.hasPendingPayment === true ? 'true' : 'false'
+        })
+      }
+      const response = await api.get('/customer', { params: queryParams })
       setCustomers(response.data.customers)
       return response.data
     } catch (err) {

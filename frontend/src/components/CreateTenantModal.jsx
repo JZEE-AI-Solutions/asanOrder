@@ -54,7 +54,7 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
             <label className="form-label">Business Name</label>
             <input
               {...register('businessName', { required: 'Business name is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               placeholder="Enter business name"
             />
             {errors.businessName && (
@@ -66,7 +66,7 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
             <label className="form-label">Contact Person</label>
             <input
               {...register('contactPerson', { required: 'Contact person is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               placeholder="Enter contact person name"
             />
             {errors.contactPerson && (
@@ -84,7 +84,7 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
                   message: 'Enter valid Pakistani number (+92XXXXXXXXXX)'
                 }
               })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               placeholder="+923001234567"
             />
             {errors.whatsappNumber && (
@@ -96,11 +96,11 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
             <label className="form-label">Business Type</label>
             <select
               {...register('businessType', { required: 'Business type is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
             >
-              <option value="">Select business type</option>
+              <option value="" className="text-gray-900 bg-white">Select business type</option>
               {businessTypes.map((type) => (
-                <option key={type.value} value={type.value}>
+                <option key={type.value} value={type.value} className="text-gray-900 bg-white">
                   {type.label}
                 </option>
               ))}
@@ -117,7 +117,7 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
               <label className="form-label">Owner Name</label>
               <input
                 {...register('ownerName', { required: 'Owner name is required' })}
-                className="input-field"
+                className="input-field bg-white text-gray-900"
                 placeholder="Enter owner name"
               />
               {errors.ownerName && (
@@ -136,7 +136,7 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
                   }
                 })}
                 type="email"
-                className="input-field"
+                className="input-field bg-white text-gray-900"
                 placeholder="Enter owner email"
               />
               {errors.ownerEmail && (
@@ -155,7 +155,7 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
                   }
                 })}
                 type="password"
-                className="input-field"
+                className="input-field bg-white text-gray-900"
                 placeholder="Enter owner password"
               />
               {errors.ownerPassword && (

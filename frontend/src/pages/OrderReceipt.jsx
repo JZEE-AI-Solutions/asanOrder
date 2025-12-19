@@ -32,7 +32,14 @@ const OrderReceipt = () => {
   const fetchOrderDetails = async () => {
     try {
       const response = await api.get(`/order/receipt/${orderId}`)
-      setOrder(response.data.order)
+      const orderData = response.data.order
+      setOrder(orderData)
+      
+      // Debug: Log the order data to see what we're getting
+      console.log('📦 Order data:', orderData)
+      console.log('📦 selectedProducts:', orderData.selectedProducts, 'Type:', typeof orderData.selectedProducts)
+      console.log('📦 productQuantities:', orderData.productQuantities, 'Type:', typeof orderData.productQuantities)
+      console.log('📦 productPrices:', orderData.productPrices, 'Type:', typeof orderData.productPrices)
     } catch (error) {
       console.error('Error fetching order details:', error)
       toast.error('Failed to load order details')
@@ -262,22 +269,82 @@ const OrderReceipt = () => {
             </div>
 
             {/* Selected Products */}
-            {order.selectedProducts && (
-              <div className="mb-4 sm:mb-6">
-                <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center">
-                  <CubeTransparentIcon className="h-4 w-4 mr-2 text-pink-500" />
-                  Selected Products
-                </h3>
-                <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
-                  {(() => {
-                    try {
-                      const selectedProducts = JSON.parse(order.selectedProducts);
-                      const productQuantities = order.productQuantities ? JSON.parse(order.productQuantities) : {};
+            <div className="mb-4 sm:mb-6">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center">
+                <CubeTransparentIcon className="h-4 w-4 mr-2 text-pink-500" />
+                Selected Products
+              </h3>
+              <div className="bg-gray-50 rounded-lg p-3 sm:p-4">
+                {(() => {
+                  try {
+                    // Debug logging
+                    console.log('🔍 Parsing selectedProducts in OrderReceipt:');
+                    console.log('  - Raw value:', order.selectedProducts);
+                    console.log('  - Type:', typeof order.selectedProducts);
+                    
+                    // Parse selectedProducts - handle both string and object
+                    let selectedProducts = order.selectedProducts;
+                    
+                    // Handle null/undefined
+                    if (!selectedProducts) {
+                      console.log('  - selectedProducts is null/undefined');
+                      return <p className="text-gray-500 text-center py-4">No products in this order</p>;
+                    }
+                    
+                    if (typeof selectedProducts === 'string') {
+                      try {
+                        selectedProducts = JSON.parse(selectedProducts);
+                        console.log('  - Parsed from string:', selectedProducts);
+                      } catch (e) {
+                        console.error('  - Error parsing string:', e);
+                        return <p className="text-red-500 text-center py-4">Error parsing products data: {e.message}</p>;
+                      }
+                    }
+                    
+                    if (!Array.isArray(selectedProducts)) {
+                      console.log('  - Not an array, converting. Type:', typeof selectedProducts, 'Value:', selectedProducts);
+                      // Try to convert object to array
+                      if (typeof selectedProducts === 'object' && selectedProducts !== null) {
+                        selectedProducts = Object.values(selectedProducts);
+                      } else {
+                        selectedProducts = [];
+                      }
+                    }
+                    
+                    console.log('  - Final selectedProducts:', selectedProducts, 'Length:', selectedProducts.length);
+                      
+                      // Parse productQuantities - handle both string and object
+                      let productQuantities = {};
+                      if (order.productQuantities) {
+                        if (typeof order.productQuantities === 'string') {
+                          productQuantities = JSON.parse(order.productQuantities);
+                        } else {
+                          productQuantities = order.productQuantities;
+                        }
+                      }
+                      
+                      // Parse productPrices - handle both string and object
+                      let productPrices = {};
+                      if (order.productPrices) {
+                        if (typeof order.productPrices === 'string') {
+                          productPrices = JSON.parse(order.productPrices);
+                        } else {
+                          productPrices = order.productPrices;
+                        }
+                      }
+                      
+                      if (selectedProducts.length === 0) {
+                        return <p className="text-gray-500 text-center py-4">No products in this order</p>;
+                      }
                       
                       return (
                         <div className="space-y-3">
                           {selectedProducts.map((product, index) => {
-                            const quantity = productQuantities[product.id] || 1;
+                            // Get quantity from productQuantities or use product.quantity or default to 1
+                            const quantity = productQuantities[product.id] || product.quantity || 1;
+                            // Get price from productPrices or use product.price or product.currentRetailPrice
+                            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+                            
                             return (
                               <div key={product.id || index} className="flex items-center space-x-3 p-3 bg-white rounded-lg border shadow-sm">
                                 <img 
@@ -296,9 +363,9 @@ const OrderReceipt = () => {
                                       {product.sku && (
                                         <p className="text-xs text-gray-500 mt-1">SKU: {product.sku}</p>
                                       )}
-                                      {product.currentRetailPrice && (
+                                      {price > 0 && (
                                         <p className="text-sm font-medium text-green-600 mt-1">
-                                          Price: Rs. {product.currentRetailPrice.toLocaleString()}
+                                          Price: Rs. {price.toLocaleString()}
                                         </p>
                                       )}
                                     </div>
@@ -306,9 +373,9 @@ const OrderReceipt = () => {
                                       <div className="bg-pink-100 text-pink-800 px-3 py-1 rounded-full text-sm font-medium">
                                         Qty: {quantity}
                                       </div>
-                                      {product.currentRetailPrice && (
+                                      {price > 0 && (
                                         <p className="text-sm font-bold text-gray-900 mt-1">
-                                          Total: Rs. {(product.currentRetailPrice * quantity).toLocaleString()}
+                                          Total: Rs. {(price * quantity).toLocaleString()}
                                         </p>
                                       )}
                                     </div>
@@ -325,29 +392,29 @@ const OrderReceipt = () => {
                                 <span className="font-medium text-gray-900">Total Items:</span>
                                 <span className="font-bold text-gray-900">
                                   {selectedProducts.reduce((total, product) => {
-                                    const quantity = productQuantities[product.id] || 1;
-                                    return total + quantity;
+                                    const qty = productQuantities[product.id] || product.quantity || 1;
+                                    return total + qty;
                                   }, 0)}
                                 </span>
                               </div>
-                              {selectedProducts.some(p => p.currentRetailPrice) && (
-                                <div className="flex justify-between items-center mt-2">
-                                  <span className="font-medium text-gray-900">Total Amount:</span>
-                                  <span className="font-bold text-green-600 text-lg">
-                                    Rs. {selectedProducts.reduce((total, product) => {
-                                      const quantity = productQuantities[product.id] || 1;
-                                      const price = product.currentRetailPrice || 0;
-                                      return total + (price * quantity);
-                                    }, 0).toLocaleString()}
-                                  </span>
-                                </div>
-                              )}
+                              <div className="flex justify-between items-center mt-2">
+                                <span className="font-medium text-gray-900">Total Amount:</span>
+                                <span className="font-bold text-green-600 text-lg">
+                                  Rs. {selectedProducts.reduce((total, product) => {
+                                    const qty = productQuantities[product.id] || product.quantity || 1;
+                                    const prc = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+                                    return total + (prc * qty);
+                                  }, 0).toLocaleString()}
+                                </span>
+                              </div>
                             </div>
                           )}
                         </div>
                       );
                     } catch (error) {
-                      return <p className="text-gray-500">Error loading selected products</p>;
+                      console.error('Error parsing selected products:', error);
+                      console.error('Order selectedProducts:', order.selectedProducts);
+                      return <p className="text-red-500">Error loading selected products: {error.message}</p>;
                     }
                   })()}
                 </div>

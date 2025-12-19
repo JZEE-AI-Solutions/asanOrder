@@ -1,62 +1,55 @@
 import { useState, useEffect } from 'react'
-import { XMarkIcon, ShoppingBagIcon } from '@heroicons/react/24/outline'
+import { useParams, useNavigate } from 'react-router-dom'
+import { ArrowLeftIcon, ShoppingBagIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import toast from 'react-hot-toast'
-import LoadingSpinner from './LoadingSpinner'
-import ProductSelector from './ProductSelector'
+import LoadingSpinner from '../components/LoadingSpinner'
+import ProductSelector from '../components/ProductSelector'
+import ModernLayout from '../components/ModernLayout'
 
-const ProductManagementModal = ({ form, onClose, onSuccess }) => {
+const ProductManagementPage = () => {
+  const { formId } = useParams()
+  const navigate = useNavigate()
+  const [form, setForm] = useState(null)
   const [selectedProducts, setSelectedProducts] = useState([])
   const [selectedProductIds, setSelectedProductIds] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  console.log('🚀 ProductManagementModal rendered', { 
-    hasForm: !!form, 
-    formId: form?.id, 
-    fieldsCount: form?.fields?.length 
-  })
-
   useEffect(() => {
-    console.log('🔄 useEffect triggered', { 
-      hasForm: !!form, 
-      formId: form?.id,
-      formFields: form?.fields?.length 
-    })
-    if (form) {
-      console.log('🔄 ProductManagementModal: Form changed, reloading products')
-      console.log('🔄 Form ID:', form.id)
-      console.log('🔄 Form fields count:', form.fields?.length)
-      loadSelectedProducts()
-    } else {
-      console.log('⚠️ No form provided to ProductManagementModal')
+    console.log('🚀 ProductManagementPage: useEffect triggered', { formId })
+    if (formId) {
+      fetchFormData()
     }
-  }, [form])
+  }, [formId])
 
-  const loadSelectedProducts = async () => {
-    if (!form || !form.id) {
-      console.log('⚠️ No form or form.id provided')
-      return
-    }
-    
-    // Always fetch fresh form data from API to ensure we have the latest saved prices
-    let formData = form
+  const fetchFormData = async () => {
     try {
-      console.log('🔄 Fetching fresh form data from API...')
-      const response = await api.get(`/form/${form.id}`)
-      formData = response.data.form
-      console.log('✅ Fetched fresh form data')
+      console.log('🔄 Fetching form data for formId:', formId)
+      setLoading(true)
+      const response = await api.get(`/form/${formId}`)
+      const formData = response.data.form
+      console.log('✅ Fetched form data:', { formId: formData.id, fieldsCount: formData.fields?.length })
+      setForm(formData)
+      loadSelectedProducts(formData)
     } catch (error) {
-      console.error('Error fetching fresh form data, using prop:', error)
-      // Fall back to prop if API call fails
+      console.error('Error fetching form:', error)
+      toast.error('Failed to load form')
+      navigate('/business/forms')
+    } finally {
+      setLoading(false)
     }
+  }
+
+  const loadSelectedProducts = async (formData) => {
+    console.log('📥 ProductManagementPage: loadSelectedProducts called')
     
-    // Find Product Selector fields and get their selected product IDs
+    // Find Product Selector fields and get their selected product IDs and prices
     const productSelectorFields = formData.fields?.filter(field => field.fieldType === 'PRODUCT_SELECTOR')
     if (productSelectorFields.length > 0) {
       const firstField = productSelectorFields[0]
       let productIds = []
-      let storedProducts = []
+      let storedProducts = [] // Store products with prices from saved data
       
       console.log('📋 First field selectedProducts:', firstField.selectedProducts, 'Type:', typeof firstField.selectedProducts)
       
@@ -78,15 +71,11 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
           }
           
           console.log('📦 Parsed selectedProducts from form:', products)
-          console.log('📦 Products type:', typeof products, 'Is array:', Array.isArray(products))
-          if (Array.isArray(products) && products.length > 0) {
-            console.log('📦 First product sample:', products[0])
-          }
           
           // Extract product IDs and store products with prices
           if (Array.isArray(products)) {
             productIds = products.map(p => p.id).filter(id => id)
-            storedProducts = products // Store for later use
+            storedProducts = products // Store for later use to preserve prices
             console.log('📦 Stored products with prices:', JSON.stringify(storedProducts, null, 2))
           } else {
             productIds = []
@@ -105,7 +94,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
       // If we have product IDs, fetch the full product data
       if (productIds.length > 0 && formData.tenant?.id) {
         try {
-          setLoading(true)
+          console.log('🔄 Fetching products from tenant:', formData.tenant.id)
           const response = await api.get(`/products/tenant/${formData.tenant.id}`)
           const allProducts = response.data.products || []
           
@@ -135,13 +124,11 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
               }
             })
           
-          console.log('Loaded selected products with prices:', selectedProductsData)
+          console.log('✅ Loaded selected products with prices:', selectedProductsData.map(p => ({ name: p.name, price: p.price })))
           setSelectedProducts(selectedProductsData)
         } catch (error) {
           console.error('Error fetching selected products:', error)
           toast.error('Failed to load selected products')
-        } finally {
-          setLoading(false)
         }
       } else {
         setSelectedProducts([])
@@ -204,8 +191,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
 
       console.log('📤 Sending updated fields to backend')
       const productSelectorField = updatedFields.find(f => f.fieldType === 'PRODUCT_SELECTOR')
-      console.log('📤 PRODUCT_SELECTOR field:', JSON.stringify(productSelectorField, null, 2))
-      console.log('📤 selectedProducts being sent:', JSON.stringify(productSelectorField?.selectedProducts, null, 2))
+      console.log('📤 PRODUCT_SELECTOR field selectedProducts:', JSON.stringify(productSelectorField?.selectedProducts, null, 2))
 
       const response = await api.put(`/form/${form.id}`, {
         fields: updatedFields
@@ -226,93 +212,9 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
           }
         }
       }
-      
-      // Fetch the updated form to get the latest data
-      try {
-        const updatedFormResponse = await api.get(`/form/${form.id}`)
-        const updatedForm = updatedFormResponse.data.form
-        
-        // Update the form prop by updating the fields
-        if (updatedForm && updatedForm.fields) {
-          // Update the form object with new fields
-          const updatedFormData = {
-            ...form,
-            fields: updatedForm.fields
-          }
-          
-          // Reload selected products with the updated form data
-          // We need to manually trigger a reload by updating the form reference
-          // For now, just reload the selected products
-          console.log('🔄 Reloading products with updated form data...')
-          
-          // Find Product Selector fields and reload
-          const productSelectorFields = updatedForm.fields?.filter(field => field.fieldType === 'PRODUCT_SELECTOR')
-          if (productSelectorFields.length > 0) {
-            const firstField = productSelectorFields[0]
-            let storedProducts = []
-            
-            if (firstField.selectedProducts) {
-              try {
-                let products;
-                if (typeof firstField.selectedProducts === 'string') {
-                  products = JSON.parse(firstField.selectedProducts)
-                  if (typeof products === 'string') {
-                    products = JSON.parse(products)
-                  }
-                } else {
-                  products = firstField.selectedProducts
-                }
-                
-                if (Array.isArray(products)) {
-                  storedProducts = products
-                  console.log('📦 Reloaded stored products with prices:', storedProducts)
-                  
-                  // Update selectedProducts state with prices from saved data
-                  const productIds = products.map(p => p.id).filter(id => id)
-                  if (productIds.length > 0 && form.tenant?.id) {
-                    const productsResponse = await api.get(`/products/tenant/${form.tenant.id}`)
-                    const allProducts = productsResponse.data.products || []
-                    
-                    const selectedProductsData = allProducts
-                      .filter(product => productIds.includes(product.id))
-                      .map(product => {
-                        const originalProduct = storedProducts.find(p => p.id === product.id)
-                        let price
-                        if (originalProduct && originalProduct.price !== undefined && originalProduct.price !== null) {
-                          price = typeof originalProduct.price === 'number' 
-                            ? originalProduct.price 
-                            : parseFloat(originalProduct.price) || 0
-                        } else {
-                          price = product.currentRetailPrice ? parseFloat(product.currentRetailPrice) || 0 : 0
-                        }
-                        console.log('🔄 Reloaded product:', product.name, 'Price:', price, 'From stored:', originalProduct?.price, 'Type:', typeof originalProduct?.price)
-                        return {
-                          ...product,
-                          price: price
-                        }
-                      })
-                    
-                    setSelectedProducts(selectedProductsData)
-                    console.log('✅ Reloaded selected products:', selectedProductsData)
-                  }
-                }
-              } catch (error) {
-                console.error('Error reloading products:', error)
-              }
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching updated form:', error)
-      }
 
       toast.success('Products updated successfully!')
-      
-      // Reload products immediately with fresh data from API
-      await loadSelectedProducts()
-      
-      // Call onSuccess to refresh the form list in parent
-      onSuccess()
+      navigate('/business/forms')
     } catch (error) {
       console.error('Error updating products:', error)
       console.error('Error response:', error.response?.data)
@@ -322,49 +224,82 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
     }
   }
 
+  if (loading) {
+    return (
+      <ModernLayout>
+        <LoadingSpinner className="min-h-screen" />
+      </ModernLayout>
+    )
+  }
+
   if (!form) return null
 
   const productSelectorFields = form.fields?.filter(field => field.fieldType === 'PRODUCT_SELECTOR')
   const hasProductSelectors = productSelectorFields.length > 0
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white max-h-screen overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium text-gray-900 flex items-center">
-            <ShoppingBagIcon className="h-5 w-5 mr-2 text-blue-600" />
-            Manage Products
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <XMarkIcon className="h-6 w-6" />
-          </button>
+    <ModernLayout>
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/business/forms')}
+              className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ArrowLeftIcon className="h-6 w-6" />
+            </button>
+            <div className="flex items-center">
+              <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                <ShoppingBagIcon className="h-6 w-6 text-blue-600" />
+              </div>
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Manage Products</h1>
+                <p className="text-sm text-gray-500 mt-1">{form.name}</p>
+              </div>
+            </div>
+          </div>
+          {hasProductSelectors && (
+            <button
+              type="button"
+              onClick={handleSave}
+              className="btn-primary flex items-center px-6 py-2.5"
+              disabled={saving}
+            >
+              {saving ? (
+                <>
+                  <LoadingSpinner size="sm" className="mr-2" />
+                  Saving...
+                </>
+              ) : (
+                'Save Products'
+              )}
+            </button>
+          )}
         </div>
 
         <div className="space-y-6">
           {/* Form Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-medium text-gray-900 mb-2">{form.name}</h4>
-            <p className="text-sm text-gray-600">
+          <div className="card p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">{form.name}</h3>
+            <p className="text-gray-600 mb-2">
               {form.description || 'No description provided'}
             </p>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-gray-500">
               Form ID: {form.id}
             </p>
           </div>
 
           {/* Product Selector Fields Info */}
           {hasProductSelectors ? (
-            <div className="space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <h4 className="font-medium text-blue-900 mb-2">
+            <div className="space-y-6">
+              <div className="card p-6 bg-blue-50 border border-blue-200">
+                <h4 className="font-medium text-blue-900 mb-4">
                   Product Selector Fields ({productSelectorFields.length})
                 </h4>
                 <div className="space-y-2">
                   {productSelectorFields.map((field, index) => (
-                    <div key={index} className="flex items-center justify-between bg-white rounded p-2">
+                    <div key={index} className="flex items-center justify-between bg-white rounded-lg p-3">
                       <span className="text-sm font-medium text-gray-700">
                         {field.label}
                         {field.isRequired && <span className="text-red-500 ml-1">*</span>}
@@ -391,7 +326,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
               </div>
 
               {/* Product Management */}
-              <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <div className="card p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h4 className="font-medium text-gray-900">Product Selection</h4>
                   <span className="text-sm text-gray-600">
@@ -409,7 +344,7 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
               </div>
             </div>
           ) : (
-            <div className="text-center py-8">
+            <div className="card p-12 text-center">
               <ShoppingBagIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
               <h4 className="text-lg font-medium text-gray-900 mb-2">No Product Selector Fields</h4>
               <p className="text-gray-600">
@@ -418,39 +353,12 @@ const ProductManagementModal = ({ form, onClose, onSuccess }) => {
               </p>
             </div>
           )}
-
-          {/* Action Buttons */}
-          <div className="flex justify-end space-x-3 pt-4 border-t">
-            <button
-              type="button"
-              onClick={onClose}
-              className="btn-secondary"
-              disabled={saving}
-            >
-              Cancel
-            </button>
-            {hasProductSelectors && (
-              <button
-                type="button"
-                onClick={handleSave}
-                className="btn-primary flex items-center"
-                disabled={saving}
-              >
-                {saving ? (
-                  <>
-                    <LoadingSpinner size="sm" className="mr-2" />
-                    Saving...
-                  </>
-                ) : (
-                  'Save Products'
-                )}
-              </button>
-            )}
-          </div>
         </div>
       </div>
-    </div>
+    </ModernLayout>
   )
 }
 
-export default ProductManagementModal
+export default ProductManagementPage
+
+

@@ -8,9 +8,6 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedOrderDetailsModal from '../components/EnhancedOrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
-import ProductManagementModal from '../components/ProductManagementModal'
-import CustomerDetailsModal from '../components/CustomerDetailsModal'
-import AddCustomerModal from '../components/AddCustomerModal'
 
 // Dashboard Components
 import DashboardHeader from '../components/dashboard/DashboardHeader'
@@ -28,10 +25,6 @@ const BusinessDashboardRefactored = () => {
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [selectedForm, setSelectedForm] = useState(null)
-  const [showProductManagement, setShowProductManagement] = useState(false)
-  const [selectedCustomer, setSelectedCustomer] = useState(null)
-  const [showCustomerDetails, setShowCustomerDetails] = useState(false)
-  const [showAddCustomer, setShowAddCustomer] = useState(false)
 
   // Hooks
   const { tenant, loading: tenantLoading } = useTenant()
@@ -105,8 +98,7 @@ const BusinessDashboardRefactored = () => {
   }
 
   const handleManageProducts = (form) => {
-    setSelectedForm(form)
-    setShowProductManagement(true)
+    navigate(`/business/forms/${form.id}/products`)
   }
 
   const handleCustomerSearch = (searchTerm) => {
@@ -114,19 +106,8 @@ const BusinessDashboardRefactored = () => {
     refreshCustomers({ search: searchTerm })
   }
 
-  const handleCustomerClick = async (customer) => {
-    try {
-      const response = await api.get(`/customer/${customer.id}`)
-      setSelectedCustomer(response.data.customer)
-      setShowCustomerDetails(true)
-    } catch (error) {
-      console.error('Failed to fetch customer details:', error)
-    }
-  }
-
-  const handleCustomerCreated = () => {
-    refreshCustomers()
-    fetchCustomerStats()
+  const handleCustomerClick = (customer) => {
+    navigate(`/business/customers/${customer.id}`)
   }
 
   const handleOrderUpdate = () => {
@@ -215,7 +196,7 @@ const BusinessDashboardRefactored = () => {
             customerLoading={customersLoading}
             customerSearch={customerSearch}
             onSearchChange={handleCustomerSearch}
-            onAddCustomer={() => setShowAddCustomer(true)}
+            onAddCustomer={() => navigate('/business/customers/new')}
             onRefreshCustomers={() => refreshCustomers()}
             onCustomerClick={handleCustomerClick}
           />
@@ -232,37 +213,7 @@ const BusinessDashboardRefactored = () => {
           />
         )}
 
-      {showProductManagement && selectedForm && (
-        <ProductManagementModal
-          form={selectedForm}
-          onClose={() => {
-            setShowProductManagement(false)
-            setSelectedForm(null)
-          }}
-          onSuccess={() => {
-            setShowProductManagement(false)
-            setSelectedForm(null)
-            refreshForms()
-          }}
-        />
-      )}
 
-      {showCustomerDetails && selectedCustomer && (
-        <CustomerDetailsModal
-          customer={selectedCustomer}
-          isOpen={showCustomerDetails}
-          onClose={() => {
-            setShowCustomerDetails(false)
-            setSelectedCustomer(null)
-          }}
-        />
-      )}
-
-      <AddCustomerModal
-        isOpen={showAddCustomer}
-        onClose={() => setShowAddCustomer(false)}
-        onSuccess={handleCustomerCreated}
-      />
     </div>
   )
 }

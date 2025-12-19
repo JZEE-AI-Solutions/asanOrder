@@ -1,10 +1,13 @@
 import { useState } from 'react'
-import { XMarkIcon, UserPlusIcon } from '@heroicons/react/24/outline'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeftIcon, UserPlusIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
-import LoadingSpinner from './LoadingSpinner'
+import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
+import ModernLayout from '../components/ModernLayout'
 
-const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
+const AddCustomerPage = () => {
+  const navigate = useNavigate()
   const [formData, setFormData] = useState({
     name: '',
     phoneNumber: '',
@@ -67,10 +70,9 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
     
     try {
       setLoading(true)
-      await api.post('/customer', formData)
+      const response = await api.post('/customer', formData)
       toast.success('Customer created successfully!')
-      onSuccess()
-      handleClose()
+      navigate(`/business/customers/${response.data.customer.id}`)
     } catch (error) {
       console.error('Failed to create customer:', error)
       if (error.response?.data?.details) {
@@ -87,48 +89,29 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
     }
   }
 
-  const handleClose = () => {
-    setFormData({
-      name: '',
-      phoneNumber: '',
-      email: '',
-      address: '',
-      shippingAddress: '',
-      city: '',
-      state: '',
-      country: '',
-      postalCode: '',
-      notes: ''
-    })
-    setErrors({})
-    onClose()
-  }
-
-  if (!isOpen) return null
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <ModernLayout>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200">
+        <div className="flex items-center gap-4 mb-8">
+          <button
+            onClick={() => navigate('/business/customers')}
+            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <ArrowLeftIcon className="h-6 w-6" />
+          </button>
           <div className="flex items-center">
             <div className="p-2 bg-pink-100 rounded-lg mr-3">
               <UserPlusIcon className="h-6 w-6 text-pink-600" />
             </div>
-            <h2 className="text-xl font-semibold text-gray-900">Add New Customer</h2>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Add New Customer</h1>
           </div>
-          <button
-            onClick={handleClose}
-            className="text-gray-400 hover:text-gray-600 transition-colors"
-          >
-            <XMarkIcon className="h-6 w-6" />
-          </button>
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6">
           {/* Basic Information */}
-          <div>
+          <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Basic Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
@@ -188,7 +171,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
           </div>
 
           {/* Address Information */}
-          <div>
+          <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Address Information</h3>
             <div className="space-y-4">
               <div>
@@ -209,7 +192,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
           </div>
 
           {/* Additional Information */}
-          <div>
+          <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900 mb-4">Additional Information</h3>
             <div>
               <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
@@ -231,7 +214,7 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
           <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200">
             <button
               type="button"
-              onClick={handleClose}
+              onClick={() => navigate('/business/customers')}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors"
             >
               Cancel
@@ -253,8 +236,9 @@ const AddCustomerModal = ({ isOpen, onClose, onSuccess }) => {
           </div>
         </form>
       </div>
-    </div>
+    </ModernLayout>
   )
 }
 
-export default AddCustomerModal
+export default AddCustomerPage
+

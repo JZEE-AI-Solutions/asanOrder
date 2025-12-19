@@ -21,11 +21,11 @@ const FormsSection = ({ forms, tenant, onOpenForm, onShareForm, onCopyFormLink, 
             </div>
             <h4 className="text-xl font-semibold text-gray-900 mb-2">No Published Forms Yet</h4>
             <p className="text-gray-600 mb-6 max-w-md mx-auto">
-              You don't have any published forms yet. Contact your admin to create and publish forms for your business.
+              You don't have any published forms yet. Create and publish your first form to start accepting orders.
             </p>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 max-w-lg mx-auto">
               <p className="text-sm text-blue-800">
-                <strong>Note:</strong> Only published and visible forms are shown here. Hidden or draft forms are not visible to business owners.
+                <strong>Note:</strong> Only published and visible forms are shown here. You can create and manage all forms from the "All Forms" section above.
               </p>
             </div>
           </div>

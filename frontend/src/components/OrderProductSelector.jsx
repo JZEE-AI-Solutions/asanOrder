@@ -93,46 +93,46 @@ const OrderProductSelector = ({
       {/* Search Bar */}
       {showSearch && (
         <div className="relative">
-          <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-600" />
           <input
             type="text"
             placeholder="Search products..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            className="w-full pl-10 pr-4 py-2.5 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 font-medium"
           />
         </div>
       )}
 
       {/* Selected Products with Quantity and Price Controls */}
       {selectedProducts.length > 0 && (
-        <div className="bg-primary-50 border border-primary-200 rounded-lg p-4">
-          <h4 className="font-medium text-primary-900 mb-3">
+        <div className="bg-pink-50 border-2 border-pink-200 rounded-lg p-4">
+          <h4 className="font-bold text-gray-900 text-lg mb-3">
             Selected Products ({selectedProducts.length}/{maxProducts})
           </h4>
           <div className="space-y-3">
             {selectedProducts.map((product) => (
-              <div key={product.id} className="bg-white border border-primary-200 rounded-lg p-3">
+              <div key={product.id} className="bg-white border-2 border-gray-300 rounded-lg p-4 shadow-sm">
                 <div className="flex items-center space-x-3 mb-3">
                   <img
                     src={getImageUrl('product', product.id, true)}
                     alt={product.name}
-                    className="w-10 h-10 rounded object-cover flex-shrink-0"
+                    className="w-12 h-12 rounded-lg object-cover flex-shrink-0 border-2 border-gray-300"
                     onError={(e) => {
                       e.target.style.display = 'none'
                       e.target.nextElementSibling.style.display = 'flex'
                     }}
                   />
-                  <div style={{display: 'none'}} className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div style={{display: 'none'}} className="w-12 h-12 rounded-lg bg-gray-200 border-2 border-gray-300 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                     </svg>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h5 className="font-medium text-primary-900 truncate">
+                    <h5 className="font-bold text-gray-900 truncate text-base">
                       {product.name}
                     </h5>
-                    <p className="text-xs text-primary-600 truncate">
+                    <p className="text-xs text-gray-700 truncate font-medium mt-0.5">
                       {product.category && `${product.category} • `}
                       {product.color && `${product.color} • `}
                       {product.size && `Size: ${product.size}`}
@@ -141,42 +141,46 @@ const OrderProductSelector = ({
                   <button
                     type="button"
                     onClick={() => removeProduct(product.id)}
-                    className="text-primary-500 hover:text-primary-700 flex-shrink-0"
+                    className="text-red-600 hover:text-red-800 hover:bg-red-50 rounded-full p-1.5 transition-colors flex-shrink-0"
                   >
-                    <XMarkIcon className="h-4 w-4" />
+                    <XMarkIcon className="h-5 w-5" />
                   </button>
                 </div>
                 
                 <div className="grid grid-cols-2 gap-3">
                   {/* Quantity */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-bold text-gray-900 mb-1">
                       Quantity
                     </label>
-                    <div className="flex items-center space-x-1">
+                    <div className="flex items-center space-x-2">
                       <button
                         type="button"
                         onClick={() => handleQuantityChange(product.id, (productQuantities[product.id] || 1) - 1)}
-                        className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600"
+                        className="w-8 h-8 rounded-lg bg-gray-300 hover:bg-gray-400 flex items-center justify-center text-gray-900 font-bold transition-colors"
                       >
-                        <MinusIcon className="h-3 w-3" />
+                        <MinusIcon className="h-4 w-4" />
                       </button>
-                      <span className="text-sm font-medium w-8 text-center">
-                        {productQuantities[product.id] || 1}
-                      </span>
+                      <input
+                        type="number"
+                        min="1"
+                        value={productQuantities[product.id] || 1}
+                        onChange={(e) => handleQuantityChange(product.id, parseInt(e.target.value) || 1)}
+                        className="w-16 px-2 py-1.5 text-center text-sm font-bold bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      />
                       <button
                         type="button"
                         onClick={() => handleQuantityChange(product.id, (productQuantities[product.id] || 1) + 1)}
-                        className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600"
+                        className="w-8 h-8 rounded-lg bg-gray-300 hover:bg-gray-400 flex items-center justify-center text-gray-900 font-bold transition-colors"
                       >
-                        <PlusIcon className="h-3 w-3" />
+                        <PlusIcon className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
                   
                   {/* Price */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                    <label className="block text-xs font-bold text-gray-900 mb-1">
                       Sale Price (Rs.)
                     </label>
                     <input
@@ -185,16 +189,16 @@ const OrderProductSelector = ({
                       min="0"
                       value={productPrices[product.id] || 0}
                       onChange={(e) => handlePriceChange(product.id, e.target.value)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full px-3 py-1.5 text-sm font-bold bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                   </div>
                 </div>
                 
                 {/* Total */}
-                <div className="mt-2 pt-2 border-t border-gray-100">
+                <div className="mt-3 pt-3 border-t-2 border-gray-300">
                   <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium text-gray-700">Total:</span>
-                    <span className="text-sm font-bold text-primary-600">
+                    <span className="text-sm font-bold text-gray-900">Total:</span>
+                    <span className="text-base font-bold text-gray-900">
                       Rs. {((productQuantities[product.id] || 1) * (productPrices[product.id] || 0)).toLocaleString()}
                     </span>
                   </div>
@@ -207,8 +211,8 @@ const OrderProductSelector = ({
 
       {/* Products List */}
       <div className="border border-gray-200 rounded-lg">
-        <div className="p-4 border-b border-gray-200">
-          <h4 className="font-medium text-gray-900">
+        <div className="p-4 border-b-2 border-gray-300 bg-gray-50">
+          <h4 className="font-bold text-gray-900 text-base">
             Available Products ({products.length})
           </h4>
         </div>

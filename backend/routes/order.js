@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { generateOrderNumber } = require('../utils/orderNumberGenerator');
+const profitService = require('../services/profitService');
 const customerService = require('../services/customerService');
 
 const router = express.Router();
@@ -19,13 +20,27 @@ router.post('/submit', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { formLink, formData, paymentAmount, images, paymentReceipt, selectedProducts, productQuantities } = req.body;
+    const { formLink, formData, paymentAmount, images, paymentReceipt, selectedProducts, productQuantities, productPrices } = req.body;
+    
+    // Debug: Log the received data
+    console.log('📥 Received order data:');
+    console.log('  - selectedProducts:', selectedProducts, 'Type:', typeof selectedProducts);
+    if (selectedProducts) {
+      try {
+        const parsed = typeof selectedProducts === 'string' ? JSON.parse(selectedProducts) : selectedProducts;
+        console.log('  - Parsed selectedProducts:', parsed, 'Length:', Array.isArray(parsed) ? parsed.length : 'Not an array');
+      } catch (e) {
+        console.log('  - Error parsing selectedProducts:', e.message);
+      }
+    }
+    console.log('  - productQuantities:', productQuantities, 'Type:', typeof productQuantities);
+    console.log('  - productPrices:', productPrices, 'Type:', typeof productPrices);
 
     // Get form and validate
     const form = await prisma.form.findUnique({
-      where: { 
+      where: {
         formLink,
-        isPublished: true 
+        isPublished: true
       },
       include: {
         fields: true,
@@ -43,25 +58,25 @@ router.post('/submit', [
       return res.status(404).json({ error: 'Form not found or not published' });
     }
 
-        // Validate required fields
-        const requiredFields = form.fields.filter(field => field.isRequired);
-        const missingFields = requiredFields.filter(field => {
-          if (field.fieldType === 'FILE_UPLOAD') {
-            // For file uploads, check if images array is provided and not empty
-            if (field.label.toLowerCase().includes('image') || field.label.toLowerCase().includes('dress')) {
-              return !images || images.length === 0;
-            }
-            // For receipt uploads, they're usually optional or handled separately
-            return false;
-          } else {
-            // For regular fields, check if value exists and is not empty
-            const value = formData[field.label];
-            return value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '');
-          }
-        });
+    // Validate required fields
+    const requiredFields = form.fields.filter(field => field.isRequired);
+    const missingFields = requiredFields.filter(field => {
+      if (field.fieldType === 'FILE_UPLOAD') {
+        // For file uploads, check if images array is provided and not empty
+        if (field.label.toLowerCase().includes('image') || field.label.toLowerCase().includes('dress')) {
+          return !images || images.length === 0;
+        }
+        // For receipt uploads, they're usually optional or handled separately
+        return false;
+      } else {
+        // For regular fields, check if value exists and is not empty
+        const value = formData[field.label];
+        return value === undefined || value === null || value === '' || (typeof value === 'string' && value.trim() === '');
+      }
+    });
 
     if (missingFields.length > 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Missing required fields',
         missingFields: missingFields.map(field => field.label)
       });
@@ -69,16 +84,16 @@ router.post('/submit', [
 
     // Extract phone number for customer lookup
     let phoneNumber = null;
-    const phoneField = form.fields.find(field => 
-      field.fieldType === 'PHONE' || 
+    const phoneField = form.fields.find(field =>
+      field.fieldType === 'PHONE' ||
       field.label.toLowerCase().includes('phone') ||
       field.label.toLowerCase().includes('mobile') ||
       field.label.toLowerCase().includes('contact')
     );
-    
+
     console.log('Phone field found:', phoneField);
     console.log('Form data keys:', Object.keys(formData));
-    
+
     if (phoneField && formData[phoneField.label]) {
       phoneNumber = formData[phoneField.label].trim();
       console.log('Phone number extracted:', phoneNumber);
@@ -91,13 +106,13 @@ router.post('/submit', [
     if (phoneNumber) {
       try {
         customer = await customerService.findOrCreateCustomer(
-          phoneNumber, 
-          form.tenant.id, 
-          { 
+          phoneNumber,
+          form.tenant.id,
+          {
             formData: JSON.stringify(formData), // Ensure formData is stringified
-            paymentAmount, 
-            selectedProducts, 
-            productQuantities 
+            paymentAmount,
+            selectedProducts,
+            productQuantities
           }
         );
         console.log('Customer created/updated successfully:', customer?.id);
@@ -113,6 +128,12 @@ router.post('/submit', [
     // Generate order number
     const orderNumber = await generateOrderNumber(form.tenant.id);
 
+    // Debug: Log what we're about to save
+    console.log('💾 About to save order:');
+    console.log('  - selectedProducts:', selectedProducts, 'Type:', typeof selectedProducts);
+    console.log('  - productQuantities:', productQuantities, 'Type:', typeof productQuantities);
+    console.log('  - productPrices:', productPrices, 'Type:', typeof productPrices);
+    
     // Create order
     const order = await prisma.order.create({
       data: {
@@ -124,8 +145,11 @@ router.post('/submit', [
         paymentAmount: paymentAmount || null,
         images: images ? JSON.stringify(images) : null,
         paymentReceipt: paymentReceipt || null,
-        selectedProducts: selectedProducts ? JSON.stringify(selectedProducts) : null,
-        productQuantities: productQuantities ? JSON.stringify(productQuantities) : null,
+        // selectedProducts, productQuantities, and productPrices are already stringified from frontend
+        // Just save them as-is (they're strings)
+        selectedProducts: selectedProducts || null,
+        productQuantities: productQuantities || null,
+        productPrices: productPrices || null,
         status: 'PENDING'
       },
       include: {
@@ -160,7 +184,7 @@ router.post('/submit', [
   }
 });
 
-  // Get orders (Admin, Business Owner, Stock Keeper)
+// Get orders (Admin, Business Owner, Stock Keeper)
 router.get('/', authenticateToken, async (req, res) => {
   try {
     const { status, page = 1, limit = 10, tenantId } = req.query;
@@ -231,9 +255,9 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Get orders error:', error);
     console.error('Error stack:', error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get orders',
-      message: error.message 
+      message: error.message
     });
   }
 });
@@ -317,7 +341,21 @@ router.get('/:id', authenticateToken, async (req, res) => {
       images: order.images ? JSON.parse(order.images) : null
     };
 
-    res.json({ order: parsedOrder });
+    // Calculate profit if order is confirmed, dispatched, or completed
+    let profitData = null;
+    if (['CONFIRMED', 'DISPATCHED', 'COMPLETED'].includes(order.status)) {
+      try {
+        profitData = await profitService.calculateOrderProfit(order);
+      } catch (error) {
+        console.error('Error calculating profit:', error);
+        // Don't fail the request if profit calculation fails
+      }
+    }
+
+    res.json({ 
+      order: parsedOrder,
+      profit: profitData
+    });
   } catch (error) {
     console.error('Get order error:', error);
     res.status(500).json({ error: 'Failed to get order' });
@@ -362,6 +400,25 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
       }
     });
 
+    // Decrease inventory when order is confirmed
+    if (order.selectedProducts && order.productQuantities) {
+      try {
+        const InventoryService = require('../services/inventoryService');
+        await InventoryService.decreaseInventoryFromOrder(
+          order.tenantId,
+          order.id,
+          order.orderNumber,
+          order.selectedProducts,
+          order.productQuantities
+        );
+        console.log(`✅ Inventory decreased for order ${order.orderNumber}`);
+      } catch (inventoryError) {
+        console.error('⚠️  Error decreasing inventory (order still confirmed):', inventoryError);
+        // Don't fail the order confirmation if inventory update fails
+        // Log the error but continue
+      }
+    }
+
     // TODO: Send notification to stock keeper
     console.log(`Order ${id} confirmed! Notify stock keeper.`);
 
@@ -375,17 +432,29 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
   }
 });
 
-// Dispatch order (Stock Keeper only)
-router.post('/:id/dispatch', authenticateToken, requireRole(['STOCK_KEEPER']), async (req, res) => {
+// Dispatch order (Business Owner or Stock Keeper)
+router.post('/:id/dispatch', authenticateToken, requireRole(['BUSINESS_OWNER', 'STOCK_KEEPER']), async (req, res) => {
   try {
     const { id } = req.params;
 
     const order = await prisma.order.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        tenant: {
+          select: {
+            ownerId: true
+          }
+        }
+      }
     });
 
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
+    }
+
+    // Check permissions for Business Owner
+    if (req.user.role === 'BUSINESS_OWNER' && req.user.id !== order.tenant.ownerId) {
+      return res.status(403).json({ error: 'Access denied' });
     }
 
     if (order.status !== 'CONFIRMED') {
@@ -400,7 +469,7 @@ router.post('/:id/dispatch', authenticateToken, requireRole(['STOCK_KEEPER']), a
     });
 
     // TODO: Send notification to business owner and customer
-    console.log(`Order ${id} dispatched!`);
+    console.log(`Order ${id} dispatched by ${req.user.role}!`);
 
     res.json({
       message: 'Order dispatched successfully',
@@ -483,19 +552,19 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
     }
 
     const { id } = req.params;
-    const { 
-      formData, 
-      images, 
-      paymentReceipt, 
-      productQuantities, 
-      productPrices, 
-      selectedProducts, 
-      paymentAmount 
+    const {
+      formData,
+      images,
+      paymentReceipt,
+      productQuantities,
+      productPrices,
+      selectedProducts,
+      paymentAmount
     } = req.body;
 
     // Check if order exists and belongs to user's tenant
     const existingOrder = await prisma.order.findFirst({
-      where: { 
+      where: {
         id,
         form: {
           tenant: {
@@ -511,7 +580,7 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
 
     // Prepare update data
     const updateData = {};
-    
+
     if (formData !== undefined) {
       updateData.formData = typeof formData === 'string' ? formData : JSON.stringify(formData);
     }
@@ -608,17 +677,68 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
       whereClause.tenantId = req.user.tenant.id;
     }
 
+    // Calculate date ranges for time-based stats
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - 7);
+    const monthStart = new Date(now);
+    monthStart.setDate(now.getDate() - 30);
+
     const [
       totalOrders,
       pendingOrders,
       confirmedOrders,
       dispatchedOrders,
+      completedOrders,
+      revenueResult,
+      avgOrderValueResult,
+      ordersToday,
+      ordersThisWeek,
+      ordersThisMonth,
       recentOrders
     ] = await Promise.all([
       prisma.order.count({ where: whereClause }),
       prisma.order.count({ where: { ...whereClause, status: 'PENDING' } }),
       prisma.order.count({ where: { ...whereClause, status: 'CONFIRMED' } }),
       prisma.order.count({ where: { ...whereClause, status: 'DISPATCHED' } }),
+      prisma.order.count({ where: { ...whereClause, status: 'COMPLETED' } }),
+      prisma.order.aggregate({
+        _sum: {
+          paymentAmount: true
+        },
+        where: whereClause
+      }),
+      prisma.order.aggregate({
+        _avg: {
+          paymentAmount: true
+        },
+        where: whereClause
+      }),
+      prisma.order.count({
+        where: {
+          ...whereClause,
+          createdAt: {
+            gte: todayStart
+          }
+        }
+      }),
+      prisma.order.count({
+        where: {
+          ...whereClause,
+          createdAt: {
+            gte: weekStart
+          }
+        }
+      }),
+      prisma.order.count({
+        where: {
+          ...whereClause,
+          createdAt: {
+            gte: monthStart
+          }
+        }
+      }),
       prisma.order.findMany({
         where: whereClause,
         select: {
@@ -644,22 +764,61 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
       })
     ]);
 
+    const totalRevenue = revenueResult._sum.paymentAmount || 0;
+    const averageOrderValue = avgOrderValueResult._avg.paymentAmount || 0;
+
     res.json({
       stats: {
         totalOrders,
         pendingOrders,
         confirmedOrders,
-        dispatchedOrders
+        dispatchedOrders,
+        completedOrders,
+        totalRevenue,
+        averageOrderValue,
+        ordersToday,
+        ordersThisWeek,
+        ordersThisMonth
       },
       recentOrders
     });
   } catch (error) {
     console.error('Get order stats error:', error);
     console.error('Error stack:', error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       error: 'Failed to get order statistics',
-      message: error.message 
+      message: error.message
     });
+  }
+});
+
+// Get profit statistics
+router.get('/stats/profit', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { startDate, endDate, status } = req.query;
+
+    const profitStats = await profitService.getProfitStatistics(tenant.id, {
+      startDate,
+      endDate,
+      status
+    });
+
+    res.json({
+      success: true,
+      ...profitStats
+    });
+  } catch (error) {
+    console.error('Get profit stats error:', error);
+    res.status(500).json({ error: 'Failed to get profit statistics' });
   }
 });
 

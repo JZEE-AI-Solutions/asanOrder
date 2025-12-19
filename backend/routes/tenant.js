@@ -6,6 +6,150 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Clear all data for a tenant (Admin only) - DESTRUCTIVE OPERATION
+router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMIN']), async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    // Verify tenant exists
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    console.log(`🗑️ Clearing all data for tenant: ${tenant.businessName} (${tenantId})`);
+
+    // Delete all tenant data in a transaction
+    // Order matters due to foreign key constraints
+    const result = await prisma.$transaction(async (tx) => {
+      const stats = {
+        orders: 0,
+        products: 0,
+        purchaseInvoices: 0,
+        purchaseItems: 0,
+        forms: 0,
+        formFields: 0,
+        customers: 0,
+        customerLogs: 0,
+        returns: 0,
+        returnItems: 0,
+        productLogs: 0
+      };
+
+      // Delete in order of dependencies (child entities first, respecting foreign keys)
+      
+      // 1. Delete ProductLogs first (references products and purchase_items)
+      stats.productLogs = await tx.productLog.deleteMany({
+        where: { tenantId }
+      });
+
+      // 2. Delete Orders (references forms, customers - must be deleted before forms)
+      stats.orders = await tx.order.deleteMany({
+        where: { tenantId }
+      });
+
+      // 3. Delete ReturnItems (references returns)
+      // First get all returns for this tenant, then delete their items
+      const tenantReturns = await tx.return.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const returnIds = tenantReturns.map(r => r.id);
+      
+      if (returnIds.length > 0) {
+        const returnItems = await tx.returnItem.deleteMany({
+          where: {
+            returnId: {
+              in: returnIds
+            }
+          }
+        });
+        stats.returnItems = returnItems.count || 0;
+      }
+
+      // 4. Delete Returns (references purchase_invoices)
+      stats.returns = await tx.return.deleteMany({
+        where: { tenantId }
+      });
+
+      // 5. Delete PurchaseItems (references purchase_invoices and products)
+      stats.purchaseItems = await tx.purchaseItem.deleteMany({
+        where: { tenantId }
+      });
+
+      // 6. Delete PurchaseInvoices (no dependencies after purchase items are deleted)
+      stats.purchaseInvoices = await tx.purchaseInvoice.deleteMany({
+        where: { tenantId }
+      });
+
+      // 7. Delete Products (no dependencies after product logs and purchase items are deleted)
+      stats.products = await tx.product.deleteMany({
+        where: { tenantId }
+      });
+
+      // 8. Delete CustomerLogs (references customers)
+      // First get all customers for this tenant, then delete their logs
+      const tenantCustomers = await tx.customer.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const customerIds = tenantCustomers.map(c => c.id);
+      
+      if (customerIds.length > 0) {
+        const customerLogs = await tx.customerLog.deleteMany({
+          where: {
+            customerId: {
+              in: customerIds
+            }
+          }
+        });
+        stats.customerLogs = customerLogs.count || 0;
+      }
+
+      // 9. Delete Customers (no dependencies after customer logs and orders are deleted)
+      stats.customers = await tx.customer.deleteMany({
+        where: { tenantId }
+      });
+
+      // 10. Delete FormFields (references forms - must be deleted before forms)
+      stats.formFields = await tx.formField.deleteMany({
+        where: {
+          form: {
+            tenantId
+          }
+        }
+      });
+
+      // 11. Delete Forms (no dependencies after form fields and orders are deleted)
+      stats.forms = await tx.form.deleteMany({
+        where: { tenantId }
+      });
+
+      return stats;
+    }, {
+      timeout: 60000 // 60 seconds timeout for large deletions
+    });
+
+    console.log(`✅ Cleared all data for tenant ${tenant.businessName}:`, result);
+
+    res.json({
+      success: true,
+      message: `All data cleared successfully for ${tenant.businessName}`,
+      stats: result
+    });
+
+  } catch (error) {
+    console.error('Error clearing tenant data:', error);
+    res.status(500).json({ 
+      error: 'Failed to clear tenant data',
+      details: error.message 
+    });
+  }
+});
+
 // Generate a unique 4-digit business code
 async function generateBusinessCode() {
   const existingCodes = await prisma.tenant.findMany({

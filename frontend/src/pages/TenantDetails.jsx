@@ -6,7 +6,6 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import CreateFormModal from '../components/CreateFormModal'
 import EditFormModal from '../components/EditFormModal'
-import ProductManagementModal from '../components/ProductManagementModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import {
   ArrowLeftIcon,
@@ -30,7 +29,6 @@ const TenantDetails = () => {
   const [loading, setLoading] = useState(true)
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [showEditForm, setShowEditForm] = useState(false)
-  const [showProductManagement, setShowProductManagement] = useState(false)
   const [selectedForm, setSelectedForm] = useState(null)
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
@@ -92,19 +90,7 @@ const TenantDetails = () => {
   }
 
   const handleProductManagement = (form) => {
-    setSelectedForm(form)
-    setShowProductManagement(true)
-  }
-
-  const handleProductManagementClose = () => {
-    setShowProductManagement(false)
-    setSelectedForm(null)
-  }
-
-  const handleProductManagementSuccess = () => {
-    setShowProductManagement(false)
-    setSelectedForm(null)
-    fetchTenantData()
+    navigate(`/business/forms/${form.id}/products`)
   }
 
   const handleEditForm = (form) => {
@@ -424,14 +410,6 @@ const TenantDetails = () => {
         />
       )}
 
-      {/* Product Management Modal */}
-      {showProductManagement && selectedForm && (
-        <ProductManagementModal
-          form={selectedForm}
-          onClose={handleProductManagementClose}
-          onSuccess={handleProductManagementSuccess}
-        />
-      )}
 
       {/* Edit Form Modal */}
       {showEditForm && selectedForm && (

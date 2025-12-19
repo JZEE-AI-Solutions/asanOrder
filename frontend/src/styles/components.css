@@ -100,15 +100,39 @@
   color: var(--color-gray-800);
 }
 
+.btn-danger {
+  background-color: #dc2626;
+  color: white;
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: var(--radius-lg);
+  font-weight: var(--font-weight-semibold);
+  transition: all var(--transition-fast);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-danger:hover {
+  background-color: #b91c1c;
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
 /* Input Components */
 .input-field {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
-  border: 1px solid var(--color-gray-300);
+  border: 2px solid var(--color-gray-300);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
+  font-weight: 500;
   transition: all var(--transition-fast);
-  background: white;
+  background: white !important;
+  color: var(--color-gray-900) !important;
 }
 
 .input-field:focus {
@@ -118,7 +142,152 @@
 }
 
 .input-field::placeholder {
-  color: var(--color-gray-500);
+  color: var(--color-gray-400);
+  font-weight: 400;
+}
+
+/* Ensure select and option elements have proper text color */
+.input-field select,
+select.input-field {
+  color: var(--color-gray-900) !important;
+  background: white !important;
+}
+
+.input-field option,
+select.input-field option,
+option {
+  color: var(--color-gray-900) !important;
+  background: white !important;
+}
+
+/* Ensure all form inputs have dark text */
+input.input-field,
+textarea.input-field,
+select.input-field {
+  color: var(--color-gray-900) !important;
+  background: white !important;
+}
+
+/* Global fix for all select and option elements - CRITICAL FOR DROPDOWNS */
+select {
+  color: #111827 !important; /* Direct hex - gray-900 */
+  background-color: #ffffff !important; /* Direct hex - white */
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+/* Ensure all option elements have dark text - HIGHEST PRIORITY */
+select option,
+option {
+  color: #111827 !important; /* Direct hex - gray-900 */
+  background-color: #ffffff !important; /* Direct hex - white */
+}
+
+/* Override any white text on options */
+select option.text-white,
+option.text-white {
+  color: #111827 !important;
+  background-color: #ffffff !important;
+}
+
+/* Ensure selected option is visible */
+select option:checked,
+select option:selected {
+  color: #111827 !important;
+  background-color: #f3f4f6 !important; /* Light gray for selected state */
+}
+
+/* Ensure hover state on options is visible */
+select option:hover {
+  color: #111827 !important;
+  background-color: #e5e7eb !important; /* Slightly darker gray for hover */
+}
+
+/* Ensure all form inputs have dark text by default - CRITICAL FIX */
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="date"],
+input[type="time"],
+input[type="datetime-local"],
+textarea,
+select {
+  color: var(--color-gray-900) !important;
+  background-color: white !important;
+}
+
+/* Override any text-white or white text classes on inputs */
+input[type="text"].text-white,
+input[type="email"].text-white,
+input[type="tel"].text-white,
+input[type="number"].text-white,
+input[type="password"].text-white,
+textarea.text-white,
+select.text-white {
+  color: var(--color-gray-900) !important;
+}
+
+/* Ensure input values (typed text) are always dark */
+input[type="text"]::value,
+input[type="email"]::value,
+input[type="tel"]::value,
+input[type="number"]::value,
+input[type="password"]::value,
+textarea::value {
+  color: var(--color-gray-900) !important;
+}
+
+/* Force dark text on all input elements regardless of parent styles - HIGHEST PRIORITY */
+input:not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  color: var(--color-gray-900) !important;
+  background-color: white !important;
+}
+
+/* Override any inherited text colors */
+input[type="text"]:not([type="submit"]):not([type="button"]),
+input[type="email"]:not([type="submit"]):not([type="button"]),
+input[type="tel"]:not([type="submit"]):not([type="button"]),
+input[type="number"]:not([type="submit"]):not([type="button"]),
+input[type="password"]:not([type="submit"]):not([type="button"]),
+input[type="search"]:not([type="submit"]):not([type="button"]),
+textarea,
+select {
+  color: #111827 !important; /* Direct hex color to override everything */
+  background-color: #ffffff !important;
+}
+
+/* Ensure option elements have dark text - DUPLICATE FOR MAXIMUM COVERAGE */
+option {
+  color: #111827 !important; /* Direct hex color */
+  background-color: #ffffff !important;
+}
+
+/* Additional rules for option elements in all contexts */
+select option,
+option[value],
+option:not([disabled]) {
+  color: #111827 !important;
+  background-color: #ffffff !important;
+}
+
+/* Override disabled option styling */
+option:disabled {
+  color: #6b7280 !important; /* Gray-500 for disabled */
+  background-color: #f9fafb !important; /* Light gray background */
+}
+
+/* Override any text-white classes on form elements */
+input.text-white,
+textarea.text-white,
+select.text-white {
+  color: #111827 !important;
 }
 
 /* Badge Components */

@@ -24,7 +24,8 @@ router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, 
       limit = 20, 
       search = '', 
       sortBy = 'lastOrderDate', 
-      sortOrder = 'desc' 
+      sortOrder = 'desc',
+      hasPendingPayment = false
     } = req.query;
 
     const result = await customerService.getCustomersByTenant(tenant.id, {
@@ -32,7 +33,8 @@ router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, 
       limit: parseInt(limit),
       search,
       sortBy,
-      sortOrder
+      sortOrder,
+      hasPendingPayment: hasPendingPayment === 'true' || hasPendingPayment === true
     });
 
     res.json({

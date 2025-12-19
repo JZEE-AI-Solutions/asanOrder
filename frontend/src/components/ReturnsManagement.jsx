@@ -117,13 +117,13 @@ const ReturnsManagement = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
           >
-            <option value="ALL">All Returns</option>
-            <option value="PENDING">Pending</option>
-            <option value="APPROVED">Approved</option>
-            <option value="REJECTED">Rejected</option>
-            <option value="PROCESSED">Processed</option>
+            <option value="ALL" className="text-gray-900 bg-white">All Returns</option>
+            <option value="PENDING" className="text-gray-900 bg-white">Pending</option>
+            <option value="APPROVED" className="text-gray-900 bg-white">Approved</option>
+            <option value="REJECTED" className="text-gray-900 bg-white">Rejected</option>
+            <option value="PROCESSED" className="text-gray-900 bg-white">Processed</option>
           </select>
         </div>
       </div>

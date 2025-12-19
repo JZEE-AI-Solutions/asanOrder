@@ -261,6 +261,161 @@ class InventoryService {
   }
 
   /**
+   * Decrease inventory when an order is confirmed
+   * @param {string} tenantId - Tenant ID
+   * @param {string} orderId - Order ID
+   * @param {string} orderNumber - Order number for reference
+   * @param {Array|string} selectedProducts - Array of selected products or JSON string
+   * @param {Object|string} productQuantities - Object mapping product IDs to quantities or JSON string
+   */
+  static async decreaseInventoryFromOrder(tenantId, orderId, orderNumber, selectedProducts, productQuantities) {
+    console.log(`🔄 Decreasing inventory for order ${orderNumber}`);
+    
+    const results = {
+      productsUpdated: 0,
+      logsCreated: 0,
+      errors: []
+    };
+
+    try {
+      // Parse selectedProducts if it's a string
+      let products = selectedProducts;
+      if (typeof selectedProducts === 'string') {
+        try {
+          products = JSON.parse(selectedProducts);
+        } catch (e) {
+          console.error('Error parsing selectedProducts:', e);
+          throw new Error('Invalid selectedProducts format');
+        }
+      }
+
+      // Parse productQuantities if it's a string
+      let quantities = productQuantities;
+      if (typeof productQuantities === 'string') {
+        try {
+          quantities = JSON.parse(productQuantities);
+        } catch (e) {
+          console.error('Error parsing productQuantities:', e);
+          throw new Error('Invalid productQuantities format');
+        }
+      }
+
+      // Ensure products is an array
+      if (!Array.isArray(products)) {
+        if (typeof products === 'object' && products !== null) {
+          products = Object.values(products);
+        } else {
+          console.log('⚠️  No products found in order');
+          return results;
+        }
+      }
+
+      // Ensure quantities is an object
+      if (!quantities || typeof quantities !== 'object') {
+        quantities = {};
+      }
+
+      if (products.length === 0) {
+        console.log('⚠️  No products to process');
+        return results;
+      }
+
+      console.log(`   Processing ${products.length} products from order ${orderNumber}`);
+
+      for (const product of products) {
+        try {
+          const productId = product.id;
+          const productName = product.name;
+          const quantity = quantities[productId] || product.quantity || 1;
+
+          if (!productName) {
+            console.log(`   ⚠️  Skipping product without name`);
+            continue;
+          }
+
+          // Find product by ID first, then by name
+          let foundProduct = null;
+          if (productId) {
+            foundProduct = await prisma.product.findFirst({
+              where: {
+                id: productId,
+                tenantId: tenantId
+              }
+            });
+          }
+
+          // If not found by ID, try to find by name (case-insensitive)
+          if (!foundProduct) {
+            foundProduct = await prisma.product.findFirst({
+              where: {
+                tenantId: tenantId,
+                name: {
+                  equals: productName,
+                  mode: 'insensitive'
+                }
+              }
+            });
+          }
+
+          if (foundProduct) {
+            const oldQuantity = foundProduct.currentQuantity;
+            const newQuantity = Math.max(0, oldQuantity - quantity); // Don't go below 0
+
+            await prisma.product.update({
+              where: { id: foundProduct.id },
+              data: {
+                currentQuantity: newQuantity,
+                lastUpdated: new Date()
+              }
+            });
+
+            // Create product log for quantity decrease
+            await prisma.productLog.create({
+              data: {
+                action: 'DECREASE',
+                quantity: -quantity,
+                oldQuantity: oldQuantity,
+                newQuantity: newQuantity,
+                reason: 'Order confirmed',
+                reference: `Order: ${orderNumber}`,
+                notes: `Quantity decreased by ${quantity} due to order confirmation`,
+                tenantId: tenantId,
+                productId: foundProduct.id
+              }
+            });
+
+            results.productsUpdated++;
+            results.logsCreated++;
+
+            console.log(`   ✅ Updated product: ${productName} (${oldQuantity} → ${newQuantity}, -${quantity})`);
+
+          } else {
+            console.log(`   ⚠️  Product not found: ${productName} (ID: ${productId || 'N/A'})`);
+            results.errors.push({
+              product: productName,
+              error: 'Product not found in inventory'
+            });
+          }
+
+        } catch (itemError) {
+          console.error(`   ❌ Error processing product ${product.name || 'unknown'}:`, itemError);
+          results.errors.push({
+            product: product.name || 'unknown',
+            error: itemError.message
+          });
+        }
+      }
+
+      console.log(`✅ Order processing completed: ${results.productsUpdated} updated, ${results.logsCreated} logs`);
+      return results;
+
+    } catch (error) {
+      console.error('❌ Order processing failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get product inventory summary
    * @param {string} tenantId - Tenant ID
    * @param {Object} filters - Optional filters

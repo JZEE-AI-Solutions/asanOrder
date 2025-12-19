@@ -6,9 +6,9 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
-import ProductManagementModal from '../components/ProductManagementModal'
-import CustomerDetailsModal from '../components/CustomerDetailsModal'
-import AddCustomerModal from '../components/AddCustomerModal'
+import CreateFormModal from '../components/CreateFormModal'
+import EditFormModal from '../components/EditFormModal'
+import ConfirmationModal from '../components/ConfirmationModal'
 import { 
   DocumentTextIcon, 
   ShoppingBagIcon,
@@ -24,7 +24,11 @@ import {
   UserPlusIcon,
   ArrowTopRightOnSquareIcon,
   CubeIcon,
-  ChartBarIcon as ChartBarIconOutline
+  ChartBarIcon as ChartBarIconOutline,
+  PlusIcon,
+  PencilIcon,
+  TrashIcon,
+  EyeSlashIcon
 } from '@heroicons/react/24/outline'
 
 const BusinessDashboard = () => {
@@ -34,18 +38,29 @@ const BusinessDashboard = () => {
   const [recentOrders, setRecentOrders] = useState([])
   const [forms, setForms] = useState([])
   const [stats, setStats] = useState(null)
+  const [profitStats, setProfitStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [selectedForm, setSelectedForm] = useState(null)
-  const [showProductManagement, setShowProductManagement] = useState(false)
+  
+  // Form management state
+  const [showCreateForm, setShowCreateForm] = useState(false)
+  const [showEditForm, setShowEditForm] = useState(false)
+  const [allForms, setAllForms] = useState([]) // All forms (published and unpublished)
+  const [confirmationModal, setConfirmationModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    confirmText: 'Confirm',
+    cancelText: 'Cancel',
+    onConfirm: null
+  })
   
   // Customer management state
   const [customers, setCustomers] = useState([])
   const [customerStats, setCustomerStats] = useState(null)
-  const [selectedCustomer, setSelectedCustomer] = useState(null)
-  const [showCustomerDetails, setShowCustomerDetails] = useState(false)
-  const [showAddCustomer, setShowAddCustomer] = useState(false)
   const [customerSearch, setCustomerSearch] = useState('')
   const [customerPage, setCustomerPage] = useState(1)
   const [customerLoading, setCustomerLoading] = useState(false)
@@ -56,17 +71,24 @@ const BusinessDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
-      const [tenantRes, recentOrdersRes, statsRes, formsRes] = await Promise.all([
+      const [tenantRes, recentOrdersRes, statsRes, formsRes, allFormsRes, profitRes] = await Promise.all([
         api.get('/tenant/owner/me'),
         api.get('/order?limit=5&sort=newest'), // Only fetch recent 5 orders
         api.get('/order/stats/dashboard'),
-        api.get('/form') // Fetch published forms for business owner
+        api.get('/form'), // Fetch published forms for business owner
+        api.get('/form?includeUnpublished=true').catch(() => ({ data: { forms: [] } })), // Fetch all forms including unpublished for management
+        api.get('/order/stats/profit').catch((err) => {
+          console.error('Profit stats error:', err)
+          return { data: { totalRevenue: 0, totalCost: 0, totalProfit: 0, profitMargin: 0, orderCount: 0, orders: [] } }
+        }) // Profit stats, don't fail if error
       ])
 
       setTenant(tenantRes.data.tenant)
       setRecentOrders(recentOrdersRes.data.orders)
       setStats(statsRes.data.stats)
-      setForms(formsRes.data.forms || []) // Store forms for display
+      setForms(formsRes.data.forms || []) // Store published forms for display
+      setAllForms(allFormsRes.data.forms || []) // Store all forms for management
+      setProfitStats(profitRes.data || { totalRevenue: 0, totalCost: 0, totalProfit: 0, profitMargin: 0, orderCount: 0, orders: [] }) // Profit statistics
     } catch (error) {
       toast.error('Failed to fetch dashboard data')
     } finally {
@@ -89,6 +111,91 @@ const BusinessDashboard = () => {
     const message = `Hi! You can place your order for ${tenant.businessName} using this link: ${url}`
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(message)}`
     window.open(whatsappUrl, '_blank')
+  }
+
+  // Form management handlers
+  const handleFormCreated = () => {
+    setShowCreateForm(false)
+    fetchDashboardData()
+  }
+
+  const handleEditForm = (form) => {
+    setSelectedForm(form)
+    setShowEditForm(true)
+  }
+
+  const handleFormUpdated = () => {
+    setShowEditForm(false)
+    setSelectedForm(null)
+    fetchDashboardData()
+  }
+
+  const publishForm = async (formId) => {
+    try {
+      const response = await api.post(`/form/${formId}/publish`)
+      toast.success('Form published successfully!')
+      toast.success(`Form URL: ${response.data.formUrl}`)
+      fetchDashboardData()
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to publish form')
+    }
+  }
+
+  const unpublishForm = async (formId, formName) => {
+    try {
+      await api.post(`/form/${formId}/unpublish`)
+      toast.success(`Form "${formName}" unpublished successfully!`)
+      fetchDashboardData()
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to unpublish form')
+    }
+  }
+
+  const deleteForm = async (formId, formName) => {
+    if (!window.confirm(`Are you sure you want to delete "${formName}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      await api.delete(`/form/${formId}`)
+      toast.success('Form deleted successfully!')
+      fetchDashboardData()
+    } catch (error) {
+      if (error.response?.data?.ordersCount > 0) {
+        toast.error(`Cannot delete form with ${error.response.data.ordersCount} orders. Unpublish it instead.`)
+      } else {
+        toast.error(error.response?.data?.error || 'Failed to delete form')
+      }
+    }
+  }
+
+  const showConfirmation = (title, message, type = 'warning', confirmText = 'Confirm', cancelText = 'Cancel') => {
+    return new Promise((resolve) => {
+      setConfirmationModal({
+        isOpen: true,
+        title,
+        message,
+        type,
+        confirmText,
+        cancelText,
+        onConfirm: () => {
+          closeConfirmation()
+          resolve(true)
+        }
+      })
+    })
+  }
+
+  const closeConfirmation = () => {
+    setConfirmationModal({
+      isOpen: false,
+      title: '',
+      message: '',
+      type: 'warning',
+      confirmText: 'Confirm',
+      cancelText: 'Cancel',
+      onConfirm: null
+    })
   }
 
   // Customer management functions
@@ -119,21 +226,10 @@ const BusinessDashboard = () => {
     fetchCustomers(1, searchTerm)
   }
 
-  const handleCustomerClick = async (customer) => {
-    try {
-      const response = await api.get(`/customer/${customer.id}`)
-      setSelectedCustomer(response.data.customer)
-      setShowCustomerDetails(true)
-    } catch (error) {
-      toast.error('Failed to fetch customer details')
-    }
+  const handleCustomerClick = (customer) => {
+    navigate(`/business/customers/${customer.id}`)
   }
 
-  const handleCustomerCreated = () => {
-    // Refresh customer list and stats
-    fetchCustomers(customerPage, customerSearch)
-    fetchCustomerStats()
-  }
 
   // Fetch customers when customers tab is activated
   useEffect(() => {
@@ -155,8 +251,7 @@ const BusinessDashboard = () => {
   }
 
   const manageProducts = (form) => {
-    setSelectedForm(form)
-    setShowProductManagement(true)
+    navigate(`/business/forms/${form.id}/products`)
   }
 
   const handleStatClick = (filter) => {
@@ -258,6 +353,17 @@ const BusinessDashboard = () => {
               <UsersIcon className="h-5 w-5 inline mr-2" />
               Customers
             </button>
+            <button
+              onClick={() => setActiveTab('forms')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'forms'
+                  ? 'border-pink-500 text-pink-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <DocumentTextIcon className="h-5 w-5 inline mr-2" />
+              Order Forms
+            </button>
           </nav>
         </div>
 
@@ -298,16 +404,45 @@ const BusinessDashboard = () => {
             <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-yellow-500" />
           </button>
 
-          <button
-            onClick={() => handleStatClick('CONFIRMED')}
-            className="card-compact text-center hover:shadow-xl hover:border-green-300 transition-all duration-300 cursor-pointer group"
-          >
-            <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center group-hover:bg-green-200 transition-colors">
-              <CheckIcon className="h-6 w-6 text-green-600" />
+          {/* Profit Statistics - Always show */}
+          <div className="card-compact text-center hover:shadow-xl transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200">
+            <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center">
+              <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
             </div>
-            <p className="text-2xl sm:text-3xl font-bold text-green-600 group-hover:text-green-700 mb-1">{stats?.confirmedOrders || 0}</p>
-            <p className="text-sm font-semibold text-gray-600 mb-2">Confirmed</p>
-            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-green-500" />
+            <p className={`text-2xl sm:text-3xl font-bold mb-1 ${(profitStats?.totalProfit || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              Rs. {(profitStats?.totalProfit || 0).toLocaleString()}
+            </p>
+            <p className="text-sm font-semibold text-gray-600">Net Profit</p>
+            <p className="text-xs text-gray-500 mt-1">Margin: {(profitStats?.profitMargin || 0).toFixed(1)}%</p>
+          </div>
+        </div>
+
+        {/* Additional Profit Stats Row - Always show */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
+          <div className="card-compact text-center hover:shadow-xl transition-all duration-300">
+            <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-full flex items-center justify-center">
+              <ChartBarIcon className="h-6 w-6 text-blue-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Rs. {(profitStats?.totalRevenue || 0).toLocaleString()}</p>
+            <p className="text-sm font-semibold text-gray-600">Total Revenue</p>
+          </div>
+          <div className="card-compact text-center hover:shadow-xl transition-all duration-300">
+            <div className="w-12 h-12 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">
+              <CurrencyDollarIcon className="h-6 w-6 text-red-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Rs. {(profitStats?.totalCost || 0).toLocaleString()}</p>
+            <p className="text-sm font-semibold text-gray-600">Total Cost</p>
+          </div>
+          <button
+            onClick={() => navigate('/business/reports')}
+            className="card-compact text-center hover:shadow-xl hover:border-purple-300 transition-all duration-300 cursor-pointer group"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-full flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+              <ChartBarIcon className="h-6 w-6 text-purple-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-purple-600 mb-1">{profitStats?.orderCount || 0}</p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Orders Analyzed</p>
+            <p className="text-xs text-purple-600 group-hover:text-purple-700">View Reports →</p>
           </button>
         </div>
 
@@ -558,7 +693,7 @@ const BusinessDashboard = () => {
                 </div>
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setShowAddCustomer(true)}
+                    onClick={() => navigate('/business/customers/new')}
                     className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
                   >
                     <UserPlusIcon className="h-4 w-4 mr-2" />
@@ -656,6 +791,114 @@ const BusinessDashboard = () => {
             </div>
           </div>
         )}
+
+        {activeTab === 'forms' && (
+          <div className="card p-4 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6">
+              <h3 className="text-base sm:text-lg font-medium text-gray-900">Order Forms</h3>
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="btn-primary flex items-center mt-2 sm:mt-0"
+              >
+                <PlusIcon className="h-4 w-4 mr-2" />
+                Create Form
+              </button>
+            </div>
+            
+            {!allForms || allForms.length === 0 ? (
+              <div className="text-center py-8">
+                <DocumentTextIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No Forms Created Yet</h3>
+                <p className="text-gray-600 mb-4">Create your first form to start accepting orders</p>
+                <button
+                  onClick={() => setShowCreateForm(true)}
+                  className="btn-primary"
+                >
+                  Create Your First Form
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Form Name
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Orders
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Fields
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {allForms.map((form) => (
+                      <tr key={form.id}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {form.name}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`badge ${form.isPublished ? 'badge-confirmed' : 'badge-pending'}`}>
+                            {form.isPublished ? 'Published' : 'Draft'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {form._count?.orders || 0}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {form.fields?.length || 0}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex justify-end space-x-2">
+                            {form.isPublished ? (
+                              <button
+                                onClick={() => unpublishForm(form.id, form.name)}
+                                className="text-yellow-600 hover:text-yellow-900 flex items-center"
+                              >
+                                <EyeSlashIcon className="h-4 w-4 mr-1" />
+                                Unpublish
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => publishForm(form.id)}
+                                className="text-green-600 hover:text-green-900 flex items-center"
+                              >
+                                <ShareIcon className="h-4 w-4 mr-1" />
+                                Publish
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleEditForm(form)}
+                              className="text-primary-600 hover:text-primary-900 flex items-center"
+                            >
+                              <PencilIcon className="h-4 w-4 mr-1" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteForm(form.id, form.name)}
+                              className="text-red-600 hover:text-red-900 flex items-center"
+                            >
+                              <TrashIcon className="h-4 w-4 mr-1" />
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Order Details Modal */}
@@ -667,40 +910,40 @@ const BusinessDashboard = () => {
         />
       )}
 
-      {/* Product Management Modal */}
-      {showProductManagement && selectedForm && (
-        <ProductManagementModal
-          form={selectedForm}
-          onClose={() => {
-            setShowProductManagement(false)
-            setSelectedForm(null)
-          }}
-          onSuccess={() => {
-            setShowProductManagement(false)
-            setSelectedForm(null)
-            fetchDashboardData() // Refresh forms to get updated product data
-          }}
+      {/* Form Modals */}
+      {showCreateForm && (
+        <CreateFormModal
+          tenants={tenant ? [tenant] : []}
+          onClose={() => setShowCreateForm(false)}
+          onSuccess={handleFormCreated}
         />
       )}
+
+      {showEditForm && selectedForm && (
+        <EditFormModal
+          form={selectedForm}
+          onClose={() => {
+            setShowEditForm(false)
+            setSelectedForm(null)
+          }}
+          onSuccess={handleFormUpdated}
+        />
+      )}
+
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={confirmationModal.isOpen}
+        onClose={closeConfirmation}
+        onConfirm={confirmationModal.onConfirm}
+        title={confirmationModal.title}
+        message={confirmationModal.message}
+        type={confirmationModal.type}
+        confirmText={confirmationModal.confirmText}
+        cancelText={confirmationModal.cancelText}
+      />
 
       {/* Customer Details Modal */}
       {showCustomerDetails && selectedCustomer && (
-        <CustomerDetailsModal
-          customer={selectedCustomer}
-          isOpen={showCustomerDetails}
-          onClose={() => {
-            setShowCustomerDetails(false)
-            setSelectedCustomer(null)
-          }}
-        />
-      )}
-
-      {/* Add Customer Modal */}
-      <AddCustomerModal
-        isOpen={showAddCustomer}
-        onClose={() => setShowAddCustomer(false)}
-        onSuccess={handleCustomerCreated}
-      />
     </div>
   )
 }

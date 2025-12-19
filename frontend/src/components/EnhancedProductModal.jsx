@@ -158,7 +158,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                     </label>
                     <input
                       {...register('name', { required: 'Product name is required' })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter product name"
                     />
                     {errors.name && (
@@ -172,7 +172,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                     </label>
                     <input
                       {...register('sku')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter SKU"
                     />
                   </div>
@@ -184,7 +184,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                     <textarea
                       {...register('description')}
                       rows={3}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter product description"
                     />
                   </div>
@@ -195,7 +195,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                     </label>
                     <input
                       {...register('category')}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Enter category"
                     />
                   </div>
@@ -218,7 +218,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                       type="number"
                       step="0.01"
                       defaultValue={product?.currentRetailPrice || 0}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="0.00"
                     />
                     {errors.currentRetailPrice && (
@@ -238,7 +238,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                       type="number"
                       step="0.01"
                       defaultValue={product?.lastPurchasePrice || 0}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="0.00"
                     />
                     {errors.lastPurchasePrice && (
@@ -258,7 +258,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                       type="number"
                       step="0.01"
                       defaultValue={product?.lastSalePrice || 0}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="0.00"
                     />
                     {errors.lastSalePrice && (
@@ -282,7 +282,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                         min: { value: 0, message: 'Quantity must be positive' }
                       })}
                       type="number"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="0"
                     />
                     {errors.currentQuantity && (
@@ -300,7 +300,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                         min: { value: 0, message: 'Stock level must be positive' }
                       })}
                       type="number"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="0"
                     />
                     {errors.minStockLevel && (
@@ -318,7 +318,7 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                         min: { value: 0, message: 'Stock level must be positive' }
                       })}
                       type="number"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Optional"
                     />
                     {errors.maxStockLevel && (
@@ -346,11 +346,11 @@ const EnhancedProductModal = ({ product, isEditing, onClose, onSaved }) => {
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Reason for Changes
                   </label>
-                  <input
-                    {...register('reason')}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Optional: Explain why you're making these changes"
-                  />
+                    <input
+                      {...register('reason')}
+                      className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Optional: Explain why you're making these changes"
+                    />
                 </div>
               )}
 

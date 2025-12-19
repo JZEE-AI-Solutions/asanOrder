@@ -111,6 +111,10 @@ const ClientFormDynamic = () => {
         }
         
         if (selectedProducts && Array.isArray(selectedProducts)) {
+          // Store original selectedProducts with prices for later merging
+          const originalSelectedProducts = selectedProducts
+          console.log('📦 Original selectedProducts with prices:', JSON.stringify(originalSelectedProducts, null, 2))
+          
           // If products only have IDs, we need to fetch full product data
           const productIds = selectedProducts.map(p => p.id)
           console.log('Product IDs to fetch:', productIds)
@@ -127,8 +131,28 @@ const ClientFormDynamic = () => {
               const fullProducts = response.data.products || []
               console.log('Fetched full products:', fullProducts)
               
-              // Update the form field with full product data (these are available products)
-              firstField.selectedProducts = fullProducts
+              // Merge with prices from original selectedProducts if available
+              const productsWithPrices = fullProducts.map(product => {
+                const originalProduct = originalSelectedProducts.find(p => p.id === product.id)
+                // Use price from original selectedProducts if available (even if 0), otherwise use currentRetailPrice
+                let price
+                if (originalProduct && originalProduct.price !== undefined && originalProduct.price !== null) {
+                  price = typeof originalProduct.price === 'number' 
+                    ? originalProduct.price 
+                    : parseFloat(originalProduct.price) || 0
+                } else {
+                  price = product.currentRetailPrice ? parseFloat(product.currentRetailPrice) || 0 : 0
+                }
+                console.log('🛒 Loading product for Simple Cart:', product.name, 'Price from form:', originalProduct?.price, 'Final price:', price)
+                return {
+                  ...product,
+                  price: price
+                }
+              })
+              
+              // Update the form field with full product data including prices
+              firstField.selectedProducts = productsWithPrices
+              console.log('✅ Updated products with prices:', productsWithPrices.map(p => ({ name: p.name, price: p.price })))
               
               // Don't pre-select products - let user choose
               setSelectedProducts([])
@@ -441,9 +465,9 @@ const ClientFormDynamic = () => {
         }
         return (
           <select {...commonProps} className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500 bg-white text-gray-900 text-sm transition-colors duration-200">
-            <option value="">Select {field.label.toLowerCase()}</option>
+            <option value="" className="text-gray-900 bg-white">Select {field.label.toLowerCase()}</option>
             {options.map((option, index) => (
-              <option key={index} value={option}>
+              <option key={index} value={option} className="text-gray-900 bg-white">
                 {option}
               </option>
             ))}
@@ -544,6 +568,16 @@ const ClientFormDynamic = () => {
           // Note: selectedProducts and productQuantities are sent separately in orderData
           // We don't add them to formData to avoid cluttering the order details display
 
+      // Prepare productPrices from selectedProducts
+      const productPrices = {}
+      selectedProducts.forEach(product => {
+        // Use product.price if available (from form's selectedProducts), otherwise use currentRetailPrice
+        const price = product.price !== undefined && product.price !== null
+          ? (typeof product.price === 'number' ? product.price : parseFloat(product.price) || 0)
+          : (product.currentRetailPrice ? parseFloat(product.currentRetailPrice) || 0 : 0)
+        productPrices[product.id] = price
+      })
+      
       // Submit order
       const orderData = {
         formLink,
@@ -555,7 +589,8 @@ const ClientFormDynamic = () => {
         images: uploadedImages.map(img => img.url),
         paymentReceipt: paymentReceipt?.url || null,
         selectedProducts: selectedProducts,
-        productQuantities: productQuantities
+        productQuantities: productQuantities,
+        productPrices: productPrices
       }
 
       console.log('📤 Submitting order data:', orderData)

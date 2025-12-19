@@ -1023,13 +1023,19 @@ const ProductsView = ({ products, displayMode, selectedInvoice, onEditProduct, o
             {/* Product Details */}
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-600">Last Purchase Price:</span>
+                <span className="text-gray-600">Purchase Price:</span>
                 <span className="font-semibold">Rs. {(product.lastPurchasePrice || 0).toFixed(2)}</span>
               </div>
               {product.currentRetailPrice && (
                 <div className="flex justify-between">
                   <span className="text-gray-600">Retail Price:</span>
                   <span className="font-semibold text-green-600">Rs. {product.currentRetailPrice.toFixed(2)}</span>
+                </div>
+              )}
+              {product.lastSalePrice && (
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Sale Price:</span>
+                  <span className="font-semibold text-blue-600">Rs. {product.lastSalePrice.toFixed(2)}</span>
                 </div>
               )}
               <div className="flex justify-between">

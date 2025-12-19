@@ -168,6 +168,18 @@ const ProductDisplay = ({
 
             {/* Product Attributes */}
             <div className="space-y-3">
+              {(currentProduct.price !== undefined || currentProduct.currentRetailPrice) && (
+                <div className="flex items-center">
+                  <span className="text-sm font-medium text-gray-500 w-20">Price:</span>
+                  <span className="text-lg font-bold text-green-600">
+                    Rs. {((currentProduct.price !== undefined && currentProduct.price !== null) 
+                      ? (typeof currentProduct.price === 'number' ? currentProduct.price : parseFloat(currentProduct.price) || 0)
+                      : (currentProduct.currentRetailPrice ? parseFloat(currentProduct.currentRetailPrice) || 0 : 0)
+                    ).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              
               {currentProduct.category && (
                 <div className="flex items-center">
                   <span className="text-sm font-medium text-gray-500 w-20">Category:</span>

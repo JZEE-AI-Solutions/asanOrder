@@ -110,14 +110,19 @@ router.get('/', authenticateToken, async (req, res) => {
     let whereClause = {};
 
     if (req.user.role === 'BUSINESS_OWNER') {
-      // Business owner can only see their own published, visible forms
+      // Business owner can see their own forms
       // Optimize: Use tenant from authenticated user (already loaded)
       if (!req.user.tenant?.id) {
         return res.status(404).json({ error: 'No tenant found for this user' });
       }
       whereClause.tenantId = req.user.tenant.id;
-      whereClause.isPublished = true; // Only published forms
-      whereClause.isHidden = false; // Only visible forms
+      
+      // If includeUnpublished is true, show all forms (for management)
+      // Otherwise, only show published and visible forms (for public display)
+      if (req.query.includeUnpublished !== 'true') {
+        whereClause.isPublished = true; // Only published forms
+        whereClause.isHidden = false; // Only visible forms
+      }
     } else if (req.query.tenantId && req.user.role === 'ADMIN') {
       // Admin can filter by tenant ID
       whereClause.tenantId = req.query.tenantId;
@@ -426,7 +431,7 @@ router.put('/:id', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), 
             placeholder: field.placeholder,
             options: field.options ? JSON.stringify(field.options) : null,
             selectedProducts: field.fieldType === 'PRODUCT_SELECTOR' && field.selectedProducts 
-              ? JSON.stringify(field.selectedProducts) 
+              ? (typeof field.selectedProducts === 'string' ? field.selectedProducts : JSON.stringify(field.selectedProducts))
               : null,
             order: index,
             formId: id

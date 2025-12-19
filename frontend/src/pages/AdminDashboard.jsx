@@ -18,7 +18,8 @@ import {
   ArrowRightIcon,
   PencilIcon,
   TrashIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 
 const AdminDashboard = () => {
@@ -113,6 +114,30 @@ const AdminDashboard = () => {
     setShowEditTenant(false)
     setSelectedTenant(null)
     fetchDashboardData()
+  }
+
+  const handleClearAllData = async (tenant) => {
+    const confirmed = await showConfirmation(
+      'Clear All Data',
+      `⚠️ WARNING: This will permanently delete ALL data for "${tenant.businessName}" including:\n\n• All Orders\n• All Products\n• All Purchase Invoices\n• All Forms\n• All Customers\n• All Returns\n• All Product Logs\n\nThis action CANNOT be undone! Are you absolutely sure?`,
+      'danger',
+      'Yes, Clear All Data',
+      'Cancel'
+    )
+    
+    if (!confirmed) return
+
+    try {
+      const response = await api.delete(`/tenant/${tenant.id}/clear-all-data`)
+      toast.success(`All data cleared successfully for ${tenant.businessName}!`)
+      if (response.data.stats) {
+        console.log('Cleared data stats:', response.data.stats)
+      }
+      fetchDashboardData()
+    } catch (error) {
+      toast.error(error.response?.data?.error || 'Failed to clear tenant data')
+      console.error('Clear data error:', error)
+    }
   }
 
   const handleEditForm = (form) => {
@@ -388,13 +413,22 @@ const AdminDashboard = () => {
                       <span><span className="font-semibold">Orders:</span> {tenant._count.orders}</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => navigate(`/admin/tenant/${tenant.id}`)}
-                    className="w-full mt-3 btn-outline text-sm py-2.5 flex items-center justify-center"
-                  >
-                    View Details
-                    <ArrowRightIcon className="h-4 w-4 ml-1" />
-                  </button>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => navigate(`/admin/tenant/${tenant.id}`)}
+                      className="flex-1 btn-outline text-sm py-2.5 flex items-center justify-center"
+                    >
+                      View Details
+                      <ArrowRightIcon className="h-4 w-4 ml-1" />
+                    </button>
+                    <button
+                      onClick={() => handleClearAllData(tenant)}
+                      className="btn-danger text-sm py-2.5 flex items-center justify-center"
+                      title="Clear all tenant data"
+                    >
+                      <ExclamationTriangleIcon className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
                 ))
               ) : (
@@ -476,6 +510,14 @@ const AdminDashboard = () => {
                           >
                             View Details
                             <ArrowRightIcon className="h-4 w-4 ml-1" />
+                          </button>
+                          <button
+                            onClick={() => handleClearAllData(tenant)}
+                            className="text-red-600 hover:text-red-900 flex items-center"
+                            title="Clear all tenant data"
+                          >
+                            <ExclamationTriangleIcon className="h-4 w-4 mr-1" />
+                            Clear Data
                           </button>
                         </div>
                       </td>

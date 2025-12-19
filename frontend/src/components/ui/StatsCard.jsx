@@ -1,7 +1,7 @@
 import { forwardRef } from 'react'
 import { cn } from '../../utils/cn'
 
-const StatsCard = forwardRef(({ 
+const StatsCard = forwardRef(({
   className,
   title,
   value,
@@ -9,10 +9,11 @@ const StatsCard = forwardRef(({
   trend,
   trendValue,
   onClick,
-  ...props 
+  iconClassName,
+  ...props
 }, ref) => {
   const isClickable = !!onClick
-  
+
   return (
     <div
       ref={ref}
@@ -29,9 +30,9 @@ const StatsCard = forwardRef(({
           <div className={cn(
             'p-2 rounded-lg',
             isClickable && 'group-hover:scale-110 transition-transform duration-200',
-            'bg-pink-100'
+            iconClassName || 'bg-pink-100 text-pink-600'
           )}>
-            <Icon className="h-6 w-6 text-pink-600" />
+            <Icon className="h-6 w-6" />
           </div>
         )}
         <div className="ml-4 flex-1">

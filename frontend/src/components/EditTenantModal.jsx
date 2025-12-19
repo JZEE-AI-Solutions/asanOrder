@@ -69,7 +69,7 @@ const EditTenantModal = ({ tenant, onClose, onSuccess }) => {
             <label className="form-label">Business Name</label>
             <input
               {...register('businessName', { required: 'Business name is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               placeholder="Enter business name"
             />
             {errors.businessName && (
@@ -81,7 +81,7 @@ const EditTenantModal = ({ tenant, onClose, onSuccess }) => {
             <label className="form-label">Contact Person</label>
             <input
               {...register('contactPerson', { required: 'Contact person is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               placeholder="Enter contact person name"
             />
             {errors.contactPerson && (
@@ -99,7 +99,7 @@ const EditTenantModal = ({ tenant, onClose, onSuccess }) => {
                   message: 'Enter valid Pakistani number (+92XXXXXXXXXX)'
                 }
               })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               placeholder="+923001234567"
             />
             {errors.whatsappNumber && (
@@ -111,11 +111,11 @@ const EditTenantModal = ({ tenant, onClose, onSuccess }) => {
             <label className="form-label">Business Type</label>
             <select
               {...register('businessType', { required: 'Business type is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
             >
-              <option value="">Select business type</option>
+              <option value="" className="text-gray-900 bg-white">Select business type</option>
               {businessTypes.map((type) => (
-                <option key={type.value} value={type.value}>
+                <option key={type.value} value={type.value} className="text-gray-900 bg-white">
                   {type.label}
                 </option>
               ))}

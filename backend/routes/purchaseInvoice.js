@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const InventoryService = require('../services/inventoryService');
+const profitService = require('../services/profitService');
 const { generateInvoiceNumber } = require('../utils/invoiceNumberGenerator');
 
 const router = express.Router();
@@ -18,7 +19,7 @@ router.get('/test-auth', authenticateToken, requireRole(['BUSINESS_OWNER']), (re
 
 // Create purchase invoice with products (Business Owner only)
 router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER']), [
-  body('invoiceNumber').trim().notEmpty(),
+  body('invoiceNumber').optional().trim(),
   body('invoiceDate').isISO8601(),
   body('totalAmount').isFloat({ min: 0 }),
   body('products').isArray({ min: 1 }),
@@ -43,7 +44,12 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { invoiceNumber, invoiceDate, totalAmount, products, supplierName, notes } = req.body;
+    let { invoiceNumber, invoiceDate, totalAmount, products, supplierName, notes } = req.body;
+
+    // Auto-generate invoice number if not provided
+    if (!invoiceNumber || invoiceNumber.trim() === '') {
+      invoiceNumber = await generateInvoiceNumber(tenant.id);
+    }
 
     // Check if invoice number already exists
     const existingInvoice = await prisma.purchaseInvoice.findFirst({
@@ -244,10 +250,51 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
       return res.status(404).json({ error: 'Purchase invoice not found' });
     }
 
-    res.json({ purchaseInvoice });
+    // Calculate profit for this invoice
+    let profitData = null;
+    try {
+      profitData = await profitService.calculatePurchaseInvoiceProfit(id, tenant.id);
+    } catch (error) {
+      console.error('Error calculating profit:', error);
+      // Don't fail the request if profit calculation fails
+    }
+
+    res.json({ 
+      purchaseInvoice,
+      profit: profitData
+    });
   } catch (error) {
     console.error('Get purchase invoice error:', error);
     res.status(500).json({ error: 'Failed to get purchase invoice' });
+  }
+});
+
+// Get profit statistics for purchase invoices
+router.get('/profit/stats', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { startDate, endDate } = req.query;
+
+    const profitStats = await profitService.getPurchaseInvoicesProfit(tenant.id, {
+      startDate,
+      endDate
+    });
+
+    res.json({
+      success: true,
+      ...profitStats
+    });
+  } catch (error) {
+    console.error('Get purchase invoices profit stats error:', error);
+    res.status(500).json({ error: 'Failed to get purchase invoices profit statistics' });
   }
 });
 

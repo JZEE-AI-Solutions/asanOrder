@@ -13,82 +13,161 @@
   }
   
   body {
-    @apply bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900;
-    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Ccircle cx='30' cy='30' r='4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    @apply bg-brand-50 text-gray-900;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display font-bold text-gray-900;
   }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 text-white font-semibold py-2.5 px-6 rounded-lg transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl;
+    @apply bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white font-semibold py-2.5 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:-translate-y-0.5;
   }
   
   .btn-secondary {
-    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2.5 px-6 rounded-lg transition-all duration-200;
+    @apply bg-white hover:bg-gray-50 text-gray-800 font-medium py-2.5 px-6 rounded-xl transition-all duration-200 border border-gray-200 shadow-sm hover:shadow;
   }
   
   .btn-outline {
-    @apply border border-pink-500 text-pink-600 hover:bg-pink-50 font-medium py-2.5 px-6 rounded-lg transition-all duration-200;
+    @apply border-2 border-brand-500 text-brand-600 hover:bg-brand-50 font-medium py-2.5 px-6 rounded-xl transition-all duration-200;
   }
   
   .btn-outline-gray {
-    @apply border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2.5 px-6 rounded-lg transition-all duration-200;
+    @apply border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-2.5 px-6 rounded-xl transition-all duration-200;
+  }
+  
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-semibold py-2.5 px-6 rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl hover:-translate-y-0.5;
   }
   
   .input-field {
-    @apply w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent bg-gray-50 text-gray-900 placeholder-gray-500 text-sm;
+    @apply w-full px-4 py-3 bg-white text-gray-900 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 placeholder-gray-400 text-sm transition-all duration-200 font-medium;
+  }
+  
+  /* Ensure select and option elements have dark text */
+  select.input-field,
+  .input-field select {
+    @apply text-gray-900 bg-white;
+  }
+  
+  select.input-field option,
+  .input-field select option,
+  option {
+    @apply text-gray-900 bg-white;
+  }
+  
+  /* CRITICAL: Force all input elements to have dark text - override everything */
+  input:not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    color: #111827 !important; /* Direct hex - gray-900 */
+    background-color: #ffffff !important; /* Direct hex - white */
+  }
+  
+  /* Override any white text classes on form elements - HIGHEST PRIORITY */
+  input.text-white:not([type="submit"]):not([type="button"]),
+  textarea.text-white,
+  select.text-white {
+    color: #111827 !important;
+  }
+  
+  /* Ensure option elements always have dark text - CRITICAL FOR DROPDOWNS */
+  option {
+    color: #111827 !important;
+    background-color: #ffffff !important;
+  }
+  
+  /* Additional select and option rules */
+  select option,
+  option[value] {
+    color: #111827 !important;
+    background-color: #ffffff !important;
+  }
+  
+  /* Selected option styling */
+  select option:checked,
+  select option:selected {
+    color: #111827 !important;
+    background-color: #f3f4f6 !important;
+  }
+  
+  /* Override any Tailwind text-white utility on inputs and selects */
+  input[class*="text-white"]:not([type="submit"]):not([type="button"]),
+  textarea[class*="text-white"],
+  select[class*="text-white"],
+  option[class*="text-white"] {
+    color: #111827 !important;
+  }
+  
+  /* Ensure all select elements have proper styling */
+  select {
+    color: #111827 !important;
+    background-color: #ffffff !important;
   }
   
   .card {
-    @apply bg-white rounded-2xl shadow-2xl border border-gray-100 p-6;
+    @apply bg-white rounded-2xl shadow-card border border-gray-100/50 p-6;
   }
   
   .card-compact {
-    @apply bg-white rounded-xl shadow-lg border border-gray-100 p-4;
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4;
   }
   
   .form-group {
-    @apply mb-4;
+    @apply mb-5;
   }
   
   .form-label {
-    @apply block text-sm font-semibold text-gray-700 mb-2;
+    @apply block text-sm font-medium text-gray-700 mb-2;
   }
   
   .form-error {
-    @apply text-red-600 text-sm mt-1;
+    @apply text-red-500 text-sm mt-1.5;
   }
   
   .badge {
-    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold;
+    @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
   }
   
   .badge-pending {
-    @apply bg-yellow-100 text-yellow-800;
+    @apply bg-orange-100 text-orange-700;
   }
   
   .badge-confirmed {
-    @apply bg-pink-100 text-pink-800;
+    @apply bg-purple-100 text-purple-700;
   }
   
   .badge-dispatched {
-    @apply bg-green-100 text-green-800;
+    @apply bg-blue-100 text-blue-700;
   }
   
   .badge-cancelled {
-    @apply bg-red-100 text-red-800;
+    @apply bg-red-100 text-red-700;
+  }
+  
+  .badge-completed {
+    @apply bg-green-100 text-green-700;
+  }
+  
+  .badge-new {
+    @apply bg-blue-100 text-blue-700;
+  }
+
+  .badge-shipped {
+    @apply bg-orange-100 text-orange-700;
   }
   
   .page-container {
-    @apply min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900;
-    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.02'%3E%3Ccircle cx='30' cy='30' r='4'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    @apply min-h-screen bg-brand-50;
   }
   
   .header-gradient {
-    @apply bg-gradient-to-r from-pink-500 to-pink-600;
+    @apply bg-gradient-to-r from-brand-500 to-brand-600;
   }
   
   .text-gradient {
-    @apply bg-gradient-to-r from-pink-500 to-pink-600 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-brand-500 to-brand-600 bg-clip-text text-transparent;
   }
 }

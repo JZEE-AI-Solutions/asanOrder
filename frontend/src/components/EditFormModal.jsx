@@ -140,10 +140,10 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="form-group">
-              <label className="form-label">Form Name</label>
+              <label className="block text-sm font-bold text-gray-900 mb-2">Form Name</label>
               <input
                 {...register('name', { required: 'Form name is required' })}
-                className="input-field"
+                className="input-field bg-white text-gray-900"
                 placeholder="Enter form name"
               />
               {errors.name && (
@@ -152,13 +152,13 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
             </div>
 
             <div className="form-group">
-              <label className="form-label">Status</label>
+              <label className="block text-sm font-bold text-gray-900 mb-2">Status</label>
               <div className="flex items-center space-x-4">
                 <span className={`badge ${form.isPublished ? 'badge-confirmed' : 'badge-pending'}`}>
                   {form.isPublished ? 'Published' : 'Draft'}
                 </span>
                 {form.isPublished && (
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-700 font-medium">
                     Published forms can be edited, but changes will affect new submissions
                   </span>
                 )}
@@ -167,25 +167,25 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Description</label>
+            <label className="block text-sm font-bold text-gray-900 mb-2">Description</label>
             <textarea
               {...register('description')}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
               rows={2}
               placeholder="Enter form description (optional)"
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label">Form Category</label>
+            <label className="block text-sm font-bold text-gray-900 mb-2">Form Category</label>
             <select
               {...register('formCategory', { required: 'Form category is required' })}
-              className="input-field"
+              className="input-field bg-white text-gray-900"
             >
-              <option value="SIMPLE_CART">Simple Cart (Order Entry Form)</option>
-              <option value="SHOPPING_CART">Shopping Cart (Product Catalog)</option>
+              <option value="SIMPLE_CART" className="text-gray-900 bg-white">Simple Cart (Order Entry Form)</option>
+              <option value="SHOPPING_CART" className="text-gray-900 bg-white">Shopping Cart (Product Catalog)</option>
             </select>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-gray-700 font-medium mt-2">
               Simple Cart: Traditional form with fields. Shopping Cart: Product catalog with cart functionality.
             </p>
             {errors.formCategory && (
@@ -195,7 +195,7 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
 
           <div>
             <div className="flex justify-between items-center mb-4">
-              <h4 className="font-medium text-gray-900">Form Fields</h4>
+              <h4 className="font-bold text-gray-900 text-lg">Form Fields</h4>
               <button
                 type="button"
                 onClick={addField}
@@ -211,8 +211,8 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
                 <div key={field.id} className={`border rounded-lg p-4 ${field.isVisible ? 'border-gray-200 bg-white' : 'border-gray-300 bg-gray-50'}`}>
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center">
-                      <h5 className="font-medium text-gray-700">{field.label || `Field ${index + 1}`}</h5>
-                      {!field.isVisible && <span className="ml-2 text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded">Hidden</span>}
+                      <h5 className="font-bold text-gray-900">{field.label || `Field ${index + 1}`}</h5>
+                      {!field.isVisible && <span className="ml-2 text-xs bg-gray-300 text-gray-900 px-2 py-1 rounded font-semibold">Hidden</span>}
                     </div>
                     <div className="flex items-center space-x-2">
                       <label className="flex items-center">
@@ -221,7 +221,7 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
                           type="checkbox"
                           className="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
                         />
-                        <span className="ml-1 text-xs text-gray-600">Visible</span>
+                        <span className="ml-1 text-xs font-semibold text-gray-900">Visible</span>
                       </label>
                       {fields.length > 1 && (
                         <button
@@ -239,14 +239,14 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-bold text-gray-900 mb-2">
                             Field Label
                           </label>
                           <input
                             {...register(`fields.${index}.label`, { 
                               required: 'Field label is required' 
                             })}
-                            className="input-field"
+                            className="input-field bg-white text-gray-900"
                             placeholder="Enter field label"
                           />
                           {errors.fields?.[index]?.label && (
@@ -255,15 +255,15 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-bold text-gray-900 mb-2">
                             Field Type
                           </label>
                           <select
                             {...register(`fields.${index}.fieldType`)}
-                            className="input-field"
+                            className="input-field bg-white text-gray-900"
                           >
                             {fieldTypes.map((type) => (
-                              <option key={type.value} value={type.value}>
+                              <option key={type.value} value={type.value} className="text-gray-900 bg-white">
                                 {type.label}
                               </option>
                             ))}
@@ -271,12 +271,12 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-bold text-gray-900 mb-2">
                             Placeholder
                           </label>
                           <input
                             {...register(`fields.${index}.placeholder`)}
-                            className="input-field"
+                            className="input-field bg-white text-gray-900"
                             placeholder="Enter placeholder text"
                           />
                         </div>
@@ -284,12 +284,12 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
 
                       {field.fieldType === 'DROPDOWN' && (
                         <div className="mt-3">
-                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                          <label className="block text-sm font-bold text-gray-900 mb-2">
                             Dropdown Options (comma-separated)
                           </label>
                           <input
                             {...register(`fields.${index}.options`)}
-                            className="input-field"
+                            className="input-field bg-white text-gray-900"
                             placeholder="Option 1, Option 2, Option 3"
                           />
                         </div>
@@ -302,7 +302,7 @@ const EditFormModal = ({ form, onClose, onSuccess }) => {
                             type="checkbox"
                             className="rounded border-gray-300 text-primary-600 shadow-sm focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
                           />
-                          <span className="ml-2 text-sm text-gray-700">Required field</span>
+                          <span className="ml-2 text-sm font-bold text-gray-900">Required field</span>
                         </label>
                       </div>
                     </>
