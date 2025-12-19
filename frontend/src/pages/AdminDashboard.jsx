@@ -6,8 +6,6 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import CreateTenantModal from '../components/CreateTenantModal'
 import EditTenantModal from '../components/EditTenantModal'
-import CreateFormModal from '../components/CreateFormModal'
-import EditFormModal from '../components/EditFormModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import {
   UserGroupIcon,
@@ -35,9 +33,6 @@ const AdminDashboard = () => {
   const [showCreateTenant, setShowCreateTenant] = useState(false)
   const [showEditTenant, setShowEditTenant] = useState(false)
   const [selectedTenant, setSelectedTenant] = useState(null)
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [showEditForm, setShowEditForm] = useState(false)
-  const [selectedForm, setSelectedForm] = useState(null)
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
     title: '',
@@ -541,7 +536,7 @@ const AdminDashboard = () => {
             <div className="flex justify-between items-center mb-4 sm:mb-6">
               <h3 className="text-base sm:text-lg font-medium text-gray-900">All Forms</h3>
               <button
-                onClick={() => setShowCreateForm(true)}
+                onClick={handleCreateForm}
                 className="btn-primary flex items-center"
               >
                 <PlusIcon className="h-4 w-4 mr-2" />
@@ -555,7 +550,7 @@ const AdminDashboard = () => {
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Forms Created Yet</h3>
                 <p className="text-gray-600 mb-4">Create your first form to start accepting orders</p>
                 <button
-                  onClick={() => setShowCreateForm(true)}
+                  onClick={handleCreateForm}
                   className="btn-primary"
                 >
                   Create Your First Form
@@ -752,25 +747,6 @@ const AdminDashboard = () => {
       )}
 
       {/* Edit Form Modal */}
-      {showEditForm && selectedForm && (
-        <EditFormModal
-          form={selectedForm}
-          onClose={() => {
-            setShowEditForm(false)
-            setSelectedForm(null)
-          }}
-          onSuccess={handleFormUpdated}
-        />
-      )}
-
-      {/* Create Form Modal */}
-      {showCreateForm && (
-        <CreateFormModal
-          tenants={tenants}
-          onClose={() => setShowCreateForm(false)}
-          onSuccess={handleFormCreated}
-        />
-      )}
 
       {/* Confirmation Modal */}
       <ConfirmationModal

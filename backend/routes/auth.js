@@ -185,4 +185,93 @@ router.post('/setup-admin', async (req, res) => {
   }
 });
 
+// Seed database with initial users (for deployment setup)
+// ⚠️ Only works if database is empty - safe to call multiple times
+router.post('/seed', async (req, res) => {
+  try {
+    // Check if any users exist
+    const userCount = await prisma.user.count();
+    
+    if (userCount > 0) {
+      return res.json({ 
+        message: `Database already has ${userCount} user(s). No seeding needed.`,
+        usersExist: true 
+      });
+    }
+
+    console.log('🌱 Seeding database via API...');
+
+    // Create Admin user
+    const adminPassword = await bcrypt.hash('admin123', 12);
+    const admin = await prisma.user.upsert({
+      where: { email: 'admin@orderms.com' },
+      update: {},
+      create: {
+        email: 'admin@orderms.com',
+        password: adminPassword,
+        name: 'System Administrator',
+        role: 'ADMIN'
+      }
+    });
+
+    // Create Stock Keeper user
+    const stockKeeperPassword = await bcrypt.hash('stock123', 12);
+    const stockKeeper = await prisma.user.upsert({
+      where: { email: 'stock@orderms.com' },
+      update: {},
+      create: {
+        email: 'stock@orderms.com',
+        password: stockKeeperPassword,
+        name: 'Stock Keeper',
+        role: 'STOCK_KEEPER'
+      }
+    });
+
+    // Create Business Owner user
+    const businessOwnerPassword = await bcrypt.hash('business123', 12);
+    const businessOwner = await prisma.user.upsert({
+      where: { email: 'business@dressshop.com' },
+      update: {},
+      create: {
+        email: 'business@dressshop.com',
+        password: businessOwnerPassword,
+        name: 'Sarah Ahmed',
+        role: 'BUSINESS_OWNER'
+      }
+    });
+
+    // Create Tenant
+    const tenant = await prisma.tenant.upsert({
+      where: { ownerId: businessOwner.id },
+      update: {},
+      create: {
+        businessName: 'Elegant Dress Orders',
+        contactPerson: 'Sarah Ahmed',
+        whatsappNumber: '+923001234567',
+        businessType: 'DRESS_SHOP',
+        businessCode: '1001',
+        ownerId: businessOwner.id
+      }
+    });
+
+    res.json({
+      message: 'Database seeded successfully!',
+      usersCreated: {
+        admin: admin.email,
+        stockKeeper: stockKeeper.email,
+        businessOwner: businessOwner.email
+      },
+      tenant: tenant.businessName,
+      credentials: {
+        admin: 'admin@orderms.com / admin123',
+        businessOwner: 'business@dressshop.com / business123',
+        stockKeeper: 'stock@orderms.com / stock123'
+      }
+    });
+  } catch (error) {
+    console.error('Seed error:', error);
+    res.status(500).json({ error: 'Failed to seed database', details: error.message });
+  }
+});
+
 module.exports = router;

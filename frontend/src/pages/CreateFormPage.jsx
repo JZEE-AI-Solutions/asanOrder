@@ -1,15 +1,27 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
-import { XMarkIcon, PlusIcon, TrashIcon, ShoppingBagIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, PlusIcon, TrashIcon, DocumentTextIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import toast from 'react-hot-toast'
-import LoadingSpinner from './LoadingSpinner'
-import ProductSelector from './ProductSelector'
+import LoadingSpinner from '../components/LoadingSpinner'
+import ProductSelector from '../components/ProductSelector'
+import ModernLayout from '../components/ModernLayout'
+import { useAuth } from '../contexts/AuthContext'
+import { useTenant } from '../hooks'
 
-const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
+const CreateFormPage = () => {
+  const navigate = useNavigate()
+  const { user } = useAuth()
+  const { tenant } = useTenant()
+  const [searchParams] = useSearchParams()
+  const defaultTenantId = searchParams.get('tenantId') || tenant?.id || ''
+  
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedTenantId, setSelectedTenantId] = useState(defaultTenantId || '')
+  const [selectedTenantId, setSelectedTenantId] = useState(defaultTenantId)
   const [selectedProducts, setSelectedProducts] = useState([])
+  const [tenants, setTenants] = useState([])
+  const [loadingTenants, setLoadingTenants] = useState(true)
   
   const {
     register,
@@ -20,6 +32,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
     formState: { errors }
   } = useForm({
     defaultValues: {
+      tenantId: defaultTenantId,
       formCategory: 'SIMPLE_CART',
       fields: [
         { label: 'Customer Name', fieldType: 'TEXT', isRequired: false, placeholder: 'Enter your full name', isVisible: true },
@@ -40,6 +53,38 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
     control,
     name: 'fields'
   })
+
+  // Fetch tenants
+  useEffect(() => {
+    const fetchTenants = async () => {
+      try {
+        setLoadingTenants(true)
+        if (user?.role === 'ADMIN') {
+          const response = await api.get('/tenant')
+          setTenants(response.data.tenants || [])
+          // Set default tenant if available from URL or tenant hook
+          if (defaultTenantId) {
+            setSelectedTenantId(defaultTenantId)
+            setValue('tenantId', defaultTenantId)
+          }
+        } else if (user?.tenantId || tenant?.id) {
+          // Business owner - get their tenant
+          const tenantId = user?.tenantId || tenant?.id
+          const response = await api.get(`/tenant/${tenantId}`)
+          setTenants([response.data.tenant])
+          setSelectedTenantId(tenantId)
+          setValue('tenantId', tenantId)
+        }
+      } catch (error) {
+        console.error('Failed to fetch tenants:', error)
+        toast.error('Failed to load tenants')
+      } finally {
+        setLoadingTenants(false)
+      }
+    }
+
+    fetchTenants()
+  }, [user, tenant, defaultTenantId, setValue])
 
   // Auto-detect field type based on field name
   const getFieldTypeFromName = (fieldName) => {
@@ -135,7 +180,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
       
       await api.post('/form', processedData)
       toast.success('Form created successfully!')
-      onSuccess()
+      navigate('/business/forms')
     } catch (error) {
       console.error('Form creation error:', error)
       toast.error('Failed to create form')
@@ -144,29 +189,43 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
     }
   }
 
+  if (loadingTenants) {
+    return (
+      <ModernLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <LoadingSpinner />
+        </div>
+      </ModernLayout>
+    )
+  }
+
   return (
-    <div className="fixed inset-0 bg-gray-50 overflow-y-auto h-full w-full z-50">
-      <div className="min-h-screen bg-white">
-        <div className="sticky top-0 bg-white border-b border-gray-200 shadow-sm z-10 px-6 py-4">
-          <div className="max-w-7xl mx-auto flex justify-between items-center">
-            <h2 className="text-2xl font-bold text-gray-900">Create New Form</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-500 hover:text-gray-700 transition-colors"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
+    <ModernLayout>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <button
+            onClick={() => navigate('/business/forms')}
+            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            <ArrowLeftIcon className="h-6 w-6" />
+          </button>
+          <div className="flex items-center">
+            <div className="p-2 bg-pink-100 rounded-lg mr-3">
+              <DocumentTextIcon className="h-6 w-6 text-pink-600" />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Create New Form</h1>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Form */}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="form-group">
               <label className="block text-sm font-bold text-gray-900 mb-2">Form Name</label>
               <input
                 {...register('name', { required: 'Form name is required' })}
-                className="input-field bg-white text-gray-900"
+                className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
                 placeholder={selectedTenantId ? tenants.find(t => t.id === selectedTenantId)?.businessName || 'Enter form name' : 'Enter form name'}
                 defaultValue={selectedTenantId ? tenants.find(t => t.id === selectedTenantId)?.businessName || '' : ''}
               />
@@ -180,7 +239,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
               <select
                 {...register('tenantId', { required: 'Tenant is required' })}
                 className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
-                style={{ color: '#111827' }}
+                style={{ color: '#111827', backgroundColor: '#ffffff' }}
                 value={selectedTenantId}
                 onChange={(e) => handleTenantChange(e.target.value)}
               >
@@ -201,7 +260,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
             <label className="block text-sm font-bold text-gray-900 mb-2">Description</label>
             <textarea
               {...register('description')}
-              className="input-field bg-white text-gray-900"
+              className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
               rows={2}
               placeholder="Enter form description (optional)"
             />
@@ -212,7 +271,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
             <select
               {...register('formCategory', { required: 'Form category is required' })}
               className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
-              style={{ color: '#111827' }}
+              style={{ color: '#111827', backgroundColor: '#ffffff' }}
               defaultValue="SIMPLE_CART"
             >
               <option value="SIMPLE_CART" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Simple Cart (Order Entry Form)</option>
@@ -225,7 +284,6 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
               <p className="form-error">{errors.formCategory.message}</p>
             )}
           </div>
-
 
           <div>
             <div className="flex justify-between items-center mb-4">
@@ -303,7 +361,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
                                 }
                               }
                             })}
-                            className="input-field bg-white text-gray-900"
+                            className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
                             placeholder="e.g., Customer Name, Email Address, Phone Number"
                           />
                           {errors.fields?.[index]?.label && (
@@ -320,7 +378,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
                           </label>
                           <input
                             {...register(`fields.${index}.placeholder`)}
-                            className="input-field bg-white text-gray-900"
+                            className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
                             placeholder="e.g., Enter your full name"
                           />
                         </div>
@@ -346,7 +404,7 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
                           </label>
                           <input
                             {...register(`fields.${index}.options`)}
-                            className="input-field bg-white text-gray-900"
+                            className="input-field bg-white text-gray-900 border-2 border-gray-300 rounded-lg px-4 py-2 w-full focus:border-primary-500 focus:ring-2 focus:ring-primary-200"
                             placeholder="Small, Medium, Large, Extra Large"
                             defaultValue={field.options?.join(', ')}
                           />
@@ -402,21 +460,21 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
           <div className="flex justify-end space-x-3 pt-6 border-t border-gray-200 mt-8">
             <button
               type="button"
-              onClick={onClose}
-              className="btn-secondary px-6 py-2"
+              onClick={() => navigate('/business/forms')}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-pink-500 transition-colors"
               disabled={isSubmitting}
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="btn-primary flex items-center px-6 py-2"
+              className="px-6 py-2 text-sm font-medium text-white bg-pink-600 border border-transparent rounded-lg hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
               disabled={isSubmitting}
             >
               {isSubmitting ? (
                 <>
-                  <LoadingSpinner size="sm" className="mr-2" />
-                  Creating...
+                  <LoadingSpinner size="sm" />
+                  <span className="ml-2">Creating...</span>
                 </>
               ) : (
                 'Create Form'
@@ -424,10 +482,10 @@ const CreateFormModal = ({ tenants, defaultTenantId, onClose, onSuccess }) => {
             </button>
           </div>
         </form>
-        </div>
       </div>
-    </div>
+    </ModernLayout>
   )
 }
 
-export default CreateFormModal
+export default CreateFormPage
+

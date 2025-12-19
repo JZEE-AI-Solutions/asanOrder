@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { ArrowLeftIcon, CubeIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
@@ -8,10 +8,12 @@ import toast from 'react-hot-toast'
 import ModernLayout from '../components/ModernLayout'
 import { useTenant } from '../hooks'
 
-const AddProductPage = () => {
+const EditProductPage = () => {
   const navigate = useNavigate()
+  const { productId } = useParams()
   const { tenant } = useTenant()
   const [loading, setLoading] = useState(false)
+  const [loadingProduct, setLoadingProduct] = useState(true)
   const [categories, setCategories] = useState([])
   const [showNewCategory, setShowNewCategory] = useState(false)
   const [loadingCategories, setLoadingCategories] = useState(false)
@@ -21,6 +23,7 @@ const AddProductPage = () => {
     handleSubmit,
     watch,
     setValue,
+    reset,
     formState: { errors }
   } = useForm({
     defaultValues: {
@@ -39,6 +42,41 @@ const AddProductPage = () => {
   })
 
   const selectedCategory = watch('category')
+
+  // Fetch product data
+  useEffect(() => {
+    const fetchProduct = async () => {
+      try {
+        setLoadingProduct(true)
+        const response = await api.get(`/product/${productId}`)
+        const product = response.data.product
+        
+        reset({
+          name: product.name || '',
+          description: product.description || '',
+          category: product.category || '',
+          newCategory: '',
+          sku: product.sku || '',
+          currentRetailPrice: product.currentRetailPrice || 0,
+          lastPurchasePrice: product.lastPurchasePrice || 0,
+          lastSalePrice: product.lastSalePrice || 0,
+          minStockLevel: product.minStockLevel || 0,
+          maxStockLevel: product.maxStockLevel || '',
+          isActive: product.isActive ?? true
+        })
+      } catch (error) {
+        console.error('Failed to fetch product:', error)
+        toast.error('Failed to load product')
+        navigate('/business/products')
+      } finally {
+        setLoadingProduct(false)
+      }
+    }
+
+    if (productId) {
+      fetchProduct()
+    }
+  }, [productId, reset, navigate])
 
   // Fetch existing categories from products
   useEffect(() => {
@@ -81,15 +119,41 @@ const AddProductPage = () => {
         ? data.newCategory.trim() 
         : data.category || ''
       
+      // Clean up the data before sending - ensure proper types for backend validation
       const productData = {
-        ...data,
-        category: categoryValue || null,
-        newCategory: undefined, // Remove from submission
-        currentQuantity: 0 // Always set to 0 for new products - quantity should be added via purchase invoices
+        name: data.name?.trim() || '',
+        currentRetailPrice: parseFloat(data.currentRetailPrice) || 0,
+        lastPurchasePrice: parseFloat(data.lastPurchasePrice) || 0,
+        lastSalePrice: parseFloat(data.lastSalePrice) || 0,
+        minStockLevel: parseInt(data.minStockLevel) || 0,
+        isActive: data.isActive ?? true
       }
       
-      const response = await api.post('/product', productData)
-      toast.success('Product created successfully!')
+      // Add optional fields only if they have values
+      if (data.description?.trim()) {
+        productData.description = data.description.trim()
+      }
+      
+      if (categoryValue?.trim()) {
+        productData.category = categoryValue.trim()
+      }
+      
+      if (data.sku?.trim()) {
+        productData.sku = data.sku.trim()
+      }
+      
+      // Handle maxStockLevel - only include if it has a valid integer value
+      if (data.maxStockLevel !== undefined && data.maxStockLevel !== null && data.maxStockLevel !== '') {
+        const maxStock = parseInt(data.maxStockLevel)
+        if (!isNaN(maxStock) && maxStock >= 0) {
+          productData.maxStockLevel = maxStock
+        }
+      }
+      
+      console.log('Sending product update data:', productData)
+      
+      const response = await api.put(`/product/${productId}`, productData)
+      toast.success('Product updated successfully!')
       
       // If a new category was added, refresh categories list so it appears in all dropdowns
       if (showNewCategory && categoryValue) {
@@ -105,12 +169,26 @@ const AddProductPage = () => {
       
       navigate('/business/products')
     } catch (error) {
-      console.error('Failed to create product:', error)
-      const message = error.response?.data?.error || 'Failed to create product'
-      toast.error(message)
+      console.error('Failed to update product:', error)
+      console.error('Error response:', error.response?.data)
+      const errorMessage = error.response?.data?.error || 
+                          error.response?.data?.errors?.[0]?.msg || 
+                          error.response?.data?.message ||
+                          'Failed to update product'
+      toast.error(errorMessage)
     } finally {
       setLoading(false)
     }
+  }
+
+  if (loadingProduct) {
+    return (
+      <ModernLayout>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <LoadingSpinner className="min-h-screen" />
+        </div>
+      </ModernLayout>
+    )
   }
 
   return (
@@ -128,7 +206,7 @@ const AddProductPage = () => {
             <div className="p-2 bg-pink-100 rounded-lg mr-3">
               <CubeIcon className="h-6 w-6 text-pink-600" />
             </div>
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Add New Product</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Edit Product</h1>
           </div>
         </div>
 
@@ -328,9 +406,9 @@ const AddProductPage = () => {
                   </svg>
                 </div>
                 <div className="ml-3">
-                  <h4 className="text-sm font-semibold text-blue-900 mb-1">How to Add Quantity</h4>
+                  <h4 className="text-sm font-semibold text-blue-900 mb-1">How to Update Quantity</h4>
                   <p className="text-sm text-blue-800">
-                    Product quantity will be set to <strong>0</strong> initially. To add quantity to this product, 
+                    Product quantity cannot be edited directly. To add or update quantity for this product, 
                     please create a <strong>Purchase Invoice</strong> from the Purchases module. The quantity will 
                     automatically update when you add this product to a purchase invoice.
                   </p>
@@ -420,10 +498,10 @@ const AddProductPage = () => {
               {loading ? (
                 <>
                   <LoadingSpinner size="sm" />
-                  <span className="ml-2">Creating...</span>
+                  <span className="ml-2">Updating...</span>
                 </>
               ) : (
-                'Create Product'
+                'Update Product'
               )}
             </button>
           </div>
@@ -433,5 +511,5 @@ const AddProductPage = () => {
   )
 }
 
-export default AddProductPage
+export default EditProductPage
 

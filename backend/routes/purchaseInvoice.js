@@ -507,6 +507,193 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   }
 });
 
+// Update purchase invoice with products (Business Owner only)
+router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('invoiceNumber').optional().trim(),
+  body('invoiceDate').optional().isISO8601(),
+  body('totalAmount').optional().isFloat({ min: 0 }),
+  body('supplierName').optional().trim(),
+  body('notes').optional().trim(),
+  body('products').optional().isArray(),
+  body('products.*.name').optional().trim().notEmpty(),
+  body('products.*.purchasePrice').optional().isFloat({ min: 0 }),
+  body('products.*.quantity').optional().isInt({ min: 1 })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: errors.array() 
+      });
+    }
+
+    const { id } = req.params;
+    const { invoiceNumber, invoiceDate, totalAmount, supplierName, notes, products } = req.body;
+
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Check if invoice exists and belongs to tenant
+    const existingInvoice = await prisma.purchaseInvoice.findFirst({
+      where: {
+        id: id,
+        tenantId: tenant.id
+      },
+      include: {
+        purchaseItems: {
+          where: { isDeleted: false }
+        }
+      }
+    });
+
+    if (!existingInvoice) {
+      return res.status(404).json({ error: 'Purchase invoice not found' });
+    }
+
+    // Store old purchase items for inventory adjustment
+    const oldPurchaseItems = JSON.parse(JSON.stringify(existingInvoice.purchaseItems));
+
+    // Update invoice and products in a transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Update the invoice
+      const updatedInvoice = await tx.purchaseInvoice.update({
+        where: { id: id },
+        data: {
+          ...(invoiceNumber && { invoiceNumber }),
+          ...(invoiceDate && { invoiceDate: new Date(invoiceDate) }),
+          ...(totalAmount && { totalAmount: parseFloat(totalAmount) }),
+          ...(supplierName !== undefined && { supplierName: supplierName || null }),
+          ...(notes !== undefined && { notes: notes || null })
+        }
+      });
+
+      // Handle products if provided
+      if (products && Array.isArray(products)) {
+        // Get existing purchase items
+        const existingItems = await tx.purchaseItem.findMany({
+          where: { purchaseInvoiceId: id, isDeleted: false }
+        });
+
+        // Create a map of existing items by id
+        const existingItemsMap = new Map(existingItems.map(item => [item.id, item]));
+
+        // Process products
+        const itemsToCreate = [];
+        const itemsToUpdate = [];
+        const itemsToDelete = [];
+
+        for (const product of products) {
+          if (product.id && existingItemsMap.has(product.id)) {
+            // Update existing item
+            itemsToUpdate.push({
+              id: product.id,
+              data: {
+                name: product.name.trim(),
+                quantity: parseInt(product.quantity),
+                purchasePrice: parseFloat(product.purchasePrice),
+                sku: product.sku?.trim() || null,
+                category: product.category?.trim() || null,
+                description: product.description?.trim() || null
+              }
+            });
+            existingItemsMap.delete(product.id);
+          } else {
+            // New item to create
+            itemsToCreate.push({
+              name: product.name.trim(),
+              quantity: parseInt(product.quantity),
+              purchasePrice: parseFloat(product.purchasePrice),
+              sku: product.sku?.trim() || null,
+              category: product.category?.trim() || null,
+              description: product.description?.trim() || null,
+              tenantId: tenant.id,
+              purchaseInvoiceId: id
+            });
+          }
+        }
+
+        // Items that exist but weren't in the update list should be deleted
+        existingItemsMap.forEach((item) => {
+          itemsToDelete.push(item.id);
+        });
+
+        // Delete items
+        if (itemsToDelete.length > 0) {
+          await tx.purchaseItem.updateMany({
+            where: { id: { in: itemsToDelete } },
+            data: {
+              isDeleted: true,
+              deletedAt: new Date()
+            }
+          });
+        }
+
+        // Update items
+        for (const itemUpdate of itemsToUpdate) {
+          await tx.purchaseItem.update({
+            where: { id: itemUpdate.id },
+            data: itemUpdate.data
+          });
+        }
+
+        // Create new items
+        if (itemsToCreate.length > 0) {
+          await tx.purchaseItem.createMany({
+            data: itemsToCreate
+          });
+        }
+
+        // Get all purchase items (including new ones)
+        const allPurchaseItems = await tx.purchaseItem.findMany({
+          where: { purchaseInvoiceId: id, isDeleted: false }
+        });
+
+        return { purchaseInvoice: updatedInvoice, purchaseItems: allPurchaseItems };
+      }
+
+      return { purchaseInvoice: updatedInvoice, purchaseItems: existingInvoice.purchaseItems };
+    }, {
+      timeout: 30000,
+      maxWait: 10000
+    });
+
+    // Update inventory if products were modified
+    if (products && Array.isArray(products)) {
+      try {
+        await InventoryService.updateInventoryFromPurchaseEdit(
+          tenant.id,
+          oldPurchaseItems,
+          result.purchaseItems,
+          id,
+          result.purchaseInvoice.invoiceNumber || existingInvoice.invoiceNumber
+        );
+      } catch (inventoryError) {
+        console.error('Error updating inventory after purchase edit:', inventoryError);
+        // Don't fail the request, but log the error
+        // The purchase items were already updated, inventory can be fixed manually if needed
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Purchase invoice updated successfully',
+      purchaseInvoice: result.purchaseInvoice,
+      items: result.purchaseItems
+    });
+
+  } catch (error) {
+    console.error('Update purchase invoice with products error:', error);
+    res.status(500).json({ error: 'Failed to update purchase invoice' });
+  }
+});
+
 // Soft delete purchase invoice (Business Owner only)
 router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {

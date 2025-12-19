@@ -4,8 +4,6 @@ import { useAuth } from '../contexts/AuthContext'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
-import CreateFormModal from '../components/CreateFormModal'
-import EditFormModal from '../components/EditFormModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import {
   ArrowLeftIcon,
@@ -27,9 +25,6 @@ const TenantDetails = () => {
   const [forms, setForms] = useState([])
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [showEditForm, setShowEditForm] = useState(false)
-  const [selectedForm, setSelectedForm] = useState(null)
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
     title: '',
@@ -94,14 +89,7 @@ const TenantDetails = () => {
   }
 
   const handleEditForm = (form) => {
-    setSelectedForm(form)
-    setShowEditForm(true)
-  }
-
-  const handleFormUpdated = () => {
-    setShowEditForm(false)
-    setSelectedForm(null)
-    fetchTenantData()
+    navigate(`/business/forms/${form.id}/edit`)
   }
 
   const deleteForm = async (formId, formName) => {
@@ -412,17 +400,6 @@ const TenantDetails = () => {
 
 
       {/* Edit Form Modal */}
-      {showEditForm && selectedForm && (
-        <EditFormModal
-          form={selectedForm}
-          onClose={() => {
-            setShowEditForm(false)
-            setSelectedForm(null)
-          }}
-          onSuccess={handleFormUpdated}
-        />
-      )}
-
       {/* Confirmation Modal */}
       <ConfirmationModal
         isOpen={confirmationModal.isOpen}

@@ -6,8 +6,6 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
-import CreateFormModal from '../components/CreateFormModal'
-import EditFormModal from '../components/EditFormModal'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { 
   DocumentTextIcon, 
@@ -42,11 +40,8 @@ const BusinessDashboard = () => {
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
-  const [selectedForm, setSelectedForm] = useState(null)
   
   // Form management state
-  const [showCreateForm, setShowCreateForm] = useState(false)
-  const [showEditForm, setShowEditForm] = useState(false)
   const [allForms, setAllForms] = useState([]) // All forms (published and unpublished)
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
@@ -114,20 +109,12 @@ const BusinessDashboard = () => {
   }
 
   // Form management handlers
-  const handleFormCreated = () => {
-    setShowCreateForm(false)
-    fetchDashboardData()
+  const handleCreateForm = () => {
+    navigate('/business/forms/new')
   }
 
   const handleEditForm = (form) => {
-    setSelectedForm(form)
-    setShowEditForm(true)
-  }
-
-  const handleFormUpdated = () => {
-    setShowEditForm(false)
-    setSelectedForm(null)
-    fetchDashboardData()
+    navigate(`/business/forms/${form.id}/edit`)
   }
 
   const publishForm = async (formId) => {
@@ -797,7 +784,7 @@ const BusinessDashboard = () => {
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6">
               <h3 className="text-base sm:text-lg font-medium text-gray-900">Order Forms</h3>
               <button
-                onClick={() => setShowCreateForm(true)}
+                onClick={handleCreateForm}
                 className="btn-primary flex items-center mt-2 sm:mt-0"
               >
                 <PlusIcon className="h-4 w-4 mr-2" />
@@ -811,7 +798,7 @@ const BusinessDashboard = () => {
                 <h3 className="text-lg font-medium text-gray-900 mb-2">No Forms Created Yet</h3>
                 <p className="text-gray-600 mb-4">Create your first form to start accepting orders</p>
                 <button
-                  onClick={() => setShowCreateForm(true)}
+                  onClick={handleCreateForm}
                   className="btn-primary"
                 >
                   Create Your First Form
@@ -911,24 +898,6 @@ const BusinessDashboard = () => {
       )}
 
       {/* Form Modals */}
-      {showCreateForm && (
-        <CreateFormModal
-          tenants={tenant ? [tenant] : []}
-          onClose={() => setShowCreateForm(false)}
-          onSuccess={handleFormCreated}
-        />
-      )}
-
-      {showEditForm && selectedForm && (
-        <EditFormModal
-          form={selectedForm}
-          onClose={() => {
-            setShowEditForm(false)
-            setSelectedForm(null)
-          }}
-          onSuccess={handleFormUpdated}
-        />
-      )}
 
       {/* Confirmation Modal */}
       <ConfirmationModal

@@ -146,6 +146,40 @@ Your backend should automatically run migrations on startup (via `npx prisma mig
 
 ---
 
+## Step 5.5: Seed Database (Create Initial Users) ⚠️ **IMPORTANT**
+
+**Migrations create the database tables, but don't create any users!** You need to seed the database to create initial login accounts.
+
+**To seed the database**:
+1. Go to your Backend service
+2. Click **"Shell"** tab
+3. Run:
+   ```bash
+   cd backend
+   npm run db:seed
+   ```
+
+**Expected output**:
+```
+🌱 Starting database seed...
+✅ Admin user created: admin@orderms.com
+✅ Stock Keeper user created: stock@orderms.com
+✅ Business Owner user created: business@dressshop.com
+✅ Tenant created: Elegant Dress Orders
+🎉 Database seeded successfully!
+
+📋 Login Credentials:
+Admin: admin@orderms.com / admin123
+Business Owner: business@dressshop.com / business123
+Stock Keeper: stock@orderms.com / stock123
+```
+
+**⚠️ Without seeding, you won't be able to log in!** The login will fail with "Invalid user" error.
+
+**Note**: The seed script uses `upsert`, so it's safe to run multiple times. It won't create duplicate users.
+
+---
+
 ## Step 6: Verify Deployment
 
 1. **Test Backend API**:
@@ -154,7 +188,8 @@ Your backend should automatically run migrations on startup (via `npx prisma mig
 
 2. **Test Frontend**:
    - Visit your frontend URL: `https://asanorderui.onrender.com`
-   - Try logging in
+   - **IMPORTANT**: Make sure you've seeded the database first (Step 5.5)
+   - Try logging in with: `admin@orderms.com` / `admin123`
    - Check browser console for any API connection errors
    - Verify API calls are going to `https://asanorder.onrender.com`
 
@@ -202,6 +237,20 @@ Your backend should automatically run migrations on startup (via `npx prisma mig
 1. **Use Internal URL**: Always use the Internal Database URL (not External)
 2. **Check Firewall**: Render databases allow connections from Render services automatically
 3. **Verify Credentials**: Check username/password in the connection string
+
+### Login Fails with "Invalid user"
+
+**This is the most common issue!** It usually means:
+1. Migrations didn't run (database tables don't exist)
+2. Database wasn't seeded (no users exist)
+
+**Fix**:
+1. Check backend logs for migration errors
+2. Run migrations manually: `cd backend && npx prisma migrate deploy`
+3. **Seed the database**: `cd backend && npm run db:seed`
+4. Try logging in again with: `admin@orderms.com` / `admin123`
+
+**📖 For detailed troubleshooting, see**: `RENDER_LOGIN_TROUBLESHOOTING.md`
 
 ### Build Failures
 

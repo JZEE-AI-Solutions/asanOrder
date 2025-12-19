@@ -26,8 +26,12 @@ import {
   LazyCustomerDetailsPage,
   LazyAddCustomerPage,
   LazyAddProductPage,
+  LazyEditProductPage,
   LazyProductManagementPage,
-  LazyReportsPage
+  LazyReportsPage,
+  LazyEditPurchasePage,
+  LazyCreateFormPage,
+  LazyEditFormPage
 } from './components/LazyComponents'
 
 // Synchronous components
@@ -127,6 +131,22 @@ function App() {
                 </ProtectedRoute>
               } />
 
+              <Route path="/business/forms/new" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyCreateFormPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/forms/:formId/edit" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyEditFormPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
               <Route path="/business/forms/:formId/products" element={
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
@@ -151,6 +171,14 @@ function App() {
                 </ProtectedRoute>
               } />
 
+              <Route path="/business/products/:productId/edit" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyEditProductPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
               <Route path="/business/reports" element={
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
@@ -163,6 +191,14 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyPurchasesPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/purchases/:invoiceId/edit" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyEditPurchasePage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

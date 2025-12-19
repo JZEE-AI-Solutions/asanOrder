@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import api, { getImageUrl } from '../../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../LoadingSpinner'
-import PurchaseInvoiceModal from '../PurchaseInvoiceModal'
 import InvoiceUploadModal from '../InvoiceUploadModal'
 import AddPurchaseModal from '../AddPurchaseModal'
 import ProductImageUpload from '../ProductImageUpload'
@@ -24,13 +24,13 @@ import {
 } from '@heroicons/react/24/outline'
 
 const PurchasesManagement = () => {
+    const navigate = useNavigate()
     const [invoices, setInvoices] = useState([])
     const [loading, setLoading] = useState(true)
     const [searchTerm, setSearchTerm] = useState('')
     const [displayMode, setDisplayMode] = useState('card')
 
     // Modals state
-    const [showInvoiceModal, setShowInvoiceModal] = useState(false)
     const [showInvoiceUpload, setShowInvoiceUpload] = useState(false)
     const [showAddPurchase, setShowAddPurchase] = useState(false)
     const [selectedInvoice, setSelectedInvoice] = useState(null)
@@ -61,8 +61,7 @@ const PurchasesManagement = () => {
     }
 
     const handleEditInvoice = (invoice) => {
-        setSelectedInvoice(invoice)
-        setShowInvoiceModal(true)
+        navigate(`/business/purchases/${invoice.id}/edit`)
     }
 
     const handleDeleteInvoice = async (invoiceId) => {
@@ -462,21 +461,6 @@ const PurchasesManagement = () => {
                 <InvoiceUploadModal
                     onClose={() => setShowInvoiceUpload(false)}
                     onProductsExtracted={handleInvoiceProcessed}
-                />
-            )}
-
-            {showInvoiceModal && selectedInvoice && (
-                <PurchaseInvoiceModal
-                    invoice={selectedInvoice}
-                    onClose={() => {
-                        setShowInvoiceModal(false)
-                        setSelectedInvoice(null)
-                    }}
-                    onSaved={() => {
-                        setShowInvoiceModal(false)
-                        setSelectedInvoice(null)
-                        fetchInvoices()
-                    }}
                 />
             )}
         </div>

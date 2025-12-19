@@ -5,6 +5,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { generateOrderNumber } = require('../utils/orderNumberGenerator');
 const profitService = require('../services/profitService');
 const customerService = require('../services/customerService');
+const stockValidationService = require('../services/stockValidationService');
 
 const router = express.Router();
 
@@ -123,6 +124,24 @@ router.post('/submit', [
       }
     } else {
       console.log('No phone number found, skipping customer creation');
+    }
+
+    // Validate stock availability before creating order
+    if (selectedProducts && productQuantities) {
+      const stockValidation = await stockValidationService.validateStockAvailability(
+        form.tenant.id,
+        selectedProducts,
+        productQuantities
+      );
+
+      if (!stockValidation.isValid) {
+        const errorMessages = stockValidation.errors.map(err => err.message).join('; ');
+        return res.status(400).json({
+          error: 'Insufficient stock available',
+          details: stockValidation.errors,
+          message: errorMessages
+        });
+      }
     }
 
     // Generate order number
@@ -578,6 +597,39 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       return res.status(404).json({ error: 'Order not found' });
     }
 
+    // Store old data for inventory adjustment if order was already confirmed/dispatched/completed
+    const needsInventoryUpdate = ['CONFIRMED', 'DISPATCHED', 'COMPLETED'].includes(existingOrder.status) &&
+      (productQuantities !== undefined || selectedProducts !== undefined);
+    
+    const oldSelectedProducts = existingOrder.selectedProducts;
+    const oldProductQuantities = existingOrder.productQuantities;
+
+    // Validate stock availability if quantities are being updated
+    if ((productQuantities !== undefined || selectedProducts !== undefined)) {
+      const newSelectedProducts = selectedProducts !== undefined ? selectedProducts : existingOrder.selectedProducts;
+      const newProductQuantities = productQuantities !== undefined ? productQuantities : existingOrder.productQuantities;
+
+      // Exclude current order from stock calculation if it's confirmed/dispatched/completed
+      // (for pending orders, we still want to validate against all confirmed orders)
+      const excludeOrderId = ['CONFIRMED', 'DISPATCHED', 'COMPLETED'].includes(existingOrder.status) ? id : null;
+
+      const stockValidation = await stockValidationService.validateStockAvailability(
+        existingOrder.tenantId,
+        newSelectedProducts,
+        newProductQuantities,
+        excludeOrderId
+      );
+
+      if (!stockValidation.isValid) {
+        const errorMessages = stockValidation.errors.map(err => err.message).join('; ');
+        return res.status(400).json({
+          error: 'Insufficient stock available',
+          details: stockValidation.errors,
+          message: errorMessages
+        });
+      }
+    }
+
     // Prepare update data
     const updateData = {};
 
@@ -619,6 +671,26 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
         }
       }
     });
+
+    // Update inventory if order was already confirmed/dispatched/completed and quantities changed
+    if (needsInventoryUpdate) {
+      try {
+        const InventoryService = require('../services/inventoryService');
+        await InventoryService.updateInventoryFromOrderEdit(
+          existingOrder.tenantId,
+          order.id,
+          order.orderNumber,
+          oldSelectedProducts,
+          oldProductQuantities,
+          order.selectedProducts,
+          order.productQuantities
+        );
+        console.log(`✅ Inventory updated for order ${order.orderNumber}`);
+      } catch (inventoryError) {
+        console.error('⚠️  Error updating inventory after order edit:', inventoryError);
+        // Don't fail the request, but log the error
+      }
+    }
 
     res.json({ order });
   } catch (error) {

@@ -4,7 +4,6 @@ import { useAuth } from '../../contexts/AuthContext'
 import api, { getImageUrl } from '../../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../LoadingSpinner'
-import EnhancedProductModal from '../EnhancedProductModal'
 import ProductHistoryModal from '../ProductHistoryModal'
 import ProductImageUpload from '../ProductImageUpload'
 import InvoiceUploadModal from '../InvoiceUploadModal'
@@ -15,6 +14,7 @@ import {
     Squares2X2Icon,
     ListBulletIcon,
     ArrowPathIcon,
+    ClockIcon,
     PencilIcon,
     TrashIcon,
     EyeIcon,
@@ -31,15 +31,13 @@ const ProductsManagement = () => {
     const [displayMode, setDisplayMode] = useState('card') // 'card' or 'list'
 
     // Modals state
-    const [showProductModal, setShowProductModal] = useState(false)
     const [showProductHistory, setShowProductHistory] = useState(false)
     const [showProductImageUpload, setShowProductImageUpload] = useState(false)
     const [showInvoiceUpload, setShowInvoiceUpload] = useState(false)
 
     // Selected items
-    const [selectedProduct, setSelectedProduct] = useState(null)
+    const [selectedProduct, setSelectedProduct] = useState(null) // For history modal
     const [selectedProductForImage, setSelectedProductForImage] = useState(null)
-    const [isEditing, setIsEditing] = useState(false)
     const [imageRefreshVersion, setImageRefreshVersion] = useState(Date.now())
 
     useEffect(() => {
@@ -64,17 +62,9 @@ const ProductsManagement = () => {
     }
 
     const handleEditProduct = (product) => {
-        setSelectedProduct(product)
-        setIsEditing(true)
-        setShowProductModal(true)
+        navigate(`/business/products/${product.id}/edit`)
     }
 
-    const handleProductSaved = () => {
-        setShowProductModal(false)
-        setSelectedProduct(null)
-        setIsEditing(false)
-        fetchProducts()
-    }
 
     const handleDeleteProduct = async (productId) => {
         if (window.confirm('Are you sure you want to delete this product?')) {
@@ -244,32 +234,29 @@ const ProductsManagement = () => {
                                     alt={product.name}
                                     className="w-full h-full object-cover"
                                     onError={(e) => {
+                                        // Prevent infinite loop by removing the error handler
                                         e.target.onerror = null
-                                        e.target.src = 'https://via.placeholder.com/300?text=No+Image'
-                                        e.target.parentElement.classList.add('flex', 'items-center', 'justify-center')
+                                        // Hide the image and show the fallback icon
                                         e.target.style.display = 'none'
-                                        e.target.nextSibling.style.display = 'flex'
+                                        const fallback = e.target.nextElementSibling
+                                        if (fallback) {
+                                            fallback.classList.remove('hidden')
+                                            fallback.classList.add('flex')
+                                        }
                                     }}
                                 />
                                 <div className="hidden w-full h-full items-center justify-center text-gray-400 absolute inset-0 bg-gray-100">
                                     <Squares2X2Icon className="h-12 w-12" />
                                 </div>
 
-                                {/* Overlay Actions */}
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                {/* Overlay Actions - Only Image Upload */}
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <button
                                         onClick={() => handleProductImageUpload(product)}
                                         className="p-2 bg-white rounded-full text-gray-900 hover:text-brand-600 transition-colors"
                                         title="Upload Image"
                                     >
                                         <CameraIcon className="h-5 w-5" />
-                                    </button>
-                                    <button
-                                        onClick={() => handleViewProductHistory(product)}
-                                        className="p-2 bg-white rounded-full text-gray-900 hover:text-brand-600 transition-colors"
-                                        title="History"
-                                    >
-                                        <ArrowPathIcon className="h-5 w-5" />
                                     </button>
                                 </div>
                             </div>
@@ -315,6 +302,13 @@ const ProductsManagement = () => {
                                 </div>
 
                                 <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end gap-2">
+                                    <button
+                                        onClick={() => handleViewProductHistory(product)}
+                                        className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                                        title="View History"
+                                    >
+                                        <ClockIcon className="h-4 w-4" />
+                                    </button>
                                     <button
                                         onClick={() => handleToggleProductStatus(product)}
                                         className={`p-2 rounded-lg transition-colors ${product.isActive
@@ -404,10 +398,10 @@ const ProductsManagement = () => {
                                                 </button>
                                                 <button
                                                     onClick={() => handleViewProductHistory(product)}
-                                                    className="text-gray-400 hover:text-brand-600"
-                                                    title="History"
+                                                    className="text-purple-600 hover:text-purple-900"
+                                                    title="View History"
                                                 >
-                                                    <ArrowPathIcon className="h-4 w-4" />
+                                                    <ClockIcon className="h-4 w-4" />
                                                 </button>
                                                 <button
                                                     onClick={() => handleEditProduct(product)}
@@ -435,22 +429,7 @@ const ProductsManagement = () => {
 
             {/* Modals */}
             {
-                showProductModal && (
-                    <EnhancedProductModal
-                        product={selectedProduct}
-                        isEditing={isEditing}
-                        onClose={() => {
-                            setShowProductModal(false)
-                            setSelectedProduct(null)
-                            setIsEditing(false)
-                        }}
-                        onSaved={handleProductSaved}
-                    />
-                )
-            }
-
-            {
-                showProductHistory && (
+                showProductHistory && selectedProduct && (
                     <ProductHistoryModal
                         isOpen={showProductHistory}
                         onClose={() => {

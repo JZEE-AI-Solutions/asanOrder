@@ -106,6 +106,25 @@ curl https://asanorder.onrender.com/api/auth/login
 3. Check database service is running
 4. Verify Prisma migrations ran successfully (check backend logs)
 
+### Issue: "Invalid user" Error on Login ⚠️ **COMMON ISSUE**
+
+**Symptoms**:
+- Login returns "Invalid email or password" or "Invalid user"
+- APIs and UI are working, but login fails
+- This usually means **database migrations didn't run OR database is empty**
+
+**Fix**:
+1. **Check if migrations ran**: Go to backend logs and look for `Prisma migrations applied successfully`
+2. **Run migrations manually** (if needed):
+   - Go to backend service → **"Shell"** tab
+   - Run: `cd backend && npx prisma migrate deploy`
+3. **Seed the database** (create initial users):
+   - In Shell tab, run: `cd backend && npm run db:seed`
+   - This creates default users: `admin@orderms.com` / `admin123`
+4. **Test login** with default credentials after seeding
+
+**📖 For detailed troubleshooting, see**: `RENDER_LOGIN_TROUBLESHOOTING.md`
+
 ## 📊 Monitoring Your Deployment
 
 ### Backend Logs
@@ -146,9 +165,11 @@ After fixing any issues, verify:
 1. ✅ Backend health check works: https://asanorder.onrender.com/api/health
 2. ✅ Frontend loads: https://asanorderui.onrender.com
 3. ✅ No CORS errors in browser console
-4. ✅ Login works
-5. ✅ API requests succeed (check Network tab)
-6. ✅ No errors in backend logs
+4. ✅ **Database migrations ran** (check backend logs)
+5. ✅ **Database is seeded** (users exist - run `npm run db:seed` if needed)
+6. ✅ Login works with default credentials: `admin@orderms.com` / `admin123`
+7. ✅ API requests succeed (check Network tab)
+8. ✅ No errors in backend logs
 
 ---
 

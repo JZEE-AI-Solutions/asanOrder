@@ -277,8 +277,9 @@ class ProfitService {
         const itemCost = purchaseItem.purchasePrice * purchaseItem.quantity;
         totalCost += itemCost;
 
-        // Get all purchase invoices for this product, ordered by date (FIFO)
-        const invoiceDate = new Date(invoice.invoiceDate);
+        // Get all purchase invoices for this product, ordered by creation date (FIFO)
+        // Use createdAt instead of invoiceDate to ensure proper chronological order
+        const invoiceCreatedAt = new Date(invoice.createdAt);
         
         const allInvoicesForProduct = await prisma.purchaseInvoice.findMany({
           where: {
@@ -298,15 +299,19 @@ class ProfitService {
             }
           },
           orderBy: {
-            invoiceDate: 'asc' // Oldest first for FIFO
+            createdAt: 'asc' // Oldest first for FIFO (use createdAt for chronological order)
           }
         });
 
-        // Find all orders that contain this product (we'll allocate using FIFO)
+        // Find all orders that contain this product and were created AFTER this invoice was created
+        // This ensures we only count sales that happened after this purchase invoice was created
         const orders = await prisma.order.findMany({
           where: {
             tenantId: tenantId,
             status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] },
+            createdAt: {
+              gte: invoiceCreatedAt // Only orders created on or after invoice creation
+            },
             selectedProducts: {
               contains: purchaseItem.productId || ''
             }
@@ -324,20 +329,97 @@ class ProfitService {
         });
 
         // Calculate total quantity from invoices created BEFORE this invoice (FIFO priority)
+        // Use createdAt to ensure proper chronological order
         let previousInvoiceQuantity = 0;
+        const previousInvoices = [];
         for (const prevInvoice of allInvoicesForProduct) {
-          if (new Date(prevInvoice.invoiceDate) < invoiceDate) {
+          if (new Date(prevInvoice.createdAt) < invoiceCreatedAt) {
             for (const prevItem of prevInvoice.purchaseItems) {
               if (prevItem.productId === purchaseItem.productId) {
                 previousInvoiceQuantity += prevItem.quantity;
+                previousInvoices.push({ invoice: prevInvoice, item: prevItem });
               }
             }
           }
         }
 
+        // Calculate how much was actually sold from previous invoices
+        // by processing orders that were created before this invoice
+        const ordersBeforeThisInvoice = await prisma.order.findMany({
+          where: {
+            tenantId: tenantId,
+            status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] },
+            createdAt: {
+              lt: invoiceCreatedAt // Orders created before this invoice
+            },
+            selectedProducts: {
+              contains: purchaseItem.productId || ''
+            }
+          },
+          select: {
+            id: true,
+            createdAt: true,
+            selectedProducts: true,
+            productQuantities: true,
+            productPrices: true
+          },
+          orderBy: {
+            createdAt: 'asc'
+          }
+        });
+
+        // Calculate total sold from previous invoices
+        let totalSoldFromPrevious = 0;
+        for (const order of ordersBeforeThisInvoice) {
+          const selectedProducts = this.parseJSON(order.selectedProducts) || [];
+          const productQuantities = this.parseJSON(order.productQuantities) || {};
+          const productInOrder = selectedProducts.find(p => (p.id || p) === purchaseItem.productId);
+          if (productInOrder) {
+            const orderQuantity = productQuantities[purchaseItem.productId] || productInOrder.quantity || 1;
+            totalSoldFromPrevious += orderQuantity;
+          }
+        }
+
+        // Remaining stock from previous invoices = total - sold
+        // If total sold exceeds previous invoice quantity, the excess comes from this invoice
+        let remainingFromPrevious = Math.max(0, previousInvoiceQuantity - totalSoldFromPrevious);
+        
+        // Calculate excess quantity from orders created before this invoice
+        // that should be allocated to this invoice (FIFO: when previous stock is exhausted)
+        let excessFromPreviousOrders = Math.max(0, totalSoldFromPrevious - previousInvoiceQuantity);
+
         let itemRevenue = 0;
         let soldQuantity = 0;
-        let remainingFromPrevious = previousInvoiceQuantity;
+
+        // First, allocate excess quantity from orders created before this invoice
+        // (when those orders sold more than previous invoices had in stock)
+        if (excessFromPreviousOrders > 0) {
+          // Find the orders that contributed to the excess
+          let allocatedExcess = 0;
+          for (const order of ordersBeforeThisInvoice) {
+            if (allocatedExcess >= excessFromPreviousOrders) break;
+            
+            const selectedProducts = this.parseJSON(order.selectedProducts) || [];
+            const productQuantities = this.parseJSON(order.productQuantities) || {};
+            const productPrices = this.parseJSON(order.productPrices) || {};
+            const productInOrder = selectedProducts.find(p => (p.id || p) === purchaseItem.productId);
+            
+            if (productInOrder) {
+              const orderQuantity = productQuantities[purchaseItem.productId] || productInOrder.quantity || 1;
+              const salePrice = productPrices[purchaseItem.productId] || productInOrder.price || purchaseItem.product?.currentRetailPrice || 0;
+              
+              // Calculate how much of this order should come from this invoice
+              const remainingExcess = excessFromPreviousOrders - allocatedExcess;
+              const quantityFromThisInvoice = Math.min(remainingExcess, orderQuantity);
+              
+              if (quantityFromThisInvoice > 0) {
+                itemRevenue += salePrice * quantityFromThisInvoice;
+                soldQuantity += quantityFromThisInvoice;
+                allocatedExcess += quantityFromThisInvoice;
+              }
+            }
+          }
+        }
 
         // Calculate revenue from sales of this product using FIFO logic
         // Process all orders chronologically and allocate to invoices in order

@@ -5,8 +5,6 @@ import toast from 'react-hot-toast';
 import ModernLayout from '../components/ModernLayout';
 import FormsSection from '../components/dashboard/FormsSection';
 import LoadingSpinner from '../components/LoadingSpinner';
-import CreateFormModal from '../components/CreateFormModal';
-import EditFormModal from '../components/EditFormModal';
 import ConfirmationModal from '../components/ConfirmationModal';
 import api from '../services/api';
 import {
@@ -22,9 +20,6 @@ const FormsPage = () => {
     const { tenant } = useTenant();
     const { forms, loading: formsLoading, refreshForms } = useForms();
     const [allForms, setAllForms] = useState([]); // All forms including unpublished
-    const [showCreateForm, setShowCreateForm] = useState(false);
-    const [showEditForm, setShowEditForm] = useState(false);
-    const [selectedForm, setSelectedForm] = useState(null);
     const [confirmationModal, setConfirmationModal] = useState({
         isOpen: false,
         title: '',
@@ -74,22 +69,12 @@ const FormsPage = () => {
         navigate(`/business/forms/${form.id}/products`);
     };
 
-    const handleFormCreated = () => {
-        setShowCreateForm(false);
-        refreshForms();
-        fetchAllForms();
+    const handleCreateForm = () => {
+        navigate('/business/forms/new');
     };
 
     const handleEditForm = (form) => {
-        setSelectedForm(form);
-        setShowEditForm(true);
-    };
-
-    const handleFormUpdated = () => {
-        setShowEditForm(false);
-        setSelectedForm(null);
-        refreshForms();
-        fetchAllForms();
+        navigate(`/business/forms/${form.id}/edit`);
     };
 
     const publishForm = async (formId) => {
@@ -182,7 +167,7 @@ const FormsPage = () => {
                         <p className="text-gray-500 mt-1">Manage and share your order forms with customers.</p>
                     </div>
                     <button
-                        onClick={() => setShowCreateForm(true)}
+                        onClick={handleCreateForm}
                         className="btn-primary flex items-center mt-4 sm:mt-0"
                     >
                         <PlusIcon className="h-5 w-5 mr-2" />
@@ -285,26 +270,6 @@ const FormsPage = () => {
                     onManageProducts={handleManageProducts}
                 />
             </div>
-
-            {/* Modals */}
-            {showCreateForm && (
-                <CreateFormModal
-                    tenants={tenant ? [tenant] : []}
-                    onClose={() => setShowCreateForm(false)}
-                    onSuccess={handleFormCreated}
-                />
-            )}
-
-            {showEditForm && selectedForm && (
-                <EditFormModal
-                    form={selectedForm}
-                    onClose={() => {
-                        setShowEditForm(false);
-                        setSelectedForm(null);
-                    }}
-                    onSuccess={handleFormUpdated}
-                />
-            )}
 
             {/* Confirmation Modal */}
             <ConfirmationModal
