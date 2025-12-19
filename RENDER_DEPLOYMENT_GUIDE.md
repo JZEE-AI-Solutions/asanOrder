@@ -71,7 +71,7 @@ This guide will walk you through deploying your Order Management System to Rende
      - **Windows PowerShell**: `[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 }))`
      - **Linux/Mac**: `openssl rand -base64 32`
    - `PORT` should be `10000` or use `$PORT` (Render sets this automatically)
-   - Add `FRONTEND_URL` after frontend is deployed (for CORS): `https://asanorder-ui.onrender.com`
+   - Add `FRONTEND_URL` after frontend is deployed (for CORS): `https://asanorderui.onrender.com`
 
 5. **Click "Create Web Service"**
 
@@ -102,9 +102,9 @@ This guide will walk you through deploying your Order Management System to Rende
 
 4. **Environment Variables**:
    ```
-   VITE_API_URL=https://asanorder-api.onrender.com
+   VITE_API_URL=https://asanorder.onrender.com
    ```
-   **Important**: Replace `asanorder-api.onrender.com` with your actual backend service URL from Step 2.
+   **Important**: Replace with your actual backend service URL. Your current backend is at `https://asanorder.onrender.com`
 
 5. **Click "Create Static Site"**
 
@@ -149,13 +149,14 @@ Your backend should automatically run migrations on startup (via `npx prisma mig
 ## Step 6: Verify Deployment
 
 1. **Test Backend API**:
-   - Visit: `https://asanorder-api.onrender.com/api/health` (if you have a health endpoint)
-   - Or: `https://asanorder-api.onrender.com/api/auth/login` (should return an error, not 404)
+   - Visit: `https://asanorder.onrender.com/api/health` (should return `{"status":"OK"}`)
+   - Or: `https://asanorder.onrender.com/api/auth/login` (should return an error, not 404)
 
 2. **Test Frontend**:
-   - Visit your frontend URL: `https://asanorder-ui.onrender.com`
+   - Visit your frontend URL: `https://asanorderui.onrender.com`
    - Try logging in
    - Check browser console for any API connection errors
+   - Verify API calls are going to `https://asanorder.onrender.com`
 
 ---
 
@@ -230,9 +231,13 @@ Your backend should automatically run migrations on startup (via `npx prisma mig
 
 After deployment, you'll have:
 
-- **Backend API**: `https://asanorder-api.onrender.com`
-- **Frontend**: `https://asanorder-ui.onrender.com`
+- **Backend API**: `https://asanorder.onrender.com`
+- **Frontend**: `https://asanorderui.onrender.com`
 - **Database**: Internal URL (only accessible from Render services)
+
+**Your Current Deployment**:
+- ✅ Frontend: https://asanorderui.onrender.com
+- ✅ Backend API: https://asanorder.onrender.com
 
 ---
 

@@ -32,7 +32,11 @@ if (!fs.existsSync(uploadsDir)) {
 const corsOptions = {
   origin: process.env.FRONTEND_URL 
     ? process.env.FRONTEND_URL.split(',') 
-    : ['http://localhost:3000', 'https://asanorder-ui.onrender.com'],
+    : [
+        'http://localhost:3000', 
+        'https://asanorderui.onrender.com',
+        'https://asanorder-ui.onrender.com'
+      ],
   credentials: true,
   optionsSuccessStatus: 200
 };
