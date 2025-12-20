@@ -286,23 +286,65 @@ const OrderDetailsPage = () => {
         }
 
         const formData = parseJSON(order.formData)
-        const selectedProducts = parseJSON(order.selectedProducts) || []
-        const productQuantities = parseJSON(order.productQuantities) || {}
-        const productPrices = parseJSON(order.productPrices) || {}
-
-        // Calculate totals
-        let totalAmount = 0
-        selectedProducts.forEach(product => {
-            const quantity = productQuantities[product.id] || product.quantity || 1
-            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
-            totalAmount += price * quantity
-        })
-
+        
         // Get recipient details
         const customerName = formData['Customer Name'] || formData['Name'] || formData['Full Name'] || 'N/A'
         const phoneNumber = formData['Phone Number'] || formData['Mobile Number'] || formData['Contact Number'] || formData['Phone'] || 'N/A'
-        const email = formData['Email Address'] || formData['Email'] || ''
         const shippingAddress = formData['Shipping Address'] || formData['Address'] || formData['Delivery Address'] || 'N/A'
+        const city = formData['City'] || formData['City Name'] || ''
+        
+        // Parse address into lines (split by newline or comma)
+        const addressLines = shippingAddress.split(/[,\n]/).map(line => line.trim()).filter(line => line)
+        
+        // Get products information
+        const selectedProducts = parseJSON(order.selectedProducts) || []
+        const productQuantities = parseJSON(order.productQuantities) || {}
+        
+        // Format products for display (max 2 lines)
+        let productsDisplay = ''
+        if (selectedProducts.length > 0) {
+            const productItems = selectedProducts.map(product => {
+                const quantity = productQuantities[product.id] || product.quantity || 1
+                return `${product.name || 'N/A'} (${quantity})`
+            })
+            
+            // Try to fit in 1-2 lines, max 60 characters per line
+            const productsText = productItems.join(', ')
+            if (productsText.length <= 60) {
+                productsDisplay = productsText
+            } else {
+                // Split into 2 lines
+                const firstLine = []
+                const secondLine = []
+                let currentLine = firstLine
+                let currentLength = 0
+                
+                productItems.forEach(item => {
+                    const itemLength = item.length + 2 // +2 for ", "
+                    if (currentLength + itemLength <= 60 && currentLine === firstLine) {
+                        currentLine.push(item)
+                        currentLength += itemLength
+                    } else {
+                        if (currentLine === firstLine) {
+                            currentLine = secondLine
+                            currentLength = 0
+                        }
+                        currentLine.push(item)
+                        currentLength += itemLength
+                    }
+                })
+                
+                productsDisplay = firstLine.join(', ')
+                if (secondLine.length > 0) {
+                    productsDisplay += '<br>' + secondLine.join(', ')
+                }
+            }
+        }
+        
+        // Get business details
+        const businessName = order.tenant?.businessName || 'Business Name'
+        const businessAddress = order.tenant?.businessAddress || ''
+        const businessPhone = order.tenant?.whatsappNumber || ''
 
         printWindow.document.write(`
 <!DOCTYPE html>
@@ -313,7 +355,7 @@ const OrderDetailsPage = () => {
     <style>
         @page {
             size: A5;
-            margin: 10mm;
+            margin: 0;
         }
         * {
             margin: 0;
@@ -321,200 +363,177 @@ const OrderDetailsPage = () => {
             box-sizing: border-box;
         }
         body {
-            font-family: Arial, sans-serif;
-            font-size: 11px;
-            line-height: 1.4;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
             color: #000;
             background: #fff;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-        .receipt {
+        .container {
             width: 100%;
-            max-width: 148mm;
-            margin: 0 auto;
-            padding: 8mm;
+            height: 100%;
+            padding: 10mm 12mm;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
         .header {
-            text-align: center;
+            margin-bottom: 8mm;
+            padding-bottom: 5mm;
             border-bottom: 2px solid #000;
-            padding-bottom: 8px;
-            margin-bottom: 12px;
         }
-        .header h1 {
-            font-size: 18px;
-            font-weight: bold;
-            margin-bottom: 4px;
-        }
-        .header p {
-            font-size: 10px;
-            color: #666;
-        }
-        .section {
-            margin-bottom: 12px;
-            padding-bottom: 8px;
-            border-bottom: 1px solid #ddd;
-        }
-        .section:last-child {
-            border-bottom: none;
-        }
-        .section-title {
-            font-size: 12px;
-            font-weight: bold;
-            margin-bottom: 6px;
-            text-transform: uppercase;
+        .business-name {
+            font-size: 20px;
+            font-weight: 700;
             color: #000;
+            margin-bottom: 3mm;
+            letter-spacing: 0.5px;
         }
-        .info-row {
+        .shipping-section {
+            flex: 1;
             display: flex;
-            margin-bottom: 4px;
-            font-size: 10px;
+            flex-direction: column;
+            justify-content: flex-start;
         }
-        .info-label {
-            font-weight: bold;
-            width: 35mm;
-            flex-shrink: 0;
-        }
-        .info-value {
+        .shipping-info {
             flex: 1;
         }
-        .products-table {
+        .shipping-line {
+            margin-bottom: 6px;
+            font-size: 15px;
+            line-height: 1.8;
+        }
+        .shipping-label {
+            font-weight: 600;
+            color: #1a1a1a;
+            display: inline-block;
+            min-width: 75px;
+        }
+        .shipping-value {
+            color: #000;
+            font-weight: 400;
+        }
+        .address-lines {
+            margin-left: 75px;
+            margin-top: 2px;
+            margin-bottom: 6px;
+            line-height: 1.7;
+        }
+        .address-line {
+            margin-bottom: 2px;
+            font-size: 15px;
+        }
+        .order-number {
+            margin-top: 8mm;
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .products-info {
+            margin-top: 4mm;
+            font-size: 14px;
+        }
+        .products-list {
+            font-weight: 500;
+        }
+        .separator {
+            border-top: 2px solid #333;
+            margin: 6mm 0;
             width: 100%;
-            border-collapse: collapse;
-            margin-top: 6px;
-            font-size: 9px;
         }
-        .products-table th {
-            background: #f0f0f0;
-            padding: 4px;
-            text-align: left;
-            font-weight: bold;
-            border: 1px solid #ddd;
+        .business-section {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
         }
-        .products-table td {
-            padding: 4px;
-            border: 1px solid #ddd;
+        .business-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
-        .products-table tr:nth-child(even) {
-            background: #f9f9f9;
+        .business-address {
+            font-size: 13px;
+            line-height: 1.6;
+            color: #333;
+            white-space: pre-line;
         }
-        .text-right {
-            text-align: right;
-        }
-        .total-row {
-            font-weight: bold;
-            font-size: 11px;
-            background: #f0f0f0;
-        }
-        .footer {
-            margin-top: 12px;
-            padding-top: 8px;
-            border-top: 1px solid #000;
-            text-align: center;
-            font-size: 9px;
-            color: #666;
+        .business-phone {
+            font-size: 13px;
+            color: #333;
+            margin-top: 3px;
         }
         @media print {
             body {
                 margin: 0;
                 padding: 0;
             }
-            .receipt {
-                padding: 0;
+            .container {
+                padding: 8mm 10mm;
             }
         }
     </style>
 </head>
 <body>
-    <div class="receipt">
+    <div class="container">
         <div class="header">
-            <h1>${order.tenant?.businessName || 'Business Name'}</h1>
-            <p>SHIPPING RECEIPT</p>
+            <div class="business-name">${businessName}</div>
         </div>
-
-        <div class="section">
-            <div class="section-title">Order Information</div>
-            <div class="info-row">
-                <span class="info-label">Order Number:</span>
-                <span class="info-value">#${order.orderNumber}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Order Date:</span>
-                <span class="info-value">${new Date(order.createdAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Status:</span>
-                <span class="info-value">${order.status}</span>
+        
+        <div class="shipping-section">
+            <div class="shipping-info">
+                <div class="shipping-line">
+                    <span class="shipping-label">To:</span>
+                    <span class="shipping-value">${customerName}</span>
+                </div>
+                
+                <div class="shipping-line">
+                    <span class="shipping-label">Address:</span>
+                </div>
+                <div class="address-lines">
+                    ${addressLines.map(line => `<div class="address-line">${line}</div>`).join('')}
+                </div>
+                
+                ${city ? `
+                <div class="shipping-line">
+                    <span class="shipping-label">City:</span>
+                    <span class="shipping-value">${city}</span>
+                </div>
+                ` : ''}
+                
+                <div class="shipping-line">
+                    <span class="shipping-label">Mobile #:</span>
+                    <span class="shipping-value">${phoneNumber}</span>
+                </div>
+                
+                <div class="shipping-line order-number">
+                    <span class="shipping-label">Order Number:</span>
+                    <span class="shipping-value">${order.orderNumber}</span>
+                </div>
+                
+                ${productsDisplay ? `
+                <div class="shipping-line products-info">
+                    <span class="shipping-label">Products:</span>
+                    <span class="shipping-value products-list">${productsDisplay}</span>
+                </div>
+                ` : ''}
             </div>
         </div>
-
-        <div class="section">
-            <div class="section-title">Recipient Details</div>
-            <div class="info-row">
-                <span class="info-label">Name:</span>
-                <span class="info-value">${customerName}</span>
-            </div>
-            <div class="info-row">
-                <span class="info-label">Phone:</span>
-                <span class="info-value">${phoneNumber}</span>
-            </div>
-            ${email ? `
-            <div class="info-row">
-                <span class="info-label">Email:</span>
-                <span class="info-value">${email}</span>
-            </div>
+        
+        <div class="separator"></div>
+        
+        <div class="business-section">
+            ${businessAddress ? `
+            <div class="business-label">From:</div>
+            <div class="business-address">${businessAddress}</div>
             ` : ''}
-        </div>
-
-        <div class="section">
-            <div class="section-title">Shipping Address</div>
-            <div class="info-value" style="margin-top: 4px; white-space: pre-line;">${shippingAddress}</div>
-        </div>
-
-        <div class="section">
-            <div class="section-title">Order Items</div>
-            <table class="products-table">
-                <thead>
-                    <tr>
-                        <th style="width: 40%;">Product</th>
-                        <th style="width: 15%;" class="text-right">Qty</th>
-                        <th style="width: 22%;" class="text-right">Price</th>
-                        <th style="width: 23%;" class="text-right">Total</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${selectedProducts.map(product => {
-                        const quantity = productQuantities[product.id] || product.quantity || 1
-                        const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
-                        const total = price * quantity
-                        return `
-                            <tr>
-                                <td>${product.name || 'N/A'}</td>
-                                <td class="text-right">${quantity}</td>
-                                <td class="text-right">Rs. ${price.toFixed(2)}</td>
-                                <td class="text-right">Rs. ${total.toFixed(2)}</td>
-                            </tr>
-                        `
-                    }).join('')}
-                    <tr class="total-row">
-                        <td colspan="3" class="text-right"><strong>Total Amount:</strong></td>
-                        <td class="text-right"><strong>Rs. ${totalAmount.toFixed(2)}</strong></td>
-                    </tr>
-                    ${order.paymentAmount !== null && order.paymentAmount !== undefined ? `
-                    <tr>
-                        <td colspan="3" class="text-right">Paid Amount:</td>
-                        <td class="text-right">Rs. ${parseFloat(order.paymentAmount).toFixed(2)}</td>
-                    </tr>
-                    <tr>
-                        <td colspan="3" class="text-right"><strong>Balance:</strong></td>
-                        <td class="text-right"><strong>Rs. ${(totalAmount - parseFloat(order.paymentAmount)).toFixed(2)}</strong></td>
-                    </tr>
-                    ` : ''}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="footer">
-            <p>Thank you for your order!</p>
-            <p>For inquiries, contact: ${order.tenant?.whatsappNumber || 'N/A'}</p>
+            ${businessPhone ? `
+            <div class="business-phone">Phone: ${businessPhone}</div>
+            ` : ''}
         </div>
     </div>
 </body>

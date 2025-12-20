@@ -18,6 +18,7 @@ import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from './LoadingSpinner'
 import CartModal from './CartModal'
+import CityAutocomplete from './CityAutocomplete'
 
 const ShoppingCartForm = ({ form, onSubmit }) => {
   const { formLink } = useParams()
@@ -241,6 +242,11 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
             }
           }
         })
+      }
+      
+      // Always include City field (required)
+      if (data.City) {
+        formData.City = data.City
       }
 
       const orderData = {
@@ -824,6 +830,42 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                   noValidate
                 >
                   {renderCustomerFields()}
+                  
+                  {/* City Field - Always Required */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      City <span className="text-red-500">*</span>
+                    </label>
+                    <CityAutocomplete
+                      name="City"
+                      value={watch('City') || ''}
+                      onChange={(e) => {
+                        setValue('City', e.target.value, { shouldValidate: true })
+                        trigger('City')
+                      }}
+                      onBlur={() => {
+                        trigger('City')
+                      }}
+                      required={true}
+                      error={errors.City?.message}
+                      placeholder="Select or type city name"
+                    />
+                    <input
+                      type="hidden"
+                      {...register('City', {
+                        required: {
+                          value: true,
+                          message: 'City is required'
+                        },
+                        validate: (value) => {
+                          if (!value || value.trim() === '') {
+                            return 'City is required'
+                          }
+                          return true
+                        }
+                      })}
+                    />
+                  </div>
                 </form>
               </div>
 

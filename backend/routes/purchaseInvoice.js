@@ -667,17 +667,27 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
     // Update inventory if products were modified
     if (products && Array.isArray(products)) {
       try {
-        await InventoryService.updateInventoryFromPurchaseEdit(
+        console.log('🔄 Calling updateInventoryFromPurchaseEdit with:');
+        console.log('  - Old items:', oldPurchaseItems.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, productId: i.productId })));
+        console.log('  - New items:', result.purchaseItems.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, productId: i.productId })));
+        
+        const inventoryResult = await InventoryService.updateInventoryFromPurchaseEdit(
           tenant.id,
           oldPurchaseItems,
           result.purchaseItems,
           id,
           result.purchaseInvoice.invoiceNumber || existingInvoice.invoiceNumber
         );
+        
+        console.log('✅ Inventory update result:', inventoryResult);
       } catch (inventoryError) {
-        console.error('Error updating inventory after purchase edit:', inventoryError);
-        // Don't fail the request, but log the error
-        // The purchase items were already updated, inventory can be fixed manually if needed
+        console.error('❌ Error updating inventory after purchase edit:', inventoryError);
+        console.error('Error stack:', inventoryError.stack);
+        // Return error to user so they know inventory update failed
+        return res.status(500).json({ 
+          error: 'Purchase invoice updated but inventory update failed',
+          details: inventoryError.message 
+        });
       }
     }
 

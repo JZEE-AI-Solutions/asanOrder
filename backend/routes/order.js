@@ -338,6 +338,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             businessName: true,
             businessType: true,
             whatsappNumber: true,
+            businessAddress: true,
             ownerId: true
           }
         }

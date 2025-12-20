@@ -6,6 +6,7 @@ import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ProductDisplay from '../components/ProductDisplay'
 import ShoppingCartForm from '../components/ShoppingCartForm'
+import CityAutocomplete from '../components/CityAutocomplete'
 import { 
   PhotoIcon, DocumentIcon, UserIcon, PhoneIcon, MapPinIcon, ScaleIcon, 
   CubeTransparentIcon, XMarkIcon, CheckIcon, DocumentTextIcon, TagIcon, 
@@ -565,6 +566,11 @@ const ClientFormDynamic = () => {
             }
           })
 
+          // Always include City field (required)
+          if (data.City) {
+            formData.City = data.City
+          }
+
           // Note: selectedProducts and productQuantities are sent separately in orderData
           // We don't add them to formData to avoid cluttering the order details display
 
@@ -724,6 +730,42 @@ const ClientFormDynamic = () => {
                 </div>
               </div>
             )}
+
+            {/* City Field - Always Required */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  City <span className="text-red-500">*</span>
+                </label>
+                <CityAutocomplete
+                  name="City"
+                  value={watch('City') || ''}
+                  onChange={(e) => {
+                    setValue('City', e.target.value, { shouldValidate: true })
+                    trigger('City')
+                  }}
+                  onBlur={() => trigger('City')}
+                  required={true}
+                  error={errors.City?.message}
+                  placeholder="Select or type city name"
+                />
+                <input
+                  type="hidden"
+                  {...register('City', {
+                    required: {
+                      value: true,
+                      message: 'City is required'
+                    },
+                    validate: (value) => {
+                      if (!value || value.trim() === '') {
+                        return 'City is required'
+                      }
+                      return true
+                    }
+                  })}
+                />
+              </div>
+            </div>
 
             {/* Product Information Section */}
             {dressFields.length > 0 && (

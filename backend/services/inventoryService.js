@@ -23,12 +23,13 @@ class InventoryService {
     try {
       for (const item of purchaseItems) {
         try {
-          // Search for existing product by name (case-insensitive using contains)
+          // Search for existing product by name (case-insensitive exact match)
           const existingProduct = await prisma.product.findFirst({
             where: {
               tenantId: tenantId,
               name: {
-                contains: item.name
+                equals: item.name,
+                mode: 'insensitive'
               }
             }
           });
@@ -191,12 +192,13 @@ class InventoryService {
     try {
       for (const item of returnItems) {
         try {
-          // Find the product
+          // Find the product (case-insensitive exact match)
           const product = await prisma.product.findFirst({
             where: {
               tenantId: tenantId,
               name: {
-                contains: item.productName
+                equals: item.productName,
+                mode: 'insensitive'
               }
             }
           });
@@ -729,12 +731,13 @@ class InventoryService {
       // Step 2: Reverse inventory changes for each purchase item
       for (const purchaseItem of invoice.purchaseItems) {
         try {
-          // Find the product that was affected
+          // Find the product that was affected (case-insensitive exact match)
           const product = await prisma.product.findFirst({
             where: {
               tenantId: tenantId,
               name: {
-                contains: purchaseItem.name
+                equals: purchaseItem.name,
+                mode: 'insensitive'
               }
             }
           });
@@ -855,6 +858,10 @@ class InventoryService {
    */
   static async updateInventoryFromPurchaseEdit(tenantId, oldPurchaseItems, newPurchaseItems, purchaseInvoiceId, invoiceNumber) {
     console.log(`🔄 Updating inventory for purchase invoice edit: ${invoiceNumber}`);
+    console.log(`   Old items count: ${oldPurchaseItems.length}`);
+    console.log(`   New items count: ${newPurchaseItems.length}`);
+    console.log(`   Old items:`, oldPurchaseItems.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, productId: i.productId })));
+    console.log(`   New items:`, newPurchaseItems.map(i => ({ id: i.id, name: i.name, quantity: i.quantity, productId: i.productId })));
     
     const results = {
       productsUpdated: 0,
@@ -957,18 +964,29 @@ class InventoryService {
         
         for (const newItem of newItems) {
           try {
-            // Find matching old item by ID if available, otherwise by name
+            // Find matching old item by ID first (most reliable)
             let oldItem = null;
             if (newItem.id) {
               oldItem = oldPurchaseItems.find(item => item.id === newItem.id);
             }
             
+            // If not found by ID, try to match from the same key group
             if (!oldItem && oldItems.length > 0) {
               // Try to match by name and purchase price
               oldItem = oldItems.find(item => 
                 item.name.toLowerCase() === newItem.name.toLowerCase() &&
                 Math.abs(item.purchasePrice - newItem.purchasePrice) < 0.01
               );
+            }
+            
+            // If still not found and we have an ID, search all old items (for name changes)
+            if (!oldItem && newItem.id) {
+              oldItem = oldPurchaseItems.find(item => item.id === newItem.id);
+            }
+
+            if (!oldItem) {
+              console.log(`   ⚠️  No matching old item found for new item: ${newItem.name} (ID: ${newItem.id})`);
+              console.log(`      Treating as new item...`);
             }
 
             if (oldItem) {
@@ -977,8 +995,13 @@ class InventoryService {
               const nameChanged = newItem.name.toLowerCase() !== oldItem.name.toLowerCase();
               const priceChanged = Math.abs(newItem.purchasePrice - oldItem.purchasePrice) >= 0.01;
               
+              console.log(`   📝 Processing item update: ${oldItem.name} → ${newItem.name}`);
+              console.log(`      Quantity: ${oldItem.quantity} → ${newItem.quantity} (diff: ${quantityDiff})`);
+              console.log(`      Name changed: ${nameChanged}, Price changed: ${priceChanged}`);
+              
               // If name changed, we need to transfer inventory from old product to new product
               if (nameChanged) {
+                console.log(`   🔄 Name changed detected, transferring inventory...`);
                 // Find the old product (by old name or productId)
                 const oldProduct = await this.findProductForItem(tenantId, oldItem);
                 const newProduct = await this.findProductForItem(tenantId, newItem);
@@ -1365,12 +1388,13 @@ class InventoryService {
       // Step 2: Restore inventory changes for each purchase item
       for (const purchaseItem of invoice.purchaseItems) {
         try {
-          // Find the product that was affected
+          // Find the product that was affected (case-insensitive exact match)
           const product = await prisma.product.findFirst({
             where: {
               tenantId: tenantId,
               name: {
-                contains: purchaseItem.name
+                equals: purchaseItem.name,
+                mode: 'insensitive'
               }
             }
           });
