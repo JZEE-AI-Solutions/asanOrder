@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { useTenant, useOrders, useForms, useCustomers } from '../hooks';
+import { useTenant, useOrders, useForms, useCustomers, useOrderStats } from '../hooks';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -19,14 +19,16 @@ const ModernDashboardPage = () => {
     // Hooks
     const { tenant, loading: tenantLoading } = useTenant();
     const { orders: recentOrders, loading: ordersLoading, refreshOrders } = useOrders({ limit: 5, sort: 'newest' });
-    const { stats: orderStats, loading: statsLoading } = useOrders();
+    const { stats: orderStats, loading: statsLoading, refreshStats } = useOrderStats();
 
-    // Load initial data
+    // Load initial data - only run once when tenant is available
     useEffect(() => {
         if (tenant) {
             refreshOrders();
+            refreshStats();
         }
-    }, [tenant]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tenant]); // Only depend on tenant, not the refresh functions to avoid infinite loops
 
     const handleOrderConfirm = async (orderId) => {
         try {

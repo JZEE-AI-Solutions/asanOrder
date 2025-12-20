@@ -32,6 +32,8 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   const [showCart, setShowCart] = useState(false)
   const [showCustomerForm, setShowCustomerForm] = useState(false)
   const [customerInfo, setCustomerInfo] = useState({})
+  const [shippingCharges, setShippingCharges] = useState(0)
+  const [loadingShipping, setLoadingShipping] = useState(false)
 
   const {
     register,
@@ -55,6 +57,44 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   useEffect(() => {
     filterProducts()
   }, [searchTerm])
+
+  // Calculate shipping charges when city or cart changes
+  useEffect(() => {
+    const calculateShipping = async () => {
+      const city = watch('City')
+      if (!city || cart.length === 0 || !form?.tenantId) {
+        setShippingCharges(0)
+        return
+      }
+
+      try {
+        setLoadingShipping(true)
+        const requestData = {
+          tenantId: form.tenantId,
+          city: city,
+          products: cart.map(item => ({ id: item.id, quantity: item.quantity })),
+          productQuantities: cart.reduce((acc, item) => {
+            acc[item.id] = item.quantity
+            return acc
+          }, {})
+        }
+        console.log('🛒 Frontend shipping calculation request:', requestData)
+        const response = await api.post('/shipping/calculate', requestData)
+        console.log('🛒 Frontend shipping calculation response:', response.data)
+        const calculatedCharges = response.data.shippingCharges || 0
+        setShippingCharges(calculatedCharges)
+        console.log('🛒 Set shipping charges to:', calculatedCharges)
+      } catch (error) {
+        console.error('Error calculating shipping:', error)
+        console.error('Error details:', error.response?.data)
+        setShippingCharges(0)
+      } finally {
+        setLoadingShipping(false)
+      }
+    }
+
+    calculateShipping()
+  }, [cart, watch('City'), form?.tenantId])
 
   const fetchProducts = async () => {
     try {
@@ -207,8 +247,12 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     ))
   }
 
-  const getTotalPrice = () => {
+  const getSubtotal = () => {
     return cart.reduce((total, item) => total + (item.price * item.quantity), 0)
+  }
+
+  const getTotalPrice = () => {
+    return getSubtotal() + shippingCharges
   }
 
   const getTotalItems = () => {
@@ -762,6 +806,8 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
         isOpen={showCart}
         onClose={() => setShowCart(false)}
         cart={cart}
+        shippingCharges={shippingCharges}
+        loadingShipping={loadingShipping}
         onUpdateQuantity={updateQuantity}
         onRemoveItem={removeFromCart}
         onCheckout={() => {
@@ -873,18 +919,36 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
             <div className="border-t-2 border-gray-200 bg-white p-4 sm:p-6 flex-shrink-0 shadow-lg">
               {/* Order Summary */}
               <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-5 mb-5 border border-gray-200">
-                <div className="flex justify-between items-center text-sm mb-3">
-                  <span className="text-gray-600 font-medium">Subtotal ({getTotalItems()} {getTotalItems() === 1 ? 'item' : 'items'})</span>
-                  <span className="font-semibold text-gray-900">
-                    Rs.{getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR
-                  </span>
+                <div className="space-y-2 mb-3 pb-3 border-b border-gray-200">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-600 font-medium">Subtotal ({getTotalItems()} {getTotalItems() === 1 ? 'item' : 'items'})</span>
+                    <span className="font-semibold text-gray-900">
+                      Rs.{getSubtotal().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-gray-600 font-medium">
+                      Shipping {loadingShipping && <span className="text-gray-400">(calculating...)</span>}
+                    </span>
+                    <span className="font-semibold text-gray-900">
+                      {loadingShipping ? (
+                        <span className="text-gray-400">...</span>
+                      ) : (
+                        `Rs.${shippingCharges.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR`
+                      )}
+                    </span>
+                  </div>
                 </div>
                 
                 <div className="border-t-2 border-gray-300 pt-3">
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-bold text-gray-900">Total Amount</span>
                     <span className="text-2xl md:text-3xl font-bold text-pink-600">
-                      Rs.{getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR
+                      {loadingShipping ? (
+                        <span className="text-gray-400">...</span>
+                      ) : (
+                        `Rs.${getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR`
+                      )}
                     </span>
                   </div>
                 </div>

@@ -22,25 +22,27 @@ model User {
 }
 
 model Tenant {
-  id               String            @id @default(cuid())
-  businessName     String
-  contactPerson    String
-  whatsappNumber   String
-  businessAddress  String?
-  businessType     String
-  businessCode     String            @unique
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  ownerId          String            @unique
-  customers        Customer[]
-  forms            Form[]
-  orders           Order[]
-  productLogs      ProductLog[]
-  products         Product[]
-  purchaseInvoices PurchaseInvoice[]
-  purchaseItems    PurchaseItem[]
-  returns          Return[]
-  owner            User              @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
+  id                    String            @id @default(cuid())
+  businessName          String
+  contactPerson         String
+  whatsappNumber        String
+  businessAddress       String?
+  businessType          String
+  businessCode          String            @unique
+  shippingCityCharges    String?           @db.Text
+  shippingQuantityRules String?           @db.Text
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  ownerId               String            @unique
+  customers             Customer[]
+  forms                 Form[]
+  orders                Order[]
+  productLogs           ProductLog[]
+  products              Product[]
+  purchaseInvoices      PurchaseInvoice[]
+  purchaseItems         PurchaseItem[]
+  returns               Return[]
+  owner                 User              @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
 
   @@map("tenants")
 }
@@ -87,6 +89,7 @@ model Order {
   imagesData         Bytes?
   imagesType         String?
   paymentAmount      Float?
+  shippingCharges     Float?
   paymentReceipt     String?
   paymentReceiptData Bytes?
   paymentReceiptType String?
@@ -135,28 +138,31 @@ model PurchaseItem {
 }
 
 model Product {
-  id                 String         @id @default(cuid())
-  name               String
-  description        String?
-  category           String?
-  sku                String?
-  image              String?
-  imageData          Bytes?
-  imageType          String?
-  isActive           Boolean        @default(true)
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
-  tenantId           String
-  currentQuantity    Int            @default(0)
-  currentRetailPrice Float?
-  lastPurchasePrice  Float?
-  lastSalePrice      Float?
-  lastUpdated        DateTime       @default(now())
-  maxStockLevel      Int?
-  minStockLevel      Int            @default(0)
-  productLogs        ProductLog[]
-  tenant             Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
-  purchaseItems      PurchaseItem[]
+  id                    String         @id @default(cuid())
+  name                  String
+  description           String?
+  category              String?
+  sku                   String?
+  image                 String?
+  imageData             Bytes?
+  imageType             String?
+  isActive              Boolean        @default(true)
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  tenantId              String
+  currentQuantity       Int            @default(0)
+  currentRetailPrice    Float?
+  lastPurchasePrice     Float?
+  lastSalePrice         Float?
+  lastUpdated           DateTime       @default(now())
+  maxStockLevel         Int?
+  minStockLevel         Int            @default(0)
+  shippingQuantityRules String?        @db.Text
+  shippingDefaultQuantityCharge Float?
+  useDefaultShipping    Boolean        @default(true)
+  productLogs           ProductLog[]
+  tenant                Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  purchaseItems         PurchaseItem[]
 
   @@map("products")
 }

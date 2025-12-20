@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 import ModernLayout from '../components/ModernLayout'
 import { useTenant } from '../hooks'
+import QuantityRulesEditor from '../components/QuantityRulesEditor'
 
 const EditProductPage = () => {
   const navigate = useNavigate()
@@ -17,6 +18,9 @@ const EditProductPage = () => {
   const [categories, setCategories] = useState([])
   const [showNewCategory, setShowNewCategory] = useState(false)
   const [loadingCategories, setLoadingCategories] = useState(false)
+  const [useDefaultShipping, setUseDefaultShipping] = useState(true)
+  const [productShippingRules, setProductShippingRules] = useState([])
+  const [productDefaultQuantityCharge, setProductDefaultQuantityCharge] = useState(150)
   
   const {
     register,
@@ -64,6 +68,23 @@ const EditProductPage = () => {
           maxStockLevel: product.maxStockLevel || '',
           isActive: product.isActive ?? true
         })
+
+        // Set shipping configuration
+        setUseDefaultShipping(product.useDefaultShipping !== undefined ? product.useDefaultShipping : true)
+        setProductDefaultQuantityCharge(product.shippingDefaultQuantityCharge || 150)
+        if (product.shippingQuantityRules) {
+          try {
+            const rules = typeof product.shippingQuantityRules === 'string' 
+              ? JSON.parse(product.shippingQuantityRules)
+              : product.shippingQuantityRules
+            setProductShippingRules(Array.isArray(rules) ? rules : [])
+          } catch (e) {
+            console.error('Error parsing shipping rules:', e)
+            setProductShippingRules([])
+          }
+        } else {
+          setProductShippingRules([])
+        }
       } catch (error) {
         console.error('Failed to fetch product:', error)
         toast.error('Failed to load product')
@@ -149,6 +170,43 @@ const EditProductPage = () => {
           productData.maxStockLevel = maxStock
         }
       }
+
+      // Add shipping configuration
+      productData.useDefaultShipping = useDefaultShipping
+      if (!useDefaultShipping) {
+        // If custom shipping is enabled, save the rules and default charge
+        // Sort rules by min value before saving
+        const sortedRules = [...productShippingRules].sort((a, b) => {
+          const minA = a.min || 1
+          const minB = b.min || 1
+          return minA - minB
+        })
+        
+        if (sortedRules.length > 0) {
+          productData.shippingQuantityRules = JSON.stringify(sortedRules)
+        } else {
+          // If no rules but custom shipping is enabled, save empty array
+          // This will make the system use default rules as fallback
+          productData.shippingQuantityRules = JSON.stringify([])
+        }
+        
+        // Save product-specific default quantity charge
+        // Use nullish coalescing to preserve 0 as a valid value
+        productData.shippingDefaultQuantityCharge = productDefaultQuantityCharge !== undefined && productDefaultQuantityCharge !== null 
+          ? productDefaultQuantityCharge 
+          : null
+      } else {
+        // If using default shipping, clear product-specific rules and charge
+        productData.shippingQuantityRules = null
+        productData.shippingDefaultQuantityCharge = null
+      }
+      
+      console.log('📦 Shipping config being saved:', {
+        useDefaultShipping,
+        rulesCount: productShippingRules.length,
+        rules: productShippingRules,
+        shippingQuantityRules: productData.shippingQuantityRules
+      })
       
       console.log('Sending product update data:', productData)
       
@@ -465,6 +523,75 @@ const EditProductPage = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Shipping Configuration */}
+          <div className="card p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Shipping Configuration</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Configure product-specific shipping rules. If disabled, default shipping rules from Settings will be used.
+            </p>
+
+            <div className="mb-6">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={useDefaultShipping}
+                  onChange={(e) => setUseDefaultShipping(e.target.checked)}
+                  className="rounded border-gray-300 text-pink-600 shadow-sm focus:border-pink-300 focus:ring focus:ring-pink-200 focus:ring-opacity-50"
+                />
+                <span className="ml-2 text-sm font-medium text-gray-900">
+                  Use default shipping rules (from Settings)
+                </span>
+              </label>
+            </div>
+
+            {!useDefaultShipping && (
+              <div>
+                {/* Default Quantity Charge for this Product */}
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Default Quantity Charge per Unit (Rs.)
+                    <span className="text-gray-500 text-xs ml-2 font-normal">
+                      Applied to additional units (quantity - 1) when quantity doesn't match any rule below. Quantity 1 = no charge.
+                    </span>
+                  </label>
+                  <input
+                    type="number"
+                    value={productDefaultQuantityCharge}
+                    onChange={(e) => setProductDefaultQuantityCharge(parseFloat(e.target.value) || 0)}
+                    min="0"
+                    step="0.01"
+                    className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    This charge applies to additional units beyond the first. Quantity 1 = no charge, Quantity 3 = charge × 2 additional units. (e.g., Rs. 150 × 2 = Rs. 300 for 3 units)
+                  </p>
+                </div>
+
+                {productShippingRules.length === 0 && (
+                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      <strong>No custom rules configured.</strong> Add at least one quantity rule below. If no rules match, the default quantity charge above will be used.
+                    </p>
+                  </div>
+                )}
+                <QuantityRulesEditor
+                  rules={productShippingRules}
+                  defaultCharge={productDefaultQuantityCharge}
+                  showDefaultCharge={false}
+                  onRulesChange={(newRules) => {
+                    console.log('Product shipping rules changed:', newRules)
+                    setProductShippingRules(newRules)
+                  }}
+                  onDefaultChange={(charge) => {
+                    // This won't be called since showDefaultCharge is false, but keeping for compatibility
+                    console.log('Product default quantity charge changed:', charge)
+                    setProductDefaultQuantityCharge(charge)
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Status */}

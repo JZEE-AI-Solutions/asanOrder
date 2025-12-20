@@ -30,6 +30,7 @@ const OrderDetailsPage = () => {
     const [productQuantities, setProductQuantities] = useState({})
     const [productPrices, setProductPrices] = useState({})
     const [paymentAmount, setPaymentAmount] = useState(null)
+    const [shippingCharges, setShippingCharges] = useState(0)
     const [formData, setFormData] = useState({})
     const [showPaymentModal, setShowPaymentModal] = useState(false)
     const [paymentInput, setPaymentInput] = useState('')
@@ -67,6 +68,7 @@ const OrderDetailsPage = () => {
             }
             
             setPaymentAmount(orderData.paymentAmount !== null && orderData.paymentAmount !== undefined ? orderData.paymentAmount : null)
+            setShippingCharges(orderData.shippingCharges || 0)
         } catch (error) {
             toast.error('Failed to fetch order details')
             navigate('/business/orders')
@@ -147,7 +149,8 @@ const OrderDetailsPage = () => {
                 selectedProducts: JSON.stringify(selectedProducts),
                 productQuantities: JSON.stringify(productQuantities),
                 productPrices: JSON.stringify(productPrices),
-                paymentAmount: finalPaymentAmount
+                paymentAmount: finalPaymentAmount,
+                shippingCharges: shippingCharges || 0
             }
 
             await api.put(`/order/${orderId}`, updatedOrder)
@@ -195,17 +198,34 @@ const OrderDetailsPage = () => {
 
     const calculateOrderTotal = () => {
         if (!order) return 0
-        const selectedProducts = parseJSON(order.selectedProducts) || []
-        const productQuantities = parseJSON(order.productQuantities) || {}
-        const productPrices = parseJSON(order.productPrices) || {}
+        
+        // Use state variables when editing, otherwise use order data
+        let productsToCalculate = []
+        let quantitiesToUse = {}
+        let pricesToUse = {}
+        
+        if (isEditing) {
+            // Use current state when editing
+            productsToCalculate = selectedProducts
+            quantitiesToUse = productQuantities
+            pricesToUse = productPrices
+        } else {
+            // Use order data when viewing
+            productsToCalculate = parseJSON(order.selectedProducts) || []
+            quantitiesToUse = parseJSON(order.productQuantities) || {}
+            pricesToUse = parseJSON(order.productPrices) || {}
+        }
         
         let total = 0
-        selectedProducts.forEach(product => {
-            const quantity = productQuantities[product.id] || product.quantity || 1
-            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
+        productsToCalculate.forEach(product => {
+            const quantity = quantitiesToUse[product.id] || product.quantity || 1
+            const price = pricesToUse[product.id] || product.price || product.currentRetailPrice || 0
             total += price * quantity
         })
-        return total
+        
+        // Add shipping charges (use state if editing, otherwise use order data)
+        const currentShippingCharges = isEditing ? shippingCharges : (order?.shippingCharges || 0)
+        return total + currentShippingCharges
     }
 
     const getPaymentStatus = () => {
@@ -521,6 +541,13 @@ const OrderDetailsPage = () => {
                     <span class="shipping-value products-list">${productsDisplay}</span>
                 </div>
                 ` : ''}
+                
+                ${order.shippingCharges && order.shippingCharges > 0 ? `
+                <div class="shipping-line products-info">
+                    <span class="shipping-label">Shipping:</span>
+                    <span class="shipping-value products-list">Rs. ${order.shippingCharges.toFixed(2)}</span>
+                </div>
+                ` : ''}
             </div>
         </div>
         
@@ -775,17 +802,82 @@ const OrderDetailsPage = () => {
                                                     </div>
                                                 )
                                             })}
-                                            <div className="mt-4 pt-4 border-t-2 border-gray-300">
+                                            <div className="mt-4 pt-4 border-t-2 border-gray-300 space-y-2">
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-lg font-bold text-gray-900">Products Total:</span>
                                                     <span className="text-2xl font-bold text-green-600">
                                                         Rs. {calculateProductsTotal().toLocaleString()}
                                                     </span>
                                                 </div>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-sm font-semibold text-gray-700">Shipping Charges:</span>
+                                                    <span className="text-lg font-bold text-blue-600">
+                                                        Rs. {(order.shippingCharges || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center pt-2 border-t border-gray-200">
+                                                    <span className="text-lg font-bold text-gray-900">Total Amount:</span>
+                                                    <span className="text-2xl font-bold text-pink-600">
+                                                        Rs. {calculateOrderTotal().toLocaleString()}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     )
                                 )}
+                            </div>
+                        )}
+
+                        {/* Order Summary Section - Always visible when editing or when there are products */}
+                        {(isEditing || selectedProducts.length > 0) && (
+                            <div className="card p-6">
+                                <h2 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+                                    <CurrencyDollarIcon className="h-5 w-5 mr-2 text-gray-700" />
+                                    Order Summary
+                                </h2>
+                                <div className="space-y-3">
+                                    {selectedProducts.length > 0 && (
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-lg font-bold text-gray-900">Products Total:</span>
+                                            <span className="text-2xl font-bold text-green-600">
+                                                Rs. {calculateProductsTotal().toLocaleString()}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-lg font-semibold text-gray-700">Shipping Charges:</span>
+                                        {isEditing ? (
+                                            <div className="flex items-center space-x-2">
+                                                <input
+                                                    type="number"
+                                                    value={shippingCharges}
+                                                    onChange={(e) => setShippingCharges(Math.max(0, parseFloat(e.target.value) || 0))}
+                                                    min="0"
+                                                    step="0.01"
+                                                    className="w-40 px-3 py-2 text-lg font-bold text-blue-600 border-2 border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShippingCharges(0)}
+                                                    className="px-4 py-2 text-sm font-semibold text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                                                    title="Waive shipping charges"
+                                                >
+                                                    Waive
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <span className="text-lg font-bold text-blue-600">
+                                                Rs. {(order.shippingCharges || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="flex justify-between items-center pt-3 border-t-2 border-gray-300">
+                                        <span className="text-xl font-bold text-gray-900">Total Amount:</span>
+                                        <span className="text-3xl font-bold text-pink-600">
+                                            Rs. {calculateOrderTotal().toLocaleString()}
+                                        </span>
+                                    </div>
+                                </div>
                             </div>
                         )}
 

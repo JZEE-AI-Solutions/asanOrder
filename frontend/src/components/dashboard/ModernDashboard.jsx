@@ -20,28 +20,28 @@ const ModernDashboard = ({
     const statCards = [
         {
             title: 'Total Orders',
-            value: stats?.totalOrders || 0,
+            value: stats?.stats?.totalOrders || 0,
             icon: ShoppingBagIcon,
             color: 'bg-pink-500',
             textColor: 'text-pink-500'
         },
         {
             title: 'Total Revenue',
-            value: `₹${stats?.totalRevenue?.toLocaleString() || '0'}`,
+            value: `Rs. ${stats?.stats?.totalRevenue?.toLocaleString() || '0'}`,
             icon: CurrencyDollarIcon,
             color: 'bg-purple-600',
             textColor: 'text-purple-600'
         },
         {
             title: 'Pending Orders',
-            value: stats?.pendingOrders || 0,
+            value: stats?.stats?.pendingOrders || 0,
             icon: ClockIcon,
             color: 'bg-orange-500',
             textColor: 'text-orange-500'
         },
         {
             title: 'Completed',
-            value: stats?.completedOrders || 0,
+            value: stats?.stats?.completedOrders || 0,
             icon: CheckCircleIcon,
             color: 'bg-green-500',
             textColor: 'text-green-500'
@@ -49,13 +49,12 @@ const ModernDashboard = ({
     ];
 
     // Calculate percentages for Order Status
-    const total = stats?.totalOrders || 1; // Avoid division by zero
+    const total = stats?.stats?.totalOrders || 1; // Avoid division by zero
     const statusCounts = [
-        { label: 'New', count: stats?.pendingOrders || 0, color: 'bg-blue-500' },
-        { label: 'Confirmed', count: stats?.confirmedOrders || 0, color: 'bg-purple-500' },
-        { label: 'Packed', count: stats?.packedOrders || 0, color: 'bg-indigo-500' }, // Assuming packed exists
-        { label: 'Shipped', count: stats?.dispatchedOrders || 0, color: 'bg-orange-500' },
-        { label: 'Delivered', count: stats?.completedOrders || 0, color: 'bg-green-500' },
+        { label: 'New', count: stats?.stats?.pendingOrders || 0, color: 'bg-blue-500' },
+        { label: 'Confirmed', count: stats?.stats?.confirmedOrders || 0, color: 'bg-purple-500' },
+        { label: 'Shipped', count: stats?.stats?.dispatchedOrders || 0, color: 'bg-orange-500' },
+        { label: 'Delivered', count: stats?.stats?.completedOrders || 0, color: 'bg-green-500' },
     ];
 
     return (
@@ -114,7 +113,7 @@ const ModernDashboard = ({
                                             </div>
                                             <div className="flex items-center space-x-4">
                                                 <span className="font-bold text-gray-900">
-                                                    {formData['Payment Amount'] ? `₹${formData['Payment Amount']}` : 'N/A'}
+                                                    {formData['Payment Amount'] ? `Rs. ${formData['Payment Amount']}` : 'N/A'}
                                                 </span>
                                                 <button
                                                     onClick={() => onViewOrder(order)}

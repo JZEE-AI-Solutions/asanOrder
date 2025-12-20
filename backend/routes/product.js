@@ -94,6 +94,9 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
         currentRetailPrice: true,
         lastPurchasePrice: true,
         lastSalePrice: true,
+        shippingQuantityRules: true,
+        shippingDefaultQuantityCharge: true,
+        useDefaultShipping: true,
         createdAt: true,
         updatedAt: true
       }
@@ -265,6 +268,13 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   body('minStockLevel').optional().isInt({ min: 0 }),
   body('maxStockLevel').optional().isInt({ min: 0 }),
   body('isActive').optional().isBoolean(),
+  body('shippingQuantityRules').optional(),
+  body('shippingDefaultQuantityCharge').optional().custom((value) => {
+    if (value === null || value === undefined) return true;
+    const num = parseFloat(value);
+    return !isNaN(num) && num >= 0;
+  }).withMessage('shippingDefaultQuantityCharge must be a number >= 0 or null'),
+  body('useDefaultShipping').optional().isBoolean(),
   body('reason').optional().trim() // Reason for the change
 ], async (req, res) => {
   try {
@@ -274,7 +284,38 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
     }
 
     const { id } = req.params;
-    const { reason, ...updateData } = req.body;
+    const { reason, shippingQuantityRules, shippingDefaultQuantityCharge, useDefaultShipping, ...updateData } = req.body;
+
+    // Handle shipping fields separately
+    if (useDefaultShipping !== undefined) {
+      updateData.useDefaultShipping = useDefaultShipping;
+      
+      // If using default shipping, clear product-specific rules and charge
+      if (useDefaultShipping) {
+        updateData.shippingQuantityRules = null;
+        updateData.shippingDefaultQuantityCharge = null;
+      } else {
+        // If custom shipping, save the rules and default charge
+        if (shippingQuantityRules !== undefined) {
+          updateData.shippingQuantityRules = typeof shippingQuantityRules === 'string' 
+            ? shippingQuantityRules 
+            : JSON.stringify(shippingQuantityRules);
+        }
+        if (shippingDefaultQuantityCharge !== undefined) {
+          updateData.shippingDefaultQuantityCharge = shippingDefaultQuantityCharge;
+        }
+      }
+    } else {
+      // If useDefaultShipping is not provided, handle individual fields
+      if (shippingQuantityRules !== undefined) {
+        updateData.shippingQuantityRules = typeof shippingQuantityRules === 'string' 
+          ? shippingQuantityRules 
+          : JSON.stringify(shippingQuantityRules);
+      }
+      if (shippingDefaultQuantityCharge !== undefined) {
+        updateData.shippingDefaultQuantityCharge = shippingDefaultQuantityCharge;
+      }
+    }
 
     // Get tenant for the business owner
     const tenant = await prisma.tenant.findUnique({

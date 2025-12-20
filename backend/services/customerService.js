@@ -293,14 +293,15 @@ class CustomerService {
       const orders = await prisma.order.findMany({
         where: {
           customerId: customerId,
-          status: { in: ['PENDING', 'CONFIRMED', 'DISPATCHED'] }
+          status: 'CONFIRMED' // Only include confirmed orders for pending payment calculation
         },
         select: {
           id: true,
           selectedProducts: true,
           productQuantities: true,
           productPrices: true,
-          paymentAmount: true
+          paymentAmount: true,
+          shippingCharges: true
         }
       });
 
@@ -327,7 +328,7 @@ class CustomerService {
           continue;
         }
 
-        // Calculate order total
+        // Calculate order total (products + shipping)
         let orderTotal = 0;
         if (Array.isArray(selectedProducts)) {
           selectedProducts.forEach(product => {
@@ -336,6 +337,10 @@ class CustomerService {
             orderTotal += price * quantity;
           });
         }
+        
+        // Add shipping charges
+        const shippingCharges = order.shippingCharges || 0;
+        orderTotal += shippingCharges;
 
         // Calculate pending amount
         const paid = order.paymentAmount || 0;

@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { ArrowLeftIcon, CogIcon, LockClosedIcon, UserIcon, BuildingOfficeIcon, PhoneIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, CogIcon, LockClosedIcon, UserIcon, BuildingOfficeIcon, PhoneIcon, TruckIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 import ModernLayout from '../components/ModernLayout'
 import { useAuth } from '../contexts/AuthContext'
 import { useTenant } from '../hooks'
+import CityChargesEditor from '../components/CityChargesEditor'
+import QuantityRulesEditor from '../components/QuantityRulesEditor'
 
 const SettingsPage = () => {
   const navigate = useNavigate()
@@ -22,6 +24,13 @@ const SettingsPage = () => {
     confirmPassword: ''
   })
   const [passwordErrors, setPasswordErrors] = useState({})
+  const [shippingConfig, setShippingConfig] = useState({
+    cityCharges: {},
+    defaultCityCharge: 200,
+    quantityRules: [],
+    defaultQuantityCharge: 150
+  })
+  const [loadingShipping, setLoadingShipping] = useState(false)
 
   const {
     register: registerProfile,
@@ -57,6 +66,48 @@ const SettingsPage = () => {
     }
     setLoading(false)
   }, [tenant, resetTenant])
+
+  useEffect(() => {
+    fetchShippingConfig()
+  }, [])
+
+  const fetchShippingConfig = async () => {
+    try {
+      setLoadingShipping(true)
+      const response = await api.get('/shipping/config')
+      if (response.data.config) {
+        const config = response.data.config
+        setShippingConfig({
+          cityCharges: config.cityCharges || {},
+          defaultCityCharge: config.defaultCityCharge || 200,
+          quantityRules: config.quantityRules || [],
+          defaultQuantityCharge: config.defaultQuantityCharge || 150
+        })
+      }
+    } catch (error) {
+      console.error('Error fetching shipping config:', error)
+    } finally {
+      setLoadingShipping(false)
+    }
+  }
+
+  const handleShippingConfigSave = async () => {
+    try {
+      setSaving(true)
+      await api.put('/shipping/config', {
+        cityCharges: shippingConfig.cityCharges,
+        defaultCityCharge: shippingConfig.defaultCityCharge,
+        quantityRules: shippingConfig.quantityRules,
+        defaultQuantityCharge: shippingConfig.defaultQuantityCharge
+      })
+      toast.success('Shipping configuration saved successfully!')
+    } catch (error) {
+      console.error('Error saving shipping config:', error)
+      toast.error(error.response?.data?.error || 'Failed to save shipping configuration')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const onProfileSubmit = async (data) => {
     try {
@@ -198,6 +249,19 @@ const SettingsPage = () => {
               <div className="flex items-center">
                 <LockClosedIcon className="h-5 w-5 mr-2" />
                 Password
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('shipping')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'shipping'
+                  ? 'border-pink-500 text-pink-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center">
+                <TruckIcon className="h-5 w-5 mr-2" />
+                Shipping
               </div>
             </button>
           </nav>
@@ -483,6 +547,72 @@ const SettingsPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* Shipping Settings Tab */}
+        {activeTab === 'shipping' && (
+          <div className="card p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">Shipping Configuration</h3>
+            <p className="text-sm text-gray-600 mb-6">
+              Configure shipping charges based on city and product quantity. Cities not listed will use the default city charge.
+            </p>
+
+            {loadingShipping ? (
+              <div className="flex items-center justify-center py-12">
+                <LoadingSpinner />
+              </div>
+            ) : (
+              <div className="space-y-8">
+                {/* City-Based Charges */}
+                <div>
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">City-Based Shipping Charges</h4>
+                  <CityChargesEditor
+                    charges={shippingConfig.cityCharges}
+                    defaultCharge={shippingConfig.defaultCityCharge}
+                    onChargesChange={(charges) => setShippingConfig(prev => ({ ...prev, cityCharges: charges }))}
+                    onDefaultChange={(charge) => setShippingConfig(prev => ({ ...prev, defaultCityCharge: charge }))}
+                  />
+                </div>
+
+                {/* Quantity-Based Rules */}
+                <div>
+                  <h4 className="text-md font-semibold text-gray-900 mb-4">Quantity-Based Shipping Rules</h4>
+                  <QuantityRulesEditor
+                    rules={shippingConfig.quantityRules}
+                    defaultCharge={shippingConfig.defaultQuantityCharge}
+                    onRulesChange={(rules) => setShippingConfig(prev => ({ ...prev, quantityRules: rules }))}
+                    onDefaultChange={(charge) => setShippingConfig(prev => ({ ...prev, defaultQuantityCharge: charge }))}
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => navigate('/business')}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleShippingConfigSave}
+                    className="px-6 py-2 text-sm font-medium text-white bg-pink-600 border border-transparent rounded-lg hover:bg-pink-700 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center"
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <LoadingSpinner size="sm" />
+                        <span className="ml-2">Saving...</span>
+                      </>
+                    ) : (
+                      'Save Shipping Configuration'
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

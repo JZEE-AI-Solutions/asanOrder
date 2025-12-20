@@ -6,6 +6,7 @@ const { generateOrderNumber } = require('../utils/orderNumberGenerator');
 const profitService = require('../services/profitService');
 const customerService = require('../services/customerService');
 const stockValidationService = require('../services/stockValidationService');
+const ShippingChargesService = require('../services/shippingChargesService');
 
 const router = express.Router();
 
@@ -147,6 +148,39 @@ router.post('/submit', [
     // Generate order number
     const orderNumber = await generateOrderNumber(form.tenant.id);
 
+    // Calculate shipping charges
+    let shippingCharges = null;
+    if (selectedProducts && productQuantities) {
+      try {
+        // Parse products and quantities if they're strings
+        let parsedProducts = selectedProducts;
+        let parsedQuantities = productQuantities;
+
+        if (typeof selectedProducts === 'string') {
+          parsedProducts = JSON.parse(selectedProducts);
+        }
+        if (typeof productQuantities === 'string') {
+          parsedQuantities = JSON.parse(productQuantities);
+        }
+
+        // Get city from formData
+        const city = formData['City'] || formData['City Name'] || '';
+
+        if (city && Array.isArray(parsedProducts) && parsedProducts.length > 0) {
+          shippingCharges = await ShippingChargesService.calculateShippingCharges(
+            form.tenant.id,
+            city,
+            parsedProducts,
+            parsedQuantities
+          );
+          console.log(`📦 Calculated shipping charges: Rs. ${shippingCharges} for city: ${city}`);
+        }
+      } catch (error) {
+        console.error('Error calculating shipping charges:', error);
+        // Don't fail the order if shipping calculation fails, just log it
+      }
+    }
+
     // Debug: Log what we're about to save
     console.log('💾 About to save order:');
     console.log('  - selectedProducts:', selectedProducts, 'Type:', typeof selectedProducts);
@@ -162,6 +196,7 @@ router.post('/submit', [
         customerId: customer ? customer.id : null,
         formData: JSON.stringify(formData),
         paymentAmount: paymentAmount || null,
+        shippingCharges: shippingCharges,
         images: images ? JSON.stringify(images) : null,
         paymentReceipt: paymentReceipt || null,
         // selectedProducts, productQuantities, and productPrices are already stringified from frontend
@@ -563,7 +598,8 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   }),
   body('paymentAmount').optional().custom((value) => {
     return value === null || !isNaN(parseFloat(value));
-  })
+  }),
+  body('shippingCharges').optional().isFloat({ min: 0 }).withMessage('Shipping charges must be a number >= 0')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -579,7 +615,8 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       productQuantities,
       productPrices,
       selectedProducts,
-      paymentAmount
+      paymentAmount,
+      shippingCharges
     } = req.body;
 
     // Check if order exists and belongs to user's tenant
@@ -654,6 +691,9 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
     }
     if (paymentAmount !== undefined) {
       updateData.paymentAmount = paymentAmount;
+    }
+    if (shippingCharges !== undefined) {
+      updateData.shippingCharges = shippingCharges;
     }
 
     const order = await prisma.order.update({
@@ -764,30 +804,17 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
       confirmedOrders,
       dispatchedOrders,
       completedOrders,
-      revenueResult,
-      avgOrderValueResult,
       ordersToday,
       ordersThisWeek,
       ordersThisMonth,
-      recentOrders
+      recentOrders,
+      allOrdersForRevenue
     ] = await Promise.all([
       prisma.order.count({ where: whereClause }),
       prisma.order.count({ where: { ...whereClause, status: 'PENDING' } }),
       prisma.order.count({ where: { ...whereClause, status: 'CONFIRMED' } }),
       prisma.order.count({ where: { ...whereClause, status: 'DISPATCHED' } }),
       prisma.order.count({ where: { ...whereClause, status: 'COMPLETED' } }),
-      prisma.order.aggregate({
-        _sum: {
-          paymentAmount: true
-        },
-        where: whereClause
-      }),
-      prisma.order.aggregate({
-        _avg: {
-          paymentAmount: true
-        },
-        where: whereClause
-      }),
       prisma.order.count({
         where: {
           ...whereClause,
@@ -834,11 +861,64 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
           createdAt: 'desc'
         },
         take: 5
+      }),
+      prisma.order.findMany({
+        where: whereClause,
+        select: {
+          selectedProducts: true,
+          productQuantities: true,
+          productPrices: true,
+          shippingCharges: true
+        }
       })
     ]);
 
-    const totalRevenue = revenueResult._sum.paymentAmount || 0;
-    const averageOrderValue = avgOrderValueResult._avg.paymentAmount || 0;
+    // Calculate total revenue from actual order totals (products + shipping)
+    let totalRevenue = 0;
+    let totalOrderValue = 0;
+    let orderCount = 0;
+
+    for (const order of allOrdersForRevenue) {
+      try {
+        // Parse order data
+        let selectedProducts = [];
+        let productQuantities = {};
+        let productPrices = {};
+
+        selectedProducts = typeof order.selectedProducts === 'string' 
+          ? JSON.parse(order.selectedProducts) 
+          : (order.selectedProducts || []);
+        productQuantities = typeof order.productQuantities === 'string'
+          ? JSON.parse(order.productQuantities)
+          : (order.productQuantities || {});
+        productPrices = typeof order.productPrices === 'string'
+          ? JSON.parse(order.productPrices)
+          : (order.productPrices || {});
+
+        // Calculate order total (products + shipping)
+        let orderTotal = 0;
+        if (Array.isArray(selectedProducts)) {
+          selectedProducts.forEach(product => {
+            const quantity = productQuantities[product.id] || product.quantity || 1;
+            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+            orderTotal += price * quantity;
+          });
+        }
+        
+        // Add shipping charges
+        const shippingCharges = order.shippingCharges || 0;
+        orderTotal += shippingCharges;
+
+        totalRevenue += orderTotal;
+        totalOrderValue += orderTotal;
+        orderCount++;
+      } catch (e) {
+        console.error('Error calculating order total for revenue:', e);
+        // Continue with next order
+      }
+    }
+
+    const averageOrderValue = orderCount > 0 ? totalOrderValue / orderCount : 0;
 
     res.json({
       stats: {

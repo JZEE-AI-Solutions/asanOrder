@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
 import ConfirmationModal from '../components/ConfirmationModal'
+import { useOrderStats } from '../hooks/useOrders'
 import { 
   DocumentTextIcon, 
   ShoppingBagIcon,
@@ -26,7 +27,8 @@ import {
   PlusIcon,
   PencilIcon,
   TrashIcon,
-  EyeSlashIcon
+  EyeSlashIcon,
+  CalendarIcon
 } from '@heroicons/react/24/outline'
 
 const BusinessDashboard = () => {
@@ -35,11 +37,13 @@ const BusinessDashboard = () => {
   const [tenant, setTenant] = useState(null)
   const [recentOrders, setRecentOrders] = useState([])
   const [forms, setForms] = useState([])
-  const [stats, setStats] = useState(null)
   const [profitStats, setProfitStats] = useState(null)
   const [loading, setLoading] = useState(true)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
+  
+  // Use the same hook as OrdersScreen for consistency
+  const { stats: orderStats, loading: statsLoading, refreshStats, error: statsError } = useOrderStats()
   
   // Form management state
   const [allForms, setAllForms] = useState([]) // All forms (published and unpublished)
@@ -64,12 +68,37 @@ const BusinessDashboard = () => {
     fetchDashboardData()
   }, [])
 
+  useEffect(() => {
+    // Fetch stats using the hook - call it separately to ensure it runs
+    console.log('🔄 Calling refreshStats...')
+    refreshStats().then((data) => {
+      console.log('✅ Stats fetched successfully:', data)
+    }).catch((error) => {
+      console.error('❌ Stats fetch failed:', error)
+    })
+  }, []) // Empty deps - only run once on mount
+  
+  // Debug: Log stats when they change
+  useEffect(() => {
+    console.log('📊 Dashboard Stats State:')
+    console.log('  - orderStats:', orderStats)
+    console.log('  - orderStats?.stats:', orderStats?.stats)
+    console.log('  - statsLoading:', statsLoading)
+    console.log('  - statsError:', statsError)
+    if (orderStats) {
+      console.log('  - totalOrders:', orderStats.stats?.totalOrders)
+      console.log('  - totalRevenue:', orderStats.stats?.totalRevenue)
+    }
+    if (statsError) {
+      console.error('❌ Stats Error:', statsError)
+    }
+  }, [orderStats, statsLoading, statsError])
+
   const fetchDashboardData = async () => {
     try {
-      const [tenantRes, recentOrdersRes, statsRes, formsRes, allFormsRes, profitRes] = await Promise.all([
+      const [tenantRes, recentOrdersRes, formsRes, allFormsRes, profitRes] = await Promise.all([
         api.get('/tenant/owner/me'),
         api.get('/order?limit=5&sort=newest'), // Only fetch recent 5 orders
-        api.get('/order/stats/dashboard'),
         api.get('/form'), // Fetch published forms for business owner
         api.get('/form?includeUnpublished=true').catch(() => ({ data: { forms: [] } })), // Fetch all forms including unpublished for management
         api.get('/order/stats/profit').catch((err) => {
@@ -80,11 +109,12 @@ const BusinessDashboard = () => {
 
       setTenant(tenantRes.data.tenant)
       setRecentOrders(recentOrdersRes.data.orders)
-      setStats(statsRes.data.stats)
       setForms(formsRes.data.forms || []) // Store published forms for display
       setAllForms(allFormsRes.data.forms || []) // Store all forms for management
       setProfitStats(profitRes.data || { totalRevenue: 0, totalCost: 0, totalProfit: 0, profitMargin: 0, orderCount: 0, orders: [] }) // Profit statistics
     } catch (error) {
+      console.error('Dashboard fetch error:', error)
+      console.error('Error response:', error.response?.data)
       toast.error('Failed to fetch dashboard data')
     } finally {
       setLoading(false)
@@ -357,8 +387,8 @@ const BusinessDashboard = () => {
         {/* Tab Content */}
         {activeTab === 'overview' && (
           <>
-            {/* Stats Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+            {/* Stats Cards - Primary Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
           <div className="card-compact text-center hover:shadow-xl transition-all duration-300">
             <div className="w-12 h-12 mx-auto mb-3 bg-pink-100 rounded-full flex items-center justify-center">
               <DocumentTextIcon className="h-6 w-6 text-pink-600" />
@@ -371,12 +401,31 @@ const BusinessDashboard = () => {
             onClick={() => handleStatClick('all')}
             className="card-compact text-center hover:shadow-xl hover:border-pink-300 transition-all duration-300 cursor-pointer group"
           >
-            <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-full flex items-center justify-center group-hover:bg-purple-200 transition-colors">
-              <ShoppingBagIcon className="h-6 w-6 text-purple-600" />
+            <div className="w-12 h-12 mx-auto mb-3 bg-pink-100 rounded-full flex items-center justify-center group-hover:bg-pink-200 transition-colors">
+              <ShoppingBagIcon className="h-6 w-6 text-pink-600" />
             </div>
-            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-purple-600 mb-1">{stats?.totalOrders || 0}</p>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-pink-600 mb-1">
+              {statsLoading ? '...' : (orderStats?.stats?.totalOrders ?? 0)}
+            </p>
             <p className="text-sm font-semibold text-gray-600 mb-2">Total Orders</p>
-            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-purple-500" />
+            {statsError && (
+              <p className="text-xs text-red-500 mt-1">Error: {statsError}</p>
+            )}
+            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-pink-500" />
+          </button>
+
+          <button
+            onClick={() => handleStatClick('all')}
+            className="card-compact text-center hover:shadow-xl hover:border-green-300 transition-all duration-300 cursor-pointer group"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center group-hover:bg-green-200 transition-colors">
+              <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-green-600 mb-1">
+              Rs. {(orderStats?.stats?.totalRevenue || 0).toLocaleString()}
+            </p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Total Revenue</p>
+            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-green-500" />
           </button>
 
           <button
@@ -386,12 +435,61 @@ const BusinessDashboard = () => {
             <div className="w-12 h-12 mx-auto mb-3 bg-yellow-100 rounded-full flex items-center justify-center group-hover:bg-yellow-200 transition-colors">
               <ClockIcon className="h-6 w-6 text-yellow-600" />
             </div>
-            <p className="text-2xl sm:text-3xl font-bold text-yellow-600 group-hover:text-yellow-700 mb-1">{stats?.pendingOrders || 0}</p>
-            <p className="text-sm font-semibold text-gray-600 mb-2">Pending</p>
+            <p className="text-2xl sm:text-3xl font-bold text-yellow-600 group-hover:text-yellow-700 mb-1">{orderStats?.stats?.pendingOrders || 0}</p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Pending Orders</p>
             <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-yellow-500" />
           </button>
+        </div>
 
-          {/* Profit Statistics - Always show */}
+        {/* Stats Cards - Secondary Row */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6">
+          <button
+            onClick={() => handleStatClick('CONFIRMED')}
+            className="card-compact text-center hover:shadow-xl hover:border-purple-300 transition-all duration-300 cursor-pointer group"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 bg-purple-100 rounded-full flex items-center justify-center group-hover:bg-purple-200 transition-colors">
+              <CheckIcon className="h-6 w-6 text-purple-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-purple-600 mb-1">{orderStats?.stats?.confirmedOrders || 0}</p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Confirmed</p>
+            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-purple-500" />
+          </button>
+
+          <button
+            onClick={() => handleStatClick('DISPATCHED')}
+            className="card-compact text-center hover:shadow-xl hover:border-blue-300 transition-all duration-300 cursor-pointer group"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-full flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+              <ShoppingBagIcon className="h-6 w-6 text-blue-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-blue-600 mb-1">{orderStats?.stats?.dispatchedOrders || 0}</p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Dispatched</p>
+            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-blue-500" />
+          </button>
+
+          <button
+            onClick={() => handleStatClick('COMPLETED')}
+            className="card-compact text-center hover:shadow-xl hover:border-green-300 transition-all duration-300 cursor-pointer group"
+          >
+            <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center group-hover:bg-green-200 transition-colors">
+              <CheckIcon className="h-6 w-6 text-green-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 group-hover:text-green-600 mb-1">{orderStats?.stats?.completedOrders || 0}</p>
+            <p className="text-sm font-semibold text-gray-600 mb-2">Completed</p>
+            <ArrowRightIcon className="h-4 w-4 text-gray-400 mx-auto group-hover:text-green-500" />
+          </button>
+
+          <div className="card-compact text-center hover:shadow-xl transition-all duration-300">
+            <div className="w-12 h-12 mx-auto mb-3 bg-indigo-100 rounded-full flex items-center justify-center">
+              <CalendarIcon className="h-6 w-6 text-indigo-600" />
+            </div>
+            <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{orderStats?.stats?.ordersThisMonth || 0}</p>
+            <p className="text-sm font-semibold text-gray-600">This Month</p>
+          </div>
+        </div>
+
+        {/* Profit Statistics Row - Always show */}
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
           <div className="card-compact text-center hover:shadow-xl transition-all duration-300 bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-200">
             <div className="w-12 h-12 mx-auto mb-3 bg-green-100 rounded-full flex items-center justify-center">
               <CurrencyDollarIcon className="h-6 w-6 text-green-600" />
@@ -401,17 +499,6 @@ const BusinessDashboard = () => {
             </p>
             <p className="text-sm font-semibold text-gray-600">Net Profit</p>
             <p className="text-xs text-gray-500 mt-1">Margin: {(profitStats?.profitMargin || 0).toFixed(1)}%</p>
-          </div>
-        </div>
-
-        {/* Additional Profit Stats Row - Always show */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
-          <div className="card-compact text-center hover:shadow-xl transition-all duration-300">
-            <div className="w-12 h-12 mx-auto mb-3 bg-blue-100 rounded-full flex items-center justify-center">
-              <ChartBarIcon className="h-6 w-6 text-blue-600" />
-            </div>
-            <p className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">Rs. {(profitStats?.totalRevenue || 0).toLocaleString()}</p>
-            <p className="text-sm font-semibold text-gray-600">Total Revenue</p>
           </div>
           <div className="card-compact text-center hover:shadow-xl transition-all duration-300">
             <div className="w-12 h-12 mx-auto mb-3 bg-red-100 rounded-full flex items-center justify-center">

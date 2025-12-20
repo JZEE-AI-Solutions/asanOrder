@@ -77,6 +77,11 @@ const CustomerDetailsPage = () => {
       const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
       total += price * quantity
     })
+    
+    // Add shipping charges
+    const shippingCharges = order.shippingCharges || 0
+    total += shippingCharges
+    
     return total
   }
 
@@ -377,8 +382,10 @@ const CustomerDetailsPage = () => {
                     </div>
                   </div>
                   {(() => {
+                    // Only include CONFIRMED orders for pending payment calculation
+                    const confirmedOrders = customerOrders.filter(order => order.status === 'CONFIRMED')
                     const totalPaid = customerOrders.reduce((sum, order) => sum + (order.paymentAmount || 0), 0)
-                    const totalPending = customerOrders.reduce((sum, order) => {
+                    const totalPending = confirmedOrders.reduce((sum, order) => {
                       const status = getPaymentStatus(order)
                       return sum + status.remaining
                     }, 0)
@@ -391,6 +398,7 @@ const CustomerDetailsPage = () => {
                         <div className="bg-red-50 p-3 rounded-lg border border-red-200">
                           <p className="text-xs font-medium text-red-600 mb-1">Pending Balance</p>
                           <p className="text-lg font-bold text-red-900">Rs. {totalPending.toFixed(2)}</p>
+                          <p className="text-xs text-gray-500 mt-1">(Confirmed orders only)</p>
                         </div>
                       </div>
                     )

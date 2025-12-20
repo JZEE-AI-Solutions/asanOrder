@@ -13,14 +13,20 @@ const CartModal = ({
   isOpen, 
   onClose, 
   cart, 
+  shippingCharges = 0,
+  loadingShipping = false,
   onUpdateQuantity, 
   onRemoveItem, 
   onCheckout 
 }) => {
   const [isCheckingOut, setIsCheckingOut] = useState(false)
 
-  const getTotalPrice = () => {
+  const getSubtotal = () => {
     return cart.reduce((total, item) => total + (item.price * item.quantity), 0)
+  }
+
+  const getTotalPrice = () => {
+    return getSubtotal() + shippingCharges
   }
 
   const getTotalItems = () => {
@@ -183,18 +189,36 @@ const CartModal = ({
           <div className="border-t-2 border-gray-200 bg-white p-4 sm:p-6 flex-shrink-0 shadow-lg">
               {/* Order Summary */}
               <div className="bg-gradient-to-br from-gray-50 via-gray-50 to-pink-50 rounded-xl p-4 sm:p-5 mb-4 sm:mb-5 border border-gray-200 shadow-sm">
-                <div className="flex justify-between items-center text-xs sm:text-sm mb-3 pb-3 border-b border-gray-200">
-                  <span className="text-gray-600 font-medium">Subtotal ({getTotalItems()} {getTotalItems() === 1 ? 'item' : 'items'})</span>
-                  <span className="font-semibold text-gray-900">
-                    Rs.{getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR
-                  </span>
+                <div className="space-y-2 mb-3 pb-3 border-b border-gray-200">
+                  <div className="flex justify-between items-center text-xs sm:text-sm">
+                    <span className="text-gray-600 font-medium">Subtotal ({getTotalItems()} {getTotalItems() === 1 ? 'item' : 'items'})</span>
+                    <span className="font-semibold text-gray-900">
+                      Rs.{getSubtotal().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-xs sm:text-sm">
+                    <span className="text-gray-600 font-medium">
+                      Shipping {loadingShipping && <span className="text-gray-400">(calculating...)</span>}
+                    </span>
+                    <span className="font-semibold text-gray-900">
+                      {loadingShipping ? (
+                        <span className="text-gray-400">...</span>
+                      ) : (
+                        `Rs.${shippingCharges.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR`
+                      )}
+                    </span>
+                  </div>
                 </div>
                 
                 <div className="pt-2">
                   <div className="flex justify-between items-center">
                     <span className="text-base sm:text-lg font-bold text-gray-900">Total Amount</span>
                     <span className="text-xl sm:text-2xl md:text-3xl font-bold bg-gradient-to-r from-pink-600 to-pink-700 bg-clip-text text-transparent">
-                      Rs.{getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR
+                      {loadingShipping ? (
+                        <span className="text-gray-400">...</span>
+                      ) : (
+                        `Rs.${getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')} PKR`
+                      )}
                     </span>
                   </div>
                 </div>
