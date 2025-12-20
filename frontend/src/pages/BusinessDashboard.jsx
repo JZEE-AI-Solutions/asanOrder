@@ -911,8 +911,6 @@ const BusinessDashboard = () => {
         cancelText={confirmationModal.cancelText}
       />
 
-      {/* Customer Details Modal */}
-      {showCustomerDetails && selectedCustomer && (
     </div>
   )
 }
