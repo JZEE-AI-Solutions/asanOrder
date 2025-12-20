@@ -118,12 +118,13 @@ const ReturnsManagement = () => {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-gray-900"
+            style={{ color: '#111827', backgroundColor: '#ffffff' }}
           >
-            <option value="ALL" className="text-gray-900 bg-white">All Returns</option>
-            <option value="PENDING" className="text-gray-900 bg-white">Pending</option>
-            <option value="APPROVED" className="text-gray-900 bg-white">Approved</option>
-            <option value="REJECTED" className="text-gray-900 bg-white">Rejected</option>
-            <option value="PROCESSED" className="text-gray-900 bg-white">Processed</option>
+            <option value="ALL" style={{ color: '#111827', backgroundColor: '#ffffff' }}>All Returns</option>
+            <option value="PENDING" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Pending</option>
+            <option value="APPROVED" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Approved</option>
+            <option value="REJECTED" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Rejected</option>
+            <option value="PROCESSED" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Processed</option>
           </select>
         </div>
       </div>

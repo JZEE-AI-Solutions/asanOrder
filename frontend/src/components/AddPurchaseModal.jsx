@@ -377,6 +377,7 @@ const AddPurchaseModal = ({ onClose, onSaved }) => {
                           <>
                             <select
                               {...register(`items.${index}.category`)}
+                              style={{ color: '#111827', backgroundColor: '#ffffff' }}
                               onChange={(e) => {
                                 const value = e.target.value
                                 register(`items.${index}.category`).onChange(e)
@@ -394,13 +395,13 @@ const AddPurchaseModal = ({ onClose, onSaved }) => {
                               }}
                               className="input-field bg-white text-gray-900 border-2"
                             >
-                              <option value="" className="text-gray-900 bg-white">Select a category (optional)</option>
+                              <option value="" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Select a category (optional)</option>
                               {categories.map(category => (
-                                <option key={category} value={category} className="text-gray-900 bg-white">
+                                <option key={category} value={category} style={{ color: '#111827', backgroundColor: '#ffffff' }}>
                                   {category}
                                 </option>
                               ))}
-                              <option value="__new__" className="text-gray-900 bg-white">+ Add New Category</option>
+                              <option value="__new__" style={{ color: '#111827', backgroundColor: '#ffffff' }}>+ Add New Category</option>
                             </select>
                             {newCategoryInputs[index] && (
                               <input

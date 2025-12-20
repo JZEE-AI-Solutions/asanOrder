@@ -46,16 +46,29 @@
     @apply w-full px-4 py-3 bg-white text-gray-900 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 placeholder-gray-400 text-sm transition-all duration-200 font-medium;
   }
   
+  /* CRITICAL: Force all select and option elements to have dark text - override EVERYTHING */
+  select,
+  select *,
+  option,
+  option * {
+    color: #111827 !important; /* Direct hex - gray-900 */
+    background-color: #ffffff !important; /* Direct hex - white */
+  }
+  
   /* Ensure select and option elements have dark text */
   select.input-field,
   .input-field select {
     @apply text-gray-900 bg-white;
+    color: #111827 !important;
+    background-color: #ffffff !important;
   }
   
   select.input-field option,
   .input-field select option,
   option {
     @apply text-gray-900 bg-white;
+    color: #111827 !important;
+    background-color: #ffffff !important;
   }
   
   /* CRITICAL: Force all input elements to have dark text - override everything */
@@ -79,16 +92,19 @@
     background-color: #ffffff !important;
   }
   
-  /* Additional select and option rules */
+  /* Additional select and option rules - MAXIMUM PRIORITY */
   select option,
-  option[value] {
+  option[value],
+  select > option,
+  select option[value] {
     color: #111827 !important;
     background-color: #ffffff !important;
   }
   
   /* Selected option styling */
   select option:checked,
-  select option:selected {
+  select option:selected,
+  select option:hover {
     color: #111827 !important;
     background-color: #f3f4f6 !important;
   }
@@ -101,8 +117,15 @@
     color: #111827 !important;
   }
   
-  /* Ensure all select elements have proper styling */
+  /* Ensure all select elements have proper styling - FINAL OVERRIDE */
   select {
+    color: #111827 !important;
+    background-color: #ffffff !important;
+  }
+  
+  /* Force option elements in all contexts */
+  select option,
+  option {
     color: #111827 !important;
     background-color: #ffffff !important;
   }

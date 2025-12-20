@@ -97,10 +97,11 @@ const CreateTenantModal = ({ onClose, onSuccess }) => {
             <select
               {...register('businessType', { required: 'Business type is required' })}
               className="input-field bg-white text-gray-900"
+              style={{ color: '#111827', backgroundColor: '#ffffff' }}
             >
-              <option value="" className="text-gray-900 bg-white">Select business type</option>
+              <option value="" style={{ color: '#111827', backgroundColor: '#ffffff' }}>Select business type</option>
               {businessTypes.map((type) => (
-                <option key={type.value} value={type.value} className="text-gray-900 bg-white">
+                <option key={type.value} value={type.value} style={{ color: '#111827', backgroundColor: '#ffffff' }}>
                   {type.label}
                 </option>
               ))}
