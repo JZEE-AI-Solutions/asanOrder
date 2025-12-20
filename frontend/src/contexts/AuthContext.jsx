@@ -65,12 +65,17 @@ export const AuthProvider = ({ children }) => {
     setUser(null)
   }
 
+  const refreshUser = async () => {
+    await fetchUser()
+  }
+
   const value = {
     user,
     login,
     logout,
     loading,
-    isAuthenticated: !!user
+    isAuthenticated: !!user,
+    refreshUser
   }
 
   return (

@@ -31,7 +31,8 @@ import {
   LazyReportsPage,
   LazyEditPurchasePage,
   LazyCreateFormPage,
-  LazyEditFormPage
+  LazyEditFormPage,
+  LazySettingsPage
 } from './components/LazyComponents'
 
 // Synchronous components
@@ -175,6 +176,14 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyEditProductPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/settings" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazySettingsPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

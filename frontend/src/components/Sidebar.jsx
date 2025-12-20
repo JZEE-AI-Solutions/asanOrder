@@ -11,7 +11,8 @@ import {
     ArrowLeftOnRectangleIcon,
     DocumentTextIcon,
     XMarkIcon,
-    ChartBarIcon
+    ChartBarIcon,
+    CogIcon
 } from '@heroicons/react/24/outline';
 
 const Sidebar = ({ onNewOrder, onLogout, isOpen, onClose }) => {
@@ -21,6 +22,7 @@ const Sidebar = ({ onNewOrder, onLogout, isOpen, onClose }) => {
         { name: 'Customers', icon: UsersIcon, path: '/business/customers' },
         { name: 'Order Forms', icon: DocumentTextIcon, path: '/business/forms' },
         { name: 'Reports', icon: ChartBarIcon, path: '/business/reports' },
+        { name: 'Settings', icon: CogIcon, path: '/business/settings' },
     ];
 
     const inventoryItems = [

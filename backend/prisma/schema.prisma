@@ -26,6 +26,7 @@ model Tenant {
   businessName     String
   contactPerson    String
   whatsappNumber   String
+  businessAddress  String?
   businessType     String
   businessCode     String            @unique
   createdAt        DateTime          @default(now())

@@ -347,6 +347,7 @@ router.put('/:id', authenticateToken, [
   body('businessName').optional().trim().isLength({ min: 2 }),
   body('contactPerson').optional().trim().isLength({ min: 2 }),
   body('whatsappNumber').optional().matches(/^\+92[0-9]{10}$/),
+  body('businessAddress').optional().trim(),
   body('businessType').optional().isIn(['DRESS_SHOP', 'RESTAURANT', 'BAKERY', 'ELECTRONICS', 'GROCERY', 'OTHER'])
 ], async (req, res) => {
   try {
@@ -374,7 +375,7 @@ router.put('/:id', authenticateToken, [
 
     const tenant = await prisma.tenant.update({
       where: { id },
-      data: updateData,
+      data: filteredData,
       include: {
         owner: {
           select: {
@@ -433,6 +434,74 @@ router.get('/owner/me', authenticateToken, requireRole(['BUSINESS_OWNER']), asyn
   } catch (error) {
     console.error('Get owner tenant error:', error);
     res.status(500).json({ error: 'Failed to get tenant information' });
+  }
+});
+
+// Update tenant by owner (for business owner settings)
+router.put('/owner/me', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('businessName').optional().trim().isLength({ min: 2 }),
+  body('contactPerson').optional().trim().isLength({ min: 2 }),
+  body('whatsappNumber').optional().matches(/^\+92[0-9]{10}$/),
+  body('businessAddress').optional().trim(),
+  body('businessType').optional().isIn(['DRESS_SHOP', 'RESTAURANT', 'BAKERY', 'ELECTRONICS', 'GROCERY', 'OTHER'])
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    // Find tenant by owner ID
+    const existingTenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!existingTenant) {
+      return res.status(404).json({ error: 'No tenant found for this business owner' });
+    }
+
+    const updateData = req.body;
+    
+    // Only include fields that are provided and valid
+    const allowedFields = ['businessName', 'contactPerson', 'whatsappNumber', 'businessAddress', 'businessType'];
+    const filteredData = {};
+    for (const field of allowedFields) {
+      if (updateData[field] !== undefined) {
+        filteredData[field] = updateData[field];
+      }
+    }
+
+    const tenant = await prisma.tenant.update({
+      where: { id: existingTenant.id },
+      data: filteredData,
+      include: {
+        owner: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      message: 'Tenant updated successfully',
+      tenant
+    });
+  } catch (error) {
+    console.error('Update owner tenant error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      meta: error.meta
+    });
+    res.status(500).json({ 
+      error: 'Failed to update tenant',
+      details: error.message,
+      code: error.code
+    });
   }
 });
 
