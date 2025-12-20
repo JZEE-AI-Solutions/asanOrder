@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { CameraIcon, PhotoIcon, XMarkIcon, TrashIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import toast from 'react-hot-toast'
@@ -19,6 +19,28 @@ const ProductImageUpload = ({
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
 
+  // Ensure video element gets the stream when it's available
+  useEffect(() => {
+    if (stream && videoRef.current) {
+      console.log('Setting video srcObject from useEffect')
+      videoRef.current.srcObject = stream
+      videoRef.current.play()
+        .then(() => {
+          console.log('Video playing from useEffect')
+        })
+        .catch(err => {
+          console.error('Error playing video in useEffect:', err)
+        })
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+      }
+    }
+  }, [stream])
+
   const handleFileUpload = (event) => {
     const file = event.target.files[0]
     if (file) {
@@ -32,16 +54,41 @@ const ProductImageUpload = ({
 
   const startCamera = async () => {
     try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: 'environment' } // Use back camera on mobile
-      })
-      setStream(mediaStream)
-      if (videoRef.current) {
-        videoRef.current.srcObject = mediaStream
+      // Try back camera first (mobile), fallback to any camera
+      let constraints = {
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
       }
+      
+      let mediaStream
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (backCameraError) {
+        // Fallback to any available camera (for desktop)
+        console.log('Back camera not available, trying any camera:', backCameraError)
+        constraints = {
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        }
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints)
+      }
+      
+      setStream(mediaStream)
+      // useEffect will handle setting srcObject and playing
     } catch (error) {
       console.error('Error accessing camera:', error)
-      toast.error('Unable to access camera. Please check permissions.')
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        toast.error('Camera permission denied. Please allow camera access.')
+      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+        toast.error('No camera found. Please connect a camera device.')
+      } else {
+        toast.error('Unable to access camera: ' + error.message)
+      }
     }
   }
 
@@ -56,21 +103,49 @@ const ProductImageUpload = ({
     if (videoRef.current && canvasRef.current) {
       const canvas = canvasRef.current
       const video = videoRef.current
-      const context = canvas.getContext('2d')
       
-      canvas.width = video.videoWidth
-      canvas.height = video.videoHeight
-      context.drawImage(video, 0, 0)
+      // Check if video is ready
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+        toast.error('Video is not ready. Please wait a moment.')
+        return
+      }
       
-      canvas.toBlob((blob) => {
-        const file = new File([blob], 'captured-product.jpg', { type: 'image/jpeg' })
-        const reader = new FileReader()
-        reader.onload = (e) => {
-          setPreviewImage(e.target.result)
+      // Ensure video has valid dimensions
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        toast.error('Video dimensions are not available. Please try again.')
+        return
+      }
+      
+      try {
+        const context = canvas.getContext('2d')
+        
+        // Set canvas dimensions to match video
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        
+        // Draw the current video frame to canvas
+        context.drawImage(video, 0, 0, canvas.width, canvas.height)
+        
+        // Convert canvas to data URL for preview
+        const dataURL = canvas.toDataURL('image/jpeg', 0.8)
+        
+        if (dataURL && dataURL.length > 0) {
+          console.log('Image captured, data URL length:', dataURL.length)
+          setPreviewImage(dataURL)
+          
+          // Stop the camera after capture
           stopCamera()
+          
+          toast.success('Photo captured successfully!')
+        } else {
+          toast.error('Failed to capture image. Please try again.')
         }
-        reader.readAsDataURL(file)
-      }, 'image/jpeg', 0.8)
+      } catch (error) {
+        console.error('Error capturing photo:', error)
+        toast.error('Error capturing photo: ' + error.message)
+      }
+    } else {
+      toast.error('Camera or canvas not available')
     }
   }
 
@@ -99,10 +174,10 @@ const ProductImageUpload = ({
         }
         reader.readAsDataURL(file)
       } else {
-        // For camera capture, we need to convert the preview image to base64
-        const canvas = canvasRef.current
-        if (canvas) {
-          const base64 = canvas.toDataURL('image/jpeg', 0.8).split(',')[1]
+        // For camera capture, use the preview image (already in base64 format)
+        if (previewImage) {
+          // previewImage is already a data URL, extract base64 part
+          const base64 = previewImage.split(',')[1] || previewImage
           uploadImageToServer(base64, 'image/jpeg')
         } else {
           toast.error('No image captured')
@@ -264,36 +339,63 @@ const ProductImageUpload = ({
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="relative">
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    className="w-full h-64 object-cover rounded-lg"
-                  />
-                  <canvas
-                    ref={canvasRef}
-                    className="hidden"
-                  />
-                </div>
-                
-                <div className="flex justify-center space-x-3">
-                  <button
-                    onClick={capturePhoto}
-                    className="btn-primary flex items-center"
-                  >
-                    <PhotoIcon className="h-5 w-5 mr-2" />
-                    Capture Photo
-                  </button>
-                  <button
-                    onClick={stopCamera}
-                    className="btn-secondary"
-                  >
-                    Stop Camera
-                  </button>
-                </div>
-
-                {previewImage && (
+                {!previewImage ? (
+                  <div className="relative bg-gray-900 rounded-lg overflow-hidden border-2 border-gray-300" style={{ minHeight: '256px' }}>
+                    {stream ? (
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-64 object-cover"
+                        style={{ 
+                          display: 'block',
+                          backgroundColor: '#000000',
+                          minHeight: '256px'
+                        }}
+                        onLoadedMetadata={() => {
+                          console.log('Video metadata loaded:', {
+                            width: videoRef.current?.videoWidth,
+                            height: videoRef.current?.videoHeight,
+                            readyState: videoRef.current?.readyState,
+                            hasStream: !!videoRef.current?.srcObject
+                          })
+                          if (videoRef.current) {
+                            videoRef.current.play().catch(err => {
+                              console.error('Error playing video on metadata:', err)
+                            })
+                          }
+                        }}
+                        onCanPlay={() => {
+                          console.log('Video can play')
+                          if (videoRef.current) {
+                            videoRef.current.play().catch(err => {
+                              console.error('Error playing video on canPlay:', err)
+                            })
+                          }
+                        }}
+                        onPlay={() => {
+                          console.log('Video is playing')
+                        }}
+                        onError={(e) => {
+                          console.error('Video error:', e)
+                          toast.error('Error displaying video feed')
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-64 flex items-center justify-center text-white">
+                        <div className="text-center">
+                          <CameraIcon className="h-12 w-12 mx-auto mb-2" />
+                          <p>Starting camera...</p>
+                        </div>
+                      </div>
+                    )}
+                    <canvas
+                      ref={canvasRef}
+                      className="hidden"
+                    />
+                  </div>
+                ) : (
                   <div className="mt-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Captured Image
@@ -302,17 +404,51 @@ const ProductImageUpload = ({
                       <img
                         src={previewImage}
                         alt="Captured product"
-                        className="w-full h-64 object-contain border rounded-lg"
+                        className="w-full h-64 object-contain border-2 border-gray-300 rounded-lg bg-gray-50"
                       />
                       <button
-                        onClick={() => setPreviewImage(null)}
+                        onClick={() => {
+                          setPreviewImage(null)
+                          startCamera() // Restart camera to retake
+                        }}
                         className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                        title="Retake photo"
                       >
                         <TrashIcon className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
                 )}
+                
+                <div className="flex justify-center space-x-3">
+                  {!previewImage ? (
+                    <>
+                      <button
+                        onClick={capturePhoto}
+                        className="btn-primary flex items-center"
+                      >
+                        <PhotoIcon className="h-5 w-5 mr-2" />
+                        Capture Photo
+                      </button>
+                      <button
+                        onClick={stopCamera}
+                        className="btn-secondary"
+                      >
+                        Stop Camera
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setPreviewImage(null)
+                        startCamera() // Restart camera to retake
+                      }}
+                      className="btn-secondary"
+                    >
+                      Retake Photo
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
