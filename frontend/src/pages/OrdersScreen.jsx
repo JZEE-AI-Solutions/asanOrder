@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
+import WhatsAppConfirmationModal from '../components/WhatsAppConfirmationModal'
 
 import {
   ShoppingBagIcon,
@@ -100,15 +101,45 @@ const OrdersScreen = () => {
     }
   }
 
+  const [whatsappModal, setWhatsappModal] = useState({ isOpen: false, url: null, phone: null })
+
   const confirmOrder = async (orderId) => {
     try {
-      await api.post(`/order/${orderId}/confirm`)
+      const response = await api.post(`/order/${orderId}/confirm`)
       toast.success('Order confirmed successfully!')
+      
+      // Show WhatsApp confirmation modal if URL is available
+      if (response.data.whatsappUrl) {
+        setWhatsappModal({
+          isOpen: true,
+          url: response.data.whatsappUrl,
+          phone: response.data.customerPhone || 'customer'
+        })
+      }
+      
       fetchOrders()
       refreshStats()
     } catch (error) {
       toast.error('Failed to confirm order')
     }
+  }
+
+  const handleWhatsAppConfirm = () => {
+    if (whatsappModal.url) {
+      // Open WhatsApp in a new tab/window
+      const whatsappWindow = window.open(whatsappModal.url, '_blank', 'noopener,noreferrer')
+      
+      if (whatsappWindow) {
+        toast.success('Opening WhatsApp...', { duration: 2000 })
+      } else {
+        toast.error('Please allow popups to open WhatsApp', { duration: 3000 })
+      }
+    }
+    setWhatsappModal({ isOpen: false, url: null, phone: null })
+  }
+
+  const handleWhatsAppCancel = () => {
+    setWhatsappModal({ isOpen: false, url: null, phone: null })
   }
 
   const getStatusBadge = (status) => {
@@ -375,10 +406,12 @@ const OrdersScreen = () => {
                     selectedProducts = []
                   }
                   
+                  const shippingCharges = parseFloat(order.shippingCharges || 0)
                   const paymentAmount = parseFloat(order.paymentAmount || formData['Payment Amount'] || 0)
+                  const orderTotal = productsTotal + shippingCharges
                   const receivedAmount = paymentAmount
-                  const pendingAmount = Math.max(0, productsTotal - receivedAmount)
-                  const displayTotal = productsTotal > 0 ? productsTotal : paymentAmount
+                  const pendingAmount = Math.max(0, orderTotal - receivedAmount)
+                  const displayTotal = orderTotal > 0 ? orderTotal : paymentAmount
                   
                   return (
                     <tr key={order.id} className="hover:bg-gray-50">
@@ -430,6 +463,9 @@ const OrdersScreen = () => {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm">
                           <div className="font-bold text-gray-900">Rs. {displayTotal.toLocaleString()}</div>
+                          {shippingCharges > 0 && (
+                            <div className="text-xs text-gray-600 font-medium">Shipping: Rs. {shippingCharges.toLocaleString()}</div>
+                          )}
                           <div className="text-xs text-green-600 font-medium">Received: Rs. {receivedAmount.toLocaleString()}</div>
                           {pendingAmount > 0 && (
                             <div className="text-xs text-orange-600 font-medium">Pending: Rs. {pendingAmount.toLocaleString()}</div>
@@ -514,10 +550,12 @@ const OrdersScreen = () => {
                     selectedProducts = []
                   }
             
+            const shippingCharges = parseFloat(order.shippingCharges || 0)
             const paymentAmount = parseFloat(order.paymentAmount || formData['Payment Amount'] || 0)
+            const orderTotal = productsTotal + shippingCharges
             const receivedAmount = paymentAmount
-            const pendingAmount = Math.max(0, productsTotal - receivedAmount)
-            const displayTotal = productsTotal > 0 ? productsTotal : paymentAmount
+            const pendingAmount = Math.max(0, orderTotal - receivedAmount)
+            const displayTotal = orderTotal > 0 ? orderTotal : paymentAmount
             
             return (
               <div key={order.id} className="card hover:shadow-lg transition-all duration-200">
@@ -576,6 +614,14 @@ const OrdersScreen = () => {
                           Rs. {displayTotal.toLocaleString()}
                         </span>
                       </div>
+                      {shippingCharges > 0 && (
+                        <div className="flex justify-between items-center text-xs mb-1">
+                          <span className="text-gray-600 font-medium">Shipping:</span>
+                          <span className="font-semibold text-gray-700">
+                            Rs. {shippingCharges.toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center text-xs">
                         <span className="text-gray-600 font-medium">Received:</span>
                         <span className="font-bold text-green-600">
@@ -629,7 +675,13 @@ const OrdersScreen = () => {
         </div>
       )}
 
-
+    {/* WhatsApp Confirmation Modal */}
+    <WhatsAppConfirmationModal
+      isOpen={whatsappModal.isOpen}
+      onClose={handleWhatsAppCancel}
+      onConfirm={handleWhatsAppConfirm}
+      customerPhone={whatsappModal.phone}
+    />
     </div>
   )
 }

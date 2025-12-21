@@ -474,13 +474,55 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
       }
     }
 
-    // TODO: Send notification to stock keeper
-    console.log(`Order ${id} confirmed! Notify stock keeper.`);
-
-    res.json({
-      message: 'Order confirmed successfully',
-      order: updatedOrder
-    });
+    // Send WhatsApp notification to customer
+    try {
+      const whatsappService = require('../utils/whatsappService');
+      const customerPhone = whatsappService.getCustomerPhone(order.formData);
+      
+      if (customerPhone) {
+        // Merge updated order with original order data for message generation
+        const orderWithData = {
+          ...order,
+          ...updatedOrder,
+          orderNumber: order.orderNumber // Ensure orderNumber is included
+        };
+        const message = whatsappService.generateOrderConfirmationMessage(orderWithData, order.tenant);
+        const whatsappUrl = whatsappService.generateWhatsAppUrl(customerPhone, message);
+        
+        if (whatsappUrl) {
+          console.log(`📱 WhatsApp notification URL for order ${order.orderNumber}:`);
+          console.log(`   Customer: ${customerPhone}`);
+          console.log(`   URL: ${whatsappUrl}`);
+          
+          // Return WhatsApp URL in response so frontend can open it
+          res.json({
+            message: 'Order confirmed successfully',
+            order: updatedOrder,
+            whatsappUrl: whatsappUrl,
+            customerPhone: customerPhone
+          });
+        } else {
+          console.log(`⚠️  Could not generate WhatsApp URL for phone: ${customerPhone}`);
+          res.json({
+            message: 'Order confirmed successfully',
+            order: updatedOrder
+          });
+        }
+      } else {
+        console.log(`⚠️  No valid phone number found in order ${order.orderNumber} formData`);
+        res.json({
+          message: 'Order confirmed successfully',
+          order: updatedOrder
+        });
+      }
+    } catch (whatsappError) {
+      console.error('⚠️  Error generating WhatsApp notification (order still confirmed):', whatsappError);
+      // Don't fail the order confirmation if WhatsApp notification fails
+      res.json({
+        message: 'Order confirmed successfully',
+        order: updatedOrder
+      });
+    }
   } catch (error) {
     console.error('Confirm order error:', error);
     res.status(500).json({ error: 'Failed to confirm order' });
@@ -863,7 +905,10 @@ router.get('/stats/dashboard', authenticateToken, async (req, res) => {
         take: 5
       }),
       prisma.order.findMany({
-        where: whereClause,
+        where: {
+          ...whereClause,
+          status: 'CONFIRMED' // Only include confirmed orders for revenue calculation
+        },
         select: {
           selectedProducts: true,
           productQuantities: true,

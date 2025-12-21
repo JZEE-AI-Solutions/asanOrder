@@ -34,6 +34,12 @@ const CartModal = ({
   }
 
   const handleCheckout = async () => {
+    // Prevent double submission
+    if (isCheckingOut) {
+      console.log('⚠️ Checkout already in progress, ignoring duplicate click')
+      return
+    }
+    
     setIsCheckingOut(true)
     try {
       await onCheckout()

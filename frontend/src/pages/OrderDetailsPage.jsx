@@ -15,6 +15,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ModernLayout from '../components/ModernLayout'
 import OrderProductSelector from '../components/OrderProductSelector'
+import WhatsAppConfirmationModal from '../components/WhatsAppConfirmationModal'
 
 const OrderDetailsPage = () => {
     const { orderId } = useParams()
@@ -35,6 +36,7 @@ const OrderDetailsPage = () => {
     const [showPaymentModal, setShowPaymentModal] = useState(false)
     const [paymentInput, setPaymentInput] = useState('')
     const [processingPayment, setProcessingPayment] = useState(false)
+    const [whatsappModal, setWhatsappModal] = useState({ isOpen: false, url: null, phone: null })
 
     useEffect(() => {
         fetchOrderDetails()
@@ -173,12 +175,38 @@ const OrderDetailsPage = () => {
 
     const confirmOrder = async () => {
         try {
-            await api.post(`/order/${orderId}/confirm`)
+            const response = await api.post(`/order/${orderId}/confirm`)
             toast.success('Order confirmed successfully!')
+            
+            // Show WhatsApp confirmation modal if URL is available
+            if (response.data.whatsappUrl) {
+                setWhatsappModal({
+                    isOpen: true,
+                    url: response.data.whatsappUrl,
+                    phone: response.data.customerPhone || 'customer'
+                })
+            }
+            
             fetchOrderDetails()
         } catch (error) {
             toast.error('Failed to confirm order')
         }
+    }
+
+    const handleWhatsAppConfirm = () => {
+        if (whatsappModal.url) {
+            const whatsappWindow = window.open(whatsappModal.url, '_blank', 'noopener,noreferrer')
+            if (whatsappWindow) {
+                toast.success('Opening WhatsApp...', { duration: 2000 })
+            } else {
+                toast.error('Please allow popups to open WhatsApp', { duration: 3000 })
+            }
+        }
+        setWhatsappModal({ isOpen: false, url: null, phone: null })
+    }
+
+    const handleWhatsAppCancel = () => {
+        setWhatsappModal({ isOpen: false, url: null, phone: null })
     }
 
     const dispatchOrder = async () => {
@@ -1187,6 +1215,14 @@ const OrderDetailsPage = () => {
                     </div>
                 </div>
             )}
+
+            {/* WhatsApp Confirmation Modal */}
+            <WhatsAppConfirmationModal
+                isOpen={whatsappModal.isOpen}
+                onClose={handleWhatsAppCancel}
+                onConfirm={handleWhatsAppConfirm}
+                customerPhone={whatsappModal.phone}
+            />
         </ModernLayout>
     )
 }

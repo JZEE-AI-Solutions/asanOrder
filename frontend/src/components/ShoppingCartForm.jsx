@@ -260,6 +260,12 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   }
 
   const handleFormSubmit = async (data) => {
+    // Prevent double submission
+    if (submitting) {
+      console.log('⚠️ Submission already in progress, ignoring duplicate submit')
+      return
+    }
+
     if (cart.length === 0) {
       toast.error('Please add items to your cart')
       return
@@ -851,27 +857,36 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
             <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50 min-h-0">
                 <form 
                   id="customer-form" 
-                  onSubmit={handleSubmit(
-                    handleFormSubmit,
-                    (errors) => {
-                      // This callback runs when validation fails
-                      console.log('Form validation errors:', errors)
-                      
-                      // Show error message for first error
-                      const firstErrorField = Object.keys(errors)[0]
-                      if (firstErrorField) {
-                        const errorMessage = errors[firstErrorField]?.message || `${firstErrorField} is required`
-                        toast.error(`Missing required fields: ${firstErrorField}`)
+                  onSubmit={(e) => {
+                    // Prevent double submission
+                    if (submitting) {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      console.log('⚠️ Form submission blocked - already submitting')
+                      return false
+                    }
+                    return handleSubmit(
+                      handleFormSubmit,
+                      (errors) => {
+                        // This callback runs when validation fails
+                        console.log('Form validation errors:', errors)
                         
-                        // Scroll to first error field
-                        const errorElement = document.querySelector(`[name="${firstErrorField}"]`)
-                        if (errorElement) {
-                          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
-                          errorElement.focus()
+                        // Show error message for first error
+                        const firstErrorField = Object.keys(errors)[0]
+                        if (firstErrorField) {
+                          const errorMessage = errors[firstErrorField]?.message || `${firstErrorField} is required`
+                          toast.error(`Missing required fields: ${firstErrorField}`)
+                          
+                          // Scroll to first error field
+                          const errorElement = document.querySelector(`[name="${firstErrorField}"]`)
+                          if (errorElement) {
+                            errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                            errorElement.focus()
+                          }
                         }
                       }
-                    }
-                  )} 
+                    )(e)
+                  }} 
                   className="space-y-4 sm:space-y-5"
                   noValidate
                 >

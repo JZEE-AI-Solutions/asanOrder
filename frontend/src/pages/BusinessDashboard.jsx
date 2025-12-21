@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import OrderDetailsModal from '../components/OrderDetailsModal'
 import EnhancedProductsDashboard from './EnhancedProductsDashboard'
 import ConfirmationModal from '../components/ConfirmationModal'
+import WhatsAppConfirmationModal from '../components/WhatsAppConfirmationModal'
 import { useOrderStats } from '../hooks/useOrders'
 import { 
   DocumentTextIcon, 
@@ -121,14 +122,42 @@ const BusinessDashboard = () => {
     }
   }
 
+  const [whatsappModal, setWhatsappModal] = useState({ isOpen: false, url: null, phone: null })
+
   const confirmOrder = async (orderId) => {
     try {
-      await api.post(`/order/${orderId}/confirm`)
+      const response = await api.post(`/order/${orderId}/confirm`)
       toast.success('Order confirmed successfully!')
+      
+      // Show WhatsApp confirmation modal if URL is available
+      if (response.data.whatsappUrl) {
+        setWhatsappModal({
+          isOpen: true,
+          url: response.data.whatsappUrl,
+          phone: response.data.customerPhone || 'customer'
+        })
+      }
+      
       fetchDashboardData()
     } catch (error) {
       toast.error('Failed to confirm order')
     }
+  }
+
+  const handleWhatsAppConfirm = () => {
+    if (whatsappModal.url) {
+      const whatsappWindow = window.open(whatsappModal.url, '_blank', 'noopener,noreferrer')
+      if (whatsappWindow) {
+        toast.success('Opening WhatsApp...', { duration: 2000 })
+      } else {
+        toast.error('Please allow popups to open WhatsApp', { duration: 3000 })
+      }
+    }
+    setWhatsappModal({ isOpen: false, url: null, phone: null })
+  }
+
+  const handleWhatsAppCancel = () => {
+    setWhatsappModal({ isOpen: false, url: null, phone: null })
   }
 
   const shareFormLink = (form) => {
@@ -998,6 +1027,13 @@ const BusinessDashboard = () => {
         cancelText={confirmationModal.cancelText}
       />
 
+      {/* WhatsApp Confirmation Modal */}
+      <WhatsAppConfirmationModal
+        isOpen={whatsappModal.isOpen}
+        onClose={handleWhatsAppCancel}
+        onConfirm={handleWhatsAppConfirm}
+        customerPhone={whatsappModal.phone}
+      />
     </div>
   )
 }
