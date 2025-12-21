@@ -8,7 +8,8 @@ import {
     PhotoIcon,
     PencilIcon,
     XMarkIcon,
-    PrinterIcon
+    PrinterIcon,
+    ChevronDownIcon
 } from '@heroicons/react/24/outline'
 import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
@@ -25,6 +26,7 @@ const OrderDetailsPage = () => {
     const [loading, setLoading] = useState(true)
     const [isEditing, setIsEditing] = useState(false)
     const [saving, setSaving] = useState(false)
+    const [showPrintDropdown, setShowPrintDropdown] = useState(false)
     
     // Edit state
     const [selectedProducts, setSelectedProducts] = useState([])
@@ -326,7 +328,7 @@ const OrderDetailsPage = () => {
         }
     }
 
-    const handlePrintShippingReceipt = () => {
+    const handlePrintShippingReceipt = (includePayment = false) => {
         const printWindow = window.open('', '_blank')
         if (!printWindow) {
             toast.error('Please allow popups to print the receipt')
@@ -334,6 +336,17 @@ const OrderDetailsPage = () => {
         }
 
         const formData = parseJSON(order.formData)
+        
+        // Calculate payment information if needed
+        let paymentInfo = null
+        if (includePayment) {
+            const paymentStatus = getPaymentStatus()
+            paymentInfo = {
+                total: paymentStatus.total,
+                paid: paymentStatus.paid,
+                remaining: paymentStatus.remaining
+            }
+        }
         
         // Get recipient details
         const customerName = formData['Customer Name'] || formData['Name'] || formData['Full Name'] || 'N/A'
@@ -399,11 +412,18 @@ const OrderDetailsPage = () => {
 <html>
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shipping Receipt - Order #${order.orderNumber}</title>
     <style>
         @page {
             size: A5;
             margin: 0;
+        }
+        @media print {
+            @page {
+                size: A5;
+                margin: 0;
+            }
         }
         * {
             margin: 0;
@@ -519,17 +539,38 @@ const OrderDetailsPage = () => {
             body {
                 margin: 0;
                 padding: 0;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
             }
             .container {
                 padding: 8mm 10mm;
+            }
+            * {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+        @media screen {
+            body {
+                background: #f5f5f5;
+            }
+            .container {
+                max-width: 500px;
+                margin: 20px auto;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
+        <div class="header" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div class="business-name">${businessName}</div>
+            ${paymentInfo && paymentInfo.remaining > 0 ? `
+            <div style="text-align: right; font-size: 16px; font-weight: 600; color: #d32f2f;">
+                VPP : Rs. ${paymentInfo.remaining.toFixed(2)}
+            </div>
+            ` : ''}
         </div>
         
         <div class="shipping-section">
@@ -569,13 +610,6 @@ const OrderDetailsPage = () => {
                     <span class="shipping-value products-list">${productsDisplay}</span>
                 </div>
                 ` : ''}
-                
-                ${order.shippingCharges && order.shippingCharges > 0 ? `
-                <div class="shipping-line products-info">
-                    <span class="shipping-label">Shipping:</span>
-                    <span class="shipping-value products-list">Rs. ${order.shippingCharges.toFixed(2)}</span>
-                </div>
-                ` : ''}
             </div>
         </div>
         
@@ -596,9 +630,29 @@ const OrderDetailsPage = () => {
         `)
 
         printWindow.document.close()
-        setTimeout(() => {
-            printWindow.print()
-        }, 250)
+        
+        // Wait for content to load, then trigger print
+        // Improved mobile support
+        const triggerPrint = () => {
+            try {
+                printWindow.focus()
+                setTimeout(() => {
+                    printWindow.print()
+                }, 300)
+            } catch (error) {
+                console.error('Print error:', error)
+                toast.error('Failed to open print dialog. Please try again.')
+            }
+        }
+        
+        // Wait for document to be ready
+        if (printWindow.document.readyState === 'complete') {
+            triggerPrint()
+        } else {
+            printWindow.onload = triggerPrint
+            // Fallback timeout
+            setTimeout(triggerPrint, 1000)
+        }
     }
 
     const getStatusBadge = (status) => {
@@ -657,13 +711,53 @@ const OrderDetailsPage = () => {
                             <>
                                 {order.status === 'CONFIRMED' && (
                                     <>
-                                        <button
-                                            onClick={handlePrintShippingReceipt}
-                                            className="btn-primary flex items-center px-6 py-2.5 bg-blue-600 hover:bg-blue-700"
-                                        >
-                                            <PrinterIcon className="h-5 w-5 mr-2" />
-                                            Print Shipping Receipt
-                                        </button>
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowPrintDropdown(!showPrintDropdown)}
+                                                className="btn-primary flex items-center px-6 py-2.5 bg-blue-600 hover:bg-blue-700"
+                                            >
+                                                <PrinterIcon className="h-5 w-5 mr-2" />
+                                                Print Shipping Receipt
+                                                <ChevronDownIcon className="h-4 w-4 ml-2" />
+                                            </button>
+                                            
+                                            {showPrintDropdown && (
+                                                <>
+                                                    <div 
+                                                        className="fixed inset-0 z-10" 
+                                                        onClick={() => setShowPrintDropdown(false)}
+                                                    />
+                                                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
+                                                        <button
+                                                            onClick={() => {
+                                                                handlePrintShippingReceipt(false)
+                                                                setShowPrintDropdown(false)
+                                                            }}
+                                                            className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center space-x-3"
+                                                        >
+                                                            <PrinterIcon className="h-5 w-5 text-blue-600" />
+                                                            <div>
+                                                                <div className="font-medium text-gray-900">Without Payment Amount</div>
+                                                                <div className="text-xs text-gray-500">Standard shipping receipt</div>
+                                                            </div>
+                                                        </button>
+                                                        <button
+                                                            onClick={() => {
+                                                                handlePrintShippingReceipt(true)
+                                                                setShowPrintDropdown(false)
+                                                            }}
+                                                            className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center space-x-3 border-t border-gray-200"
+                                                        >
+                                                            <CurrencyDollarIcon className="h-5 w-5 text-green-600" />
+                                                            <div>
+                                                                <div className="font-medium text-gray-900">With Pending Payment</div>
+                                                                <div className="text-xs text-gray-500">Includes payment details</div>
+                                                            </div>
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                         <button
                                             onClick={dispatchOrder}
                                             className="btn-primary flex items-center px-6 py-2.5 bg-green-600 hover:bg-green-700"

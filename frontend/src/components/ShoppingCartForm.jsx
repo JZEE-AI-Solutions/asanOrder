@@ -12,7 +12,10 @@ import {
   UserIcon,
   PhoneIcon,
   MapPinIcon,
-  DocumentTextIcon
+  DocumentTextIcon,
+  DocumentIcon,
+  PhotoIcon,
+  CheckIcon
 } from '@heroicons/react/24/outline'
 import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
@@ -32,10 +35,16 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   const [submitting, setSubmitting] = useState(false)
   const [showCart, setShowCart] = useState(false)
   const [showCustomerForm, setShowCustomerForm] = useState(false)
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [customerInfo, setCustomerInfo] = useState({})
   const [shippingCharges, setShippingCharges] = useState(0)
   const [loadingShipping, setLoadingShipping] = useState(false)
   const [whatsappModal, setWhatsappModal] = useState({ isOpen: false, url: null, phone: null, orderId: null })
+  const [paymentMethod, setPaymentMethod] = useState('cash_on_delivery') // 'cash_on_delivery' or 'prepaid'
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentReceipt, setPaymentReceipt] = useState(null)
+  const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const [customerFormData, setCustomerFormData] = useState(null) // Store customer form data
 
   const {
     register,
@@ -283,6 +292,9 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   const handleWhatsAppCancel = () => {
     const orderId = whatsappModal.orderId
     setWhatsappModal({ isOpen: false, url: null, phone: null, orderId: null })
+    // Reset payment fields
+    setPaymentAmount('')
+    setPaymentReceipt(null)
     // Redirect to order receipt page after closing modal
     if (orderId) {
       setTimeout(() => {
@@ -291,7 +303,7 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     }
   }
 
-  const handleFormSubmit = async (data) => {
+  const handleCustomerFormSubmit = async (data) => {
     // Prevent double submission
     if (submitting) {
       console.log('⚠️ Submission already in progress, ignoring duplicate submit')
@@ -303,11 +315,34 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
       return
     }
 
+    // Store customer form data and move to payment step
+    setCustomerFormData(data)
+    setShowCustomerForm(false)
+    setShowPaymentForm(true)
+  }
+
+  const handleFormSubmit = async () => {
+    // Prevent double submission
+    if (submitting) {
+      console.log('⚠️ Submission already in progress, ignoring duplicate submit')
+      return
+    }
+
+    if (!customerFormData) {
+      toast.error('Customer information is required')
+      return
+    }
+
+    if (cart.length === 0) {
+      toast.error('Please add items to your cart')
+      return
+    }
+
     setSubmitting(true)
 
     try {
-      // react-hook-form already validated all fields before calling this function
-      // If we reach here, all required fields are valid
+      // Use stored customer form data
+      const data = customerFormData
       console.log('Form submission data:', data)
       
       // Prepare formData as an object (not stringified) - backend will stringify it
@@ -331,12 +366,20 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
         formData.City = data.City
       }
 
+      // Calculate payment amount based on payment method
+      let finalPaymentAmount = null
+      if (paymentMethod === 'prepaid') {
+        finalPaymentAmount = paymentAmount ? parseFloat(paymentAmount) : null
+      } else if (paymentMethod === 'cash_on_delivery') {
+        finalPaymentAmount = null // Cash on delivery means no prepayment
+      }
+
       const orderData = {
         formLink: formLink || form.formLink,
         formData: formData, // Send as object, not stringified
-        paymentAmount: null,
+        paymentAmount: finalPaymentAmount,
         images: [],
-        paymentReceipt: null,
+        paymentReceipt: paymentMethod === 'prepaid' ? (paymentReceipt?.url || null) : null,
         selectedProducts: cart.length > 0 ? JSON.stringify(cart.map(item => ({
           id: item.id,
           name: item.name,
@@ -378,6 +421,10 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
           navigate(`/order/${response.data.order.id}`)
         }, 1500)
       }
+
+      // Reset payment fields
+      setPaymentAmount('')
+      setPaymentReceipt(null)
       
     } catch (error) {
       console.error('Submit error:', error)
@@ -908,7 +955,7 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                       return false
                     }
                     return handleSubmit(
-                      handleFormSubmit,
+                      handleCustomerFormSubmit,
                       (errors) => {
                         // This callback runs when validation fails
                         console.log('Form validation errors:', errors)
@@ -1013,7 +1060,10 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
               
               <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
                 <button
-                  onClick={() => setShowCustomerForm(false)}
+                  onClick={() => {
+                    setShowCustomerForm(false)
+                    setShowCart(true)
+                  }}
                   className="flex-1 bg-gray-100 text-gray-700 py-3 sm:py-4 px-4 sm:px-6 rounded-xl hover:bg-gray-200 transition-colors font-semibold text-base sm:text-lg"
                 >
                   Back to Cart
@@ -1029,6 +1079,345 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                   ) : (
                     <>
                       <CurrencyDollarIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+                      <span>Continue to Payment</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Payment Form - Separate Step */}
+      {showPaymentForm && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black bg-opacity-50 transition-opacity z-40"
+            onClick={() => {
+              setShowPaymentForm(false)
+              setShowCustomerForm(true)
+            }}
+          />
+          
+          {/* Slide-in Drawer - Mobile First Design */}
+          <div className="fixed top-0 right-0 h-full w-full sm:w-[32rem] md:w-[36rem] bg-white shadow-2xl z-50 flex flex-col transform transition-transform duration-300 ease-in-out">
+            {/* Header - Fixed */}
+            <div className="bg-gradient-to-r from-green-500 to-green-600 px-4 sm:px-6 py-4 sm:py-5 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center space-x-3 flex-1 min-w-0">
+                <div className="bg-white bg-opacity-20 rounded-lg p-2 flex-shrink-0">
+                  <CurrencyDollarIcon className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg sm:text-xl font-bold text-white truncate">Payment Details</h2>
+                  <p className="text-green-100 text-xs sm:text-sm">Choose payment method</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPaymentForm(false)
+                  setShowCustomerForm(true)
+                }}
+                className="text-white hover:bg-white hover:bg-opacity-20 rounded-full p-2 transition-colors flex-shrink-0 ml-2"
+                aria-label="Close form"
+              >
+                <XMarkIcon className="h-5 w-5 sm:h-6 sm:w-6" />
+              </button>
+            </div>
+
+            {/* Payment Form - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-gray-50 min-h-0">
+              <div className="space-y-5">
+                {/* Payment Method Selection */}
+                <div className="space-y-3">
+                  <label className="block text-sm font-bold text-gray-900">
+                    Payment Method <span className="text-red-500">*</span>
+                  </label>
+                  
+                  <div className="space-y-3">
+                    {/* Cash on Delivery Option */}
+                    <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                      paymentMethod === 'cash_on_delivery' 
+                        ? 'border-green-500 bg-green-50 shadow-md' 
+                        : 'border-gray-300 bg-white hover:border-gray-400'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="cash_on_delivery"
+                        checked={paymentMethod === 'cash_on_delivery'}
+                        onChange={(e) => {
+                          setPaymentMethod(e.target.value)
+                          setPaymentAmount('')
+                          setPaymentReceipt(null)
+                        }}
+                        className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300"
+                      />
+                      <div className="ml-3 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-gray-900">Cash on Delivery</span>
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">COD</span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">Pay when you receive the order</p>
+                      </div>
+                    </label>
+
+                    {/* Prepaid Option */}
+                    <label className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                      paymentMethod === 'prepaid' 
+                        ? 'border-green-500 bg-green-50 shadow-md' 
+                        : 'border-gray-300 bg-white hover:border-gray-400'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="prepaid"
+                        checked={paymentMethod === 'prepaid'}
+                        onChange={(e) => setPaymentMethod(e.target.value)}
+                        className="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300"
+                      />
+                      <div className="ml-3 flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-semibold text-gray-900">Prepaid Payment</span>
+                          <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">Online</span>
+                        </div>
+                        <p className="text-xs text-gray-600 mt-1">Pay now via bank transfer or other methods</p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Prepaid Payment Fields - Only show if prepaid is selected */}
+                {paymentMethod === 'prepaid' && (
+                  <div className="space-y-5 pt-3 border-t border-gray-200">
+                    {/* Payment Amount */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Payment Amount (Rs.)
+                      </label>
+                      <div className="relative">
+                        <CurrencyDollarIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          max={getTotalPrice()}
+                          value={paymentAmount}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            const numValue = parseFloat(value)
+                            const total = getTotalPrice()
+                            if (value === '' || isNaN(numValue)) {
+                              setPaymentAmount('')
+                            } else if (numValue > total) {
+                              setPaymentAmount(total.toString())
+                              toast.error(`Payment amount cannot exceed total amount (Rs. ${total.toLocaleString()})`)
+                            } else {
+                              setPaymentAmount(value)
+                            }
+                          }}
+                          className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900 placeholder-gray-500 text-sm"
+                          placeholder="Enter payment amount"
+                        />
+                      </div>
+                      {paymentAmount && parseFloat(paymentAmount) > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-xs text-gray-600">
+                            Paid: Rs. {parseFloat(paymentAmount).toLocaleString()}
+                          </p>
+                          {parseFloat(paymentAmount) < getTotalPrice() && (
+                            <p className="text-xs text-orange-600 font-medium">
+                              Remaining: Rs. {(getTotalPrice() - parseFloat(paymentAmount)).toLocaleString()} (Cash on Delivery)
+                            </p>
+                          )}
+                          {parseFloat(paymentAmount) >= getTotalPrice() && (
+                            <p className="text-xs text-green-600 font-medium">
+                              ✓ Full payment received
+                            </p>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setPaymentAmount(getTotalPrice().toString())}
+                            className="text-xs text-green-600 hover:text-green-700 font-medium underline"
+                          >
+                            Pay full amount (Rs. {getTotalPrice().toLocaleString()})
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Payment Receipt Upload */}
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Payment Receipt
+                      </label>
+                      <div className="space-y-3">
+                        {paymentReceipt ? (
+                          <div className="relative group rounded-lg overflow-hidden border-2 border-green-300 shadow-sm bg-green-50">
+                            <div className="flex items-center justify-between p-3">
+                              <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                <DocumentIcon className="h-6 w-6 text-green-600 flex-shrink-0" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-sm font-medium text-green-800 truncate">
+                                    {paymentReceipt.originalName || 'Receipt uploaded'}
+                                  </p>
+                                  <p className="text-xs text-green-600">Click to view</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setPaymentReceipt(null)}
+                                className="ml-2 p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Remove receipt"
+                              >
+                                <XMarkIcon className="h-5 w-5" />
+                              </button>
+                            </div>
+                            <img
+                              src={paymentReceipt.url}
+                              alt="Payment Receipt"
+                              className="w-full h-auto cursor-pointer hover:opacity-95 transition-opacity"
+                              onClick={() => window.open(paymentReceipt.url, '_blank')}
+                            />
+                          </div>
+                        ) : (
+                          <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors group">
+                            <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              <PhotoIcon className="h-8 w-8 text-gray-400 group-hover:text-green-500 transition-colors mb-2" />
+                              <p className="mb-2 text-sm text-gray-500">
+                                <span className="font-semibold">Click to upload</span> or drag and drop
+                              </p>
+                              <p className="text-xs text-gray-500">PNG, JPG, PDF (MAX. 10MB)</p>
+                            </div>
+                            <input
+                              type="file"
+                              className="hidden"
+                              accept="image/*,.pdf"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+
+                                if (file.size > 10 * 1024 * 1024) {
+                                  toast.error('File size must be less than 10MB')
+                                  return
+                                }
+
+                                setUploadingReceipt(true)
+                                try {
+                                  const formData = new FormData()
+                                  formData.append('image', file)
+
+                                  const response = await api.post('/upload/image', formData, {
+                                    headers: {
+                                      'Content-Type': 'multipart/form-data'
+                                    }
+                                  })
+
+                                  const receiptFile = {
+                                    ...response.data.file,
+                                    url: response.data.file.url.startsWith('http') 
+                                      ? response.data.file.url 
+                                      : `${import.meta.env.VITE_API_URL || 'http://localhost:5000'}${response.data.file.url}`,
+                                    originalName: file.name
+                                  }
+                                  setPaymentReceipt(receiptFile)
+                                  toast.success('Payment receipt uploaded successfully')
+                                } catch (error) {
+                                  console.error('Receipt upload error:', error)
+                                  toast.error('Failed to upload payment receipt')
+                                } finally {
+                                  setUploadingReceipt(false)
+                                }
+                              }}
+                              disabled={uploadingReceipt}
+                            />
+                          </label>
+                        )}
+                        {uploadingReceipt && (
+                          <div className="text-center">
+                            <LoadingSpinner size="sm" />
+                            <p className="text-xs text-gray-500 mt-2">Uploading receipt...</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Order Summary */}
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                  <div className="space-y-2 mb-3 pb-3 border-b border-gray-200">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 font-medium">Subtotal</span>
+                      <span className="font-semibold text-gray-900">
+                        Rs.{getSubtotal().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-gray-600 font-medium">Shipping</span>
+                      <span className="font-semibold text-gray-900">
+                        Rs.{shippingCharges.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center pt-2">
+                    <span className="text-base font-bold text-gray-900">Total Amount</span>
+                    <span className="text-xl font-bold text-green-600">
+                      Rs.{getTotalPrice().toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    </span>
+                  </div>
+                  {paymentMethod === 'prepaid' && paymentAmount && parseFloat(paymentAmount) > 0 && (
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-gray-600">Paid Amount:</span>
+                        <span className="font-semibold text-green-600">
+                          Rs. {parseFloat(paymentAmount).toLocaleString()}
+                        </span>
+                      </div>
+                      {parseFloat(paymentAmount) < getTotalPrice() && (
+                        <div className="flex justify-between items-center text-sm mt-1">
+                          <span className="text-gray-600">Remaining (COD):</span>
+                          <span className="font-semibold text-orange-600">
+                            Rs. {(getTotalPrice() - parseFloat(paymentAmount)).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {paymentMethod === 'cash_on_delivery' && (
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      <p className="text-sm text-gray-600 text-center">
+                        You will pay <span className="font-bold text-gray-900">Rs. {getTotalPrice().toLocaleString()}</span> when you receive the order
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer - Fixed at Bottom */}
+            <div className="border-t-2 border-gray-200 bg-white p-4 sm:p-6 flex-shrink-0 shadow-lg">
+              <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
+                <button
+                  onClick={() => {
+                    setShowPaymentForm(false)
+                    setShowCustomerForm(true)
+                  }}
+                  className="flex-1 bg-gray-100 text-gray-700 py-3 sm:py-4 px-4 sm:px-6 rounded-xl hover:bg-gray-200 transition-colors font-semibold text-base sm:text-lg"
+                >
+                  Back
+                </button>
+                <button
+                  onClick={handleFormSubmit}
+                  disabled={submitting || (paymentMethod === 'prepaid' && !paymentAmount)}
+                  className="flex-1 bg-gradient-to-r from-green-600 to-green-700 hover:from-green-700 hover:to-green-800 text-white py-3 sm:py-4 px-4 sm:px-6 rounded-xl disabled:bg-gray-300 disabled:cursor-not-allowed transition-all flex items-center justify-center space-x-3 font-bold text-base sm:text-lg shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+                >
+                  {submitting ? (
+                    <LoadingSpinner size="sm" />
+                  ) : (
+                    <>
+                      <CheckIcon className="h-5 w-5 sm:h-6 sm:w-6" />
                       <span>Complete Order</span>
                     </>
                   )}
