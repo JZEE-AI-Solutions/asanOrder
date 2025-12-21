@@ -416,12 +416,12 @@ const OrderDetailsPage = () => {
     <title>Shipping Receipt - Order #${order.orderNumber}</title>
     <style>
         @page {
-            size: A5;
+            size: A5 landscape;
             margin: 0;
         }
         @media print {
             @page {
-                size: A5;
+                size: A5 landscape;
                 margin: 0;
             }
         }
@@ -432,7 +432,7 @@ const OrderDetailsPage = () => {
         }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            font-size: 14px;
+            font-size: 18px;
             line-height: 1.6;
             color: #000;
             background: #fff;
@@ -443,21 +443,23 @@ const OrderDetailsPage = () => {
         .container {
             width: 100%;
             height: 100%;
-            padding: 10mm 12mm;
+            padding: 5mm 7mm;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
+            justify-content: flex-start;
+            overflow: hidden;
         }
         .header {
-            margin-bottom: 8mm;
-            padding-bottom: 5mm;
+            margin-bottom: 4mm;
+            padding-bottom: 2mm;
             border-bottom: 2px solid #000;
+            flex-shrink: 0;
         }
         .business-name {
-            font-size: 20px;
+            font-size: 28px;
             font-weight: 700;
             color: #000;
-            margin-bottom: 3mm;
+            margin-bottom: 2mm;
             letter-spacing: 0.5px;
         }
         .shipping-section {
@@ -465,75 +467,79 @@ const OrderDetailsPage = () => {
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
+            min-height: 0;
         }
         .shipping-info {
             flex: 1;
+            min-height: 0;
         }
         .shipping-line {
-            margin-bottom: 6px;
-            font-size: 15px;
-            line-height: 1.8;
+            margin-bottom: 3px;
+            font-size: 20px;
+            line-height: 1.4;
         }
         .shipping-label {
             font-weight: 600;
             color: #1a1a1a;
             display: inline-block;
-            min-width: 75px;
+            min-width: 100px;
         }
         .shipping-value {
             color: #000;
             font-weight: 400;
         }
         .address-lines {
-            margin-left: 75px;
-            margin-top: 2px;
-            margin-bottom: 6px;
-            line-height: 1.7;
+            margin-left: 100px;
+            margin-top: 1px;
+            margin-bottom: 3px;
+            line-height: 1.3;
         }
         .address-line {
-            margin-bottom: 2px;
-            font-size: 15px;
+            margin-bottom: 1px;
+            font-size: 20px;
         }
         .order-number {
-            margin-top: 8mm;
-            font-size: 15px;
+            margin-top: 3mm;
+            font-size: 20px;
             font-weight: 600;
         }
         .products-info {
-            margin-top: 4mm;
-            font-size: 14px;
+            margin-top: 2mm;
+            font-size: 18px;
         }
         .products-list {
             font-weight: 500;
         }
         .separator {
             border-top: 2px solid #333;
-            margin: 6mm 0;
+            margin: 3mm 0;
             width: 100%;
+            flex-shrink: 0;
         }
         .business-section {
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
+            flex-shrink: 0;
         }
         .business-label {
-            font-size: 13px;
+            font-size: 18px;
             font-weight: 600;
             color: #333;
-            margin-bottom: 3px;
+            margin-bottom: 4px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         .business-address {
-            font-size: 13px;
-            line-height: 1.6;
+            font-size: 18px;
+            line-height: 1.7;
             color: #333;
             white-space: pre-line;
         }
         .business-phone {
-            font-size: 13px;
+            font-size: 18px;
             color: #333;
-            margin-top: 3px;
+            margin-top: 4px;
         }
         @media print {
             body {
@@ -543,7 +549,13 @@ const OrderDetailsPage = () => {
                 print-color-adjust: exact;
             }
             .container {
-                padding: 8mm 10mm;
+                padding: 5mm 7mm;
+                height: 100%;
+                overflow: hidden;
+            }
+            body {
+                height: 100vh;
+                overflow: hidden;
             }
             * {
                 -webkit-print-color-adjust: exact;
@@ -567,7 +579,7 @@ const OrderDetailsPage = () => {
         <div class="header" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div class="business-name">${businessName}</div>
             ${paymentInfo && paymentInfo.remaining > 0 ? `
-            <div style="text-align: right; font-size: 16px; font-weight: 600; color: #d32f2f;">
+            <div style="text-align: right; font-size: 24px; font-weight: 600; color: #d32f2f;">
                 VPP : Rs. ${paymentInfo.remaining.toFixed(2)}
             </div>
             ` : ''}
@@ -578,6 +590,11 @@ const OrderDetailsPage = () => {
                 <div class="shipping-line">
                     <span class="shipping-label">To:</span>
                     <span class="shipping-value">${customerName}</span>
+                </div>
+                
+                <div class="shipping-line">
+                    <span class="shipping-label">Mobile #:</span>
+                    <span class="shipping-value">${phoneNumber}</span>
                 </div>
                 
                 <div class="shipping-line">
@@ -593,11 +610,6 @@ const OrderDetailsPage = () => {
                     <span class="shipping-value">${city}</span>
                 </div>
                 ` : ''}
-                
-                <div class="shipping-line">
-                    <span class="shipping-label">Mobile #:</span>
-                    <span class="shipping-value">${phoneNumber}</span>
-                </div>
                 
                 <div class="shipping-line order-number">
                     <span class="shipping-label">Order Number:</span>
