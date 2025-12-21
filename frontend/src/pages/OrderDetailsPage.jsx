@@ -504,22 +504,24 @@ const OrderDetailsPage = () => {
             content: ", ";
         }
         .order-number {
-            margin-top: 5mm;
+            margin-top: 8mm;
             font-size: 22px;
             font-weight: 600;
         }
         .products-info {
             margin-top: 4mm;
+            margin-bottom: 8mm;
             font-size: 20px;
         }
         .products-list {
             font-weight: 500;
         }
         .separator {
-            border-top: 2px solid #333;
-            margin: 4mm 0;
+            border-top: 2px dashed #333;
+            margin: 8mm 0 4mm 0;
             width: 100%;
             flex-shrink: 0;
+            clear: both;
         }
         .business-section {
             display: flex;
@@ -634,8 +636,11 @@ const OrderDetailsPage = () => {
         <div class="separator"></div>
         
         <div class="business-section">
-            ${businessAddress ? `
             <div class="business-label">FROM:</div>
+            <div class="business-name" style="font-size: 20px; font-weight: 600; margin-bottom: 3px; color: #000;">
+                ${businessName}
+            </div>
+            ${businessAddress ? `
             <div class="business-address">${businessAddress}</div>
             ` : ''}
             ${businessPhone ? `
