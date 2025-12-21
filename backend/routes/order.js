@@ -221,8 +221,52 @@ router.post('/submit', [
       }
     });
 
-    // TODO: Send notification to business owner
-    console.log(`New order received for ${form.tenant.businessName}! Notify: ${form.tenant.whatsappNumber}`);
+    // Generate WhatsApp notification URL for business owner
+    let whatsappUrl = null;
+    let businessOwnerPhone = null;
+    try {
+      const whatsappService = require('../utils/whatsappService');
+      businessOwnerPhone = whatsappService.normalizePhoneNumber(form.tenant.whatsappNumber);
+      
+      if (businessOwnerPhone) {
+        // Get frontend base URL from environment variable or construct from request
+        // Default to localhost:3000 for development, or use FRONTEND_URL env var for production
+        let baseUrl = process.env.FRONTEND_URL;
+        if (!baseUrl) {
+          // Try to get from request origin, but replace port with frontend port
+          const origin = req.get('origin') || req.get('referer') || '';
+          if (origin) {
+            try {
+              const url = new URL(origin);
+              // Replace backend port with frontend port (3000)
+              baseUrl = `${url.protocol}//${url.hostname}:3000`;
+            } catch (e) {
+              // Fallback to localhost:3000 for development
+              baseUrl = 'http://localhost:3000';
+            }
+          } else {
+            // Fallback to localhost:3000 for development
+            baseUrl = 'http://localhost:3000';
+          }
+        }
+        
+        const message = whatsappService.generateOrderSubmissionMessage(order, form.tenant, baseUrl);
+        whatsappUrl = whatsappService.generateWhatsAppUrl(businessOwnerPhone, message);
+        
+        if (whatsappUrl) {
+          console.log(`📱 WhatsApp notification URL for order ${order.orderNumber}:`);
+          console.log(`   Business Owner: ${businessOwnerPhone}`);
+          console.log(`   URL: ${whatsappUrl}`);
+        } else {
+          console.log(`⚠️  Could not generate WhatsApp URL for business owner: ${businessOwnerPhone}`);
+        }
+      } else {
+        console.log(`⚠️  No valid WhatsApp number found for business owner: ${form.tenant.whatsappNumber}`);
+      }
+    } catch (whatsappError) {
+      console.error('⚠️  Error generating WhatsApp notification (order still created):', whatsappError);
+      // Don't fail the order if WhatsApp notification fails
+    }
 
     res.status(201).json({
       message: 'Order submitted successfully',
@@ -230,7 +274,9 @@ router.post('/submit', [
         id: order.id,
         status: order.status,
         createdAt: order.createdAt
-      }
+      },
+      whatsappUrl: whatsappUrl,
+      businessOwnerPhone: businessOwnerPhone
     });
   } catch (error) {
     console.error('Submit order error:', error);

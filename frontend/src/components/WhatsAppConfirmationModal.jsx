@@ -44,10 +44,10 @@ const WhatsAppConfirmationModal = ({ isOpen, onClose, onConfirm, customerPhone }
           {/* Content */}
           <div className="p-6">
             <p className="text-gray-700 mb-4">
-              Order confirmed successfully!
+              Order submitted successfully!
             </p>
             <p className="text-gray-600 mb-6">
-              Do you want to send a WhatsApp notification to <span className="font-semibold text-gray-900">{customerPhone}</span>?
+              Do you want to notify the business owner at <span className="font-semibold text-gray-900">{customerPhone}</span> about this new order via WhatsApp?
             </p>
 
             {/* Buttons */}

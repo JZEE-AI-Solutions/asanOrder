@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import ProductDisplay from '../components/ProductDisplay'
 import ShoppingCartForm from '../components/ShoppingCartForm'
 import CityAutocomplete from '../components/CityAutocomplete'
+import WhatsAppConfirmationModal from '../components/WhatsAppConfirmationModal'
 import { 
   PhotoIcon, DocumentIcon, UserIcon, PhoneIcon, MapPinIcon, ScaleIcon, 
   CubeTransparentIcon, XMarkIcon, CheckIcon, DocumentTextIcon, TagIcon, 
@@ -609,14 +610,22 @@ const ClientFormDynamic = () => {
       
       toast.success('Order submitted successfully! 🎉')
       
-      // Reset form
-      setUploadedImages([])
-      setPaymentReceipt(null)
-      
-      // Redirect to order receipt page
-      setTimeout(() => {
-        navigate(`/order/${response.data.order.id}`)
-      }, 1500)
+      // Show WhatsApp confirmation modal if URL is available (for business owner)
+      if (response.data.whatsappUrl) {
+        setWhatsappModal({
+          isOpen: true,
+          url: response.data.whatsappUrl,
+          phone: response.data.businessOwnerPhone || 'business owner',
+          orderId: response.data.order.id
+        })
+      } else {
+        // Reset form and redirect if no WhatsApp
+        setUploadedImages([])
+        setPaymentReceipt(null)
+        setTimeout(() => {
+          navigate(`/order/${response.data.order.id}`)
+        }, 1500)
+      }
       
     } catch (error) {
       console.error('Submit error:', error)
@@ -896,6 +905,14 @@ const ClientFormDynamic = () => {
           © 2024 Elegant Dress Orders. Crafted with care.
         </p>
       </div>
+
+      {/* WhatsApp Confirmation Modal */}
+      <WhatsAppConfirmationModal
+        isOpen={whatsappModal.isOpen}
+        onClose={handleWhatsAppCancel}
+        onConfirm={handleWhatsAppConfirm}
+        customerPhone={whatsappModal.phone}
+      />
     </div>
   )
 }

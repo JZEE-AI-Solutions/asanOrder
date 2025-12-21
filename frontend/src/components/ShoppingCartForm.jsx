@@ -19,6 +19,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from './LoadingSpinner'
 import CartModal from './CartModal'
 import CityAutocomplete from './CityAutocomplete'
+import WhatsAppConfirmationModal from './WhatsAppConfirmationModal'
 
 const ShoppingCartForm = ({ form, onSubmit }) => {
   const { formLink } = useParams()
@@ -34,6 +35,7 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   const [customerInfo, setCustomerInfo] = useState({})
   const [shippingCharges, setShippingCharges] = useState(0)
   const [loadingShipping, setLoadingShipping] = useState(false)
+  const [whatsappModal, setWhatsappModal] = useState({ isOpen: false, url: null, phone: null, orderId: null })
 
   const {
     register,
@@ -259,6 +261,36 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     return cart.reduce((total, item) => total + item.quantity, 0)
   }
 
+  const handleWhatsAppConfirm = () => {
+    if (whatsappModal.url) {
+      const whatsappWindow = window.open(whatsappModal.url, '_blank', 'noopener,noreferrer')
+      if (whatsappWindow) {
+        toast.success('Opening WhatsApp...', { duration: 2000 })
+      } else {
+        toast.error('Please allow popups to open WhatsApp', { duration: 3000 })
+      }
+    }
+    const orderId = whatsappModal.orderId
+    setWhatsappModal({ isOpen: false, url: null, phone: null, orderId: null })
+    // Redirect to order receipt page after closing modal
+    if (orderId) {
+      setTimeout(() => {
+        navigate(`/order/${orderId}`)
+      }, 500)
+    }
+  }
+
+  const handleWhatsAppCancel = () => {
+    const orderId = whatsappModal.orderId
+    setWhatsappModal({ isOpen: false, url: null, phone: null, orderId: null })
+    // Redirect to order receipt page after closing modal
+    if (orderId) {
+      setTimeout(() => {
+        navigate(`/order/${orderId}`)
+      }, 500)
+    }
+  }
+
   const handleFormSubmit = async (data) => {
     // Prevent double submission
     if (submitting) {
@@ -332,10 +364,20 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
       
       toast.success('Order submitted successfully! 🎉')
       
-      // Redirect to order receipt page
-      setTimeout(() => {
-        navigate(`/order/${response.data.order.id}`)
-      }, 1500)
+      // Show WhatsApp confirmation modal if URL is available (for business owner)
+      if (response.data.whatsappUrl) {
+        setWhatsappModal({
+          isOpen: true,
+          url: response.data.whatsappUrl,
+          phone: response.data.businessOwnerPhone || 'business owner',
+          orderId: response.data.order.id
+        })
+      } else {
+        // Redirect to order receipt page if no WhatsApp
+        setTimeout(() => {
+          navigate(`/order/${response.data.order.id}`)
+        }, 1500)
+      }
       
     } catch (error) {
       console.error('Submit error:', error)
@@ -996,6 +1038,14 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
           </div>
         </>
       )}
+
+      {/* WhatsApp Confirmation Modal */}
+      <WhatsAppConfirmationModal
+        isOpen={whatsappModal.isOpen}
+        onClose={handleWhatsAppCancel}
+        onConfirm={handleWhatsAppConfirm}
+        customerPhone={whatsappModal.phone}
+      />
     </div>
   )
 }

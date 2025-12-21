@@ -225,11 +225,111 @@ function generateOrderConfirmationMessage(order, tenant) {
   }
 }
 
+/**
+ * Generate order submission message (for business owner notification)
+ * @param {Object} order - Order object
+ * @param {Object} tenant - Tenant object
+ * @param {String} baseUrl - Base URL for the frontend application
+ * @returns {String} - Formatted message
+ */
+function generateOrderSubmissionMessage(order, tenant, baseUrl = null) {
+  try {
+    const formData = typeof order.formData === 'string' 
+      ? JSON.parse(order.formData) 
+      : order.formData;
+
+    const customerName = formData['Customer Name'] || formData['Name'] || 'Customer';
+    const customerPhone = getCustomerPhone(formData);
+    const city = formData['City'] || formData['City Name'] || 'N/A';
+    
+    // Parse products
+    let selectedProducts = [];
+    let productQuantities = {};
+    let productPrices = {};
+    let productsTotal = 0;
+
+    try {
+      if (order.selectedProducts) {
+        selectedProducts = typeof order.selectedProducts === 'string'
+          ? JSON.parse(order.selectedProducts)
+          : order.selectedProducts;
+        if (!Array.isArray(selectedProducts)) {
+          selectedProducts = [];
+        }
+      }
+      if (order.productQuantities) {
+        productQuantities = typeof order.productQuantities === 'string'
+          ? JSON.parse(order.productQuantities)
+          : order.productQuantities;
+      }
+      if (order.productPrices) {
+        productPrices = typeof order.productPrices === 'string'
+          ? JSON.parse(order.productPrices)
+          : order.productPrices;
+      }
+
+      // Calculate total
+      selectedProducts.forEach(product => {
+        const quantity = productQuantities[product.id] || product.quantity || 1;
+        const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+        productsTotal += price * quantity;
+      });
+    } catch (e) {
+      console.error('Error parsing order products:', e);
+    }
+
+    const shippingCharges = parseFloat(order.shippingCharges || 0);
+    const orderTotal = productsTotal + shippingCharges;
+
+    // Build concise, to-the-point message for business owner
+    let message = `🆕 *New Order Received*\n\n`;
+    message += `Order #${order.orderNumber}\n\n`;
+    message += `*Customer:*\n`;
+    message += `Name: ${customerName}\n`;
+    if (customerPhone) {
+      message += `Phone: ${customerPhone}\n`;
+    }
+    message += `City: ${city}\n\n`;
+    
+    // Products summary (max 3 products)
+    if (selectedProducts.length > 0) {
+      message += `*Items:*\n`;
+      selectedProducts.slice(0, 3).forEach(product => {
+        const quantity = productQuantities[product.id] || product.quantity || 1;
+        message += `• ${product.name} x${quantity}\n`;
+      });
+      if (selectedProducts.length > 3) {
+        message += `• +${selectedProducts.length - 3} more items\n`;
+      }
+    }
+
+    message += `\n*Total: Rs. ${orderTotal.toLocaleString()}*\n`;
+    if (shippingCharges > 0) {
+      message += `(Shipping: Rs. ${shippingCharges.toLocaleString()})\n`;
+    }
+    
+    // Add order view link if baseUrl is provided
+    if (baseUrl && order.id) {
+      const orderUrl = `${baseUrl}/business/orders/${order.id}`;
+      message += `\n\n📋 View Order:\n${orderUrl}`;
+    }
+    
+    message += `\n\nPlease review and confirm the order.`;
+
+    return message;
+  } catch (error) {
+    console.error('Error generating submission message:', error);
+    // Fallback simple message
+    return `🆕 New order #${order.orderNumber} received for ${tenant.businessName || 'your business'}!`;
+  }
+}
+
 module.exports = {
   getCustomerPhone,
   normalizePhoneNumber,
   generateWhatsAppUrl,
-  generateOrderConfirmationMessage
+  generateOrderConfirmationMessage,
+  generateOrderSubmissionMessage
 };
 
 
