@@ -443,23 +443,23 @@ const OrderDetailsPage = () => {
         .container {
             width: 100%;
             height: 100%;
-            padding: 5mm 7mm;
+            padding: 6mm 8mm;
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
+            justify-content: space-between;
             overflow: hidden;
         }
         .header {
-            margin-bottom: 4mm;
-            padding-bottom: 2mm;
+            margin-bottom: 5mm;
+            padding-bottom: 3mm;
             border-bottom: 2px solid #000;
             flex-shrink: 0;
         }
         .business-name {
-            font-size: 28px;
+            font-size: 32px;
             font-weight: 700;
             color: #000;
-            margin-bottom: 2mm;
+            margin-bottom: 0;
             letter-spacing: 0.5px;
         }
         .shipping-section {
@@ -474,45 +474,50 @@ const OrderDetailsPage = () => {
             min-height: 0;
         }
         .shipping-line {
-            margin-bottom: 3px;
-            font-size: 20px;
-            line-height: 1.4;
+            margin-bottom: 4px;
+            font-size: 22px;
+            line-height: 1.5;
         }
         .shipping-label {
             font-weight: 600;
             color: #1a1a1a;
             display: inline-block;
-            min-width: 100px;
+            min-width: 110px;
         }
         .shipping-value {
             color: #000;
             font-weight: 400;
         }
         .address-lines {
-            margin-left: 100px;
-            margin-top: 1px;
-            margin-bottom: 3px;
-            line-height: 1.3;
+            margin-left: 110px;
+            margin-top: 2px;
+            margin-bottom: 4px;
+            line-height: 1.4;
+            display: inline-block;
         }
         .address-line {
-            margin-bottom: 1px;
-            font-size: 20px;
+            display: inline;
+            font-size: 22px;
+            margin-right: 8px;
+        }
+        .address-line:not(:last-child)::after {
+            content: ", ";
         }
         .order-number {
-            margin-top: 3mm;
-            font-size: 20px;
+            margin-top: 5mm;
+            font-size: 22px;
             font-weight: 600;
         }
         .products-info {
-            margin-top: 2mm;
-            font-size: 18px;
+            margin-top: 4mm;
+            font-size: 20px;
         }
         .products-list {
             font-weight: 500;
         }
         .separator {
             border-top: 2px solid #333;
-            margin: 3mm 0;
+            margin: 4mm 0;
             width: 100%;
             flex-shrink: 0;
         }
@@ -523,23 +528,24 @@ const OrderDetailsPage = () => {
             flex-shrink: 0;
         }
         .business-label {
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 600;
             color: #333;
-            margin-bottom: 4px;
+            margin-bottom: 5px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
         .business-address {
-            font-size: 18px;
-            line-height: 1.7;
+            font-size: 20px;
+            line-height: 1.6;
             color: #333;
             white-space: pre-line;
+            margin-bottom: 3mm;
         }
         .business-phone {
-            font-size: 18px;
+            font-size: 20px;
             color: #333;
-            margin-top: 4px;
+            margin-top: 2px;
         }
         @media print {
             body {
@@ -579,7 +585,7 @@ const OrderDetailsPage = () => {
         <div class="header" style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div class="business-name">${businessName}</div>
             ${paymentInfo && paymentInfo.remaining > 0 ? `
-            <div style="text-align: right; font-size: 24px; font-weight: 600; color: #d32f2f;">
+            <div style="text-align: right; font-size: 28px; font-weight: 700; color: #d32f2f;">
                 VPP : Rs. ${paymentInfo.remaining.toFixed(2)}
             </div>
             ` : ''}
@@ -599,9 +605,9 @@ const OrderDetailsPage = () => {
                 
                 <div class="shipping-line">
                     <span class="shipping-label">Address:</span>
-                </div>
-                <div class="address-lines">
-                    ${addressLines.map(line => `<div class="address-line">${line}</div>`).join('')}
+                    <span class="shipping-value" style="margin-left: 0;">
+                        ${addressLines.join(', ')}
+                    </span>
                 </div>
                 
                 ${city ? `
@@ -629,7 +635,7 @@ const OrderDetailsPage = () => {
         
         <div class="business-section">
             ${businessAddress ? `
-            <div class="business-label">From:</div>
+            <div class="business-label">FROM:</div>
             <div class="business-address">${businessAddress}</div>
             ` : ''}
             ${businessPhone ? `
