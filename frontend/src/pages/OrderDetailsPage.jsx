@@ -461,6 +461,7 @@ const OrderDetailsPage = () => {
             color: #000;
             margin-bottom: 0;
             letter-spacing: 0.5px;
+            text-decoration: none;
         }
         .shipping-section {
             flex: 1;
@@ -510,18 +511,11 @@ const OrderDetailsPage = () => {
         }
         .products-info {
             margin-top: 4mm;
-            margin-bottom: 8mm;
+            margin-bottom: 6mm;
             font-size: 20px;
         }
         .products-list {
             font-weight: 500;
-        }
-        .separator {
-            border-top: 2px dashed #333;
-            margin: 8mm 0 4mm 0;
-            width: 100%;
-            flex-shrink: 0;
-            clear: both;
         }
         .business-section {
             display: flex;
@@ -633,12 +627,10 @@ const OrderDetailsPage = () => {
             </div>
         </div>
         
-        <div class="separator"></div>
-        
-        <div class="business-section">
-            <div class="business-label">FROM:</div>
-            <div class="business-name" style="font-size: 20px; font-weight: 600; margin-bottom: 3px; color: #000;">
-                ${businessName}
+        <div class="business-section" style="margin-top: 6mm;">
+            <div class="shipping-line">
+                <span class="shipping-label">FROM:</span>
+                <span class="shipping-value" style="font-weight: 600;">${businessName}</span>
             </div>
             ${businessAddress ? `
             <div class="business-address">${businessAddress}</div>
