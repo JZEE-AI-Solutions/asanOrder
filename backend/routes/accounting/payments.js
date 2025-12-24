@@ -55,6 +55,14 @@ router.get('/', authenticateToken, async (req, res) => {
               id: true,
               orderNumber: true
             }
+          },
+          account: {
+            select: {
+              id: true,
+              name: true,
+              code: true,
+              accountSubType: true
+            }
           }
         },
         orderBy: {
@@ -96,7 +104,7 @@ router.post('/', authenticateToken, async (req, res) => {
       date,
       type, // CUSTOMER_PAYMENT, SUPPLIER_PAYMENT, REFUND
       amount,
-      paymentMethod,
+      paymentAccountId,
       customerId,
       supplierId,
       orderId,
@@ -176,13 +184,13 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
 
-    // For supplier payments, payment method is only required if cash payment > 0
-    if (type === 'SUPPLIER_PAYMENT' && cashPaymentAmount > 0 && !paymentMethod) {
+    // For supplier payments, payment account is required if cash payment > 0
+    if (type === 'SUPPLIER_PAYMENT' && cashPaymentAmount > 0 && !paymentAccountId) {
       return res.status(400).json({
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Payment method is required when making cash/bank payment'
+          message: 'Payment account is required when making cash/bank payment'
         }
       });
     }
@@ -193,36 +201,32 @@ router.post('/', authenticateToken, async (req, res) => {
     });
     const paymentNumber = `PAY-${new Date().getFullYear()}-${String(paymentCount + 1).padStart(4, '0')}`;
 
-    // Get accounts
-    const cashAccount = await accountingService.getAccountByCode('1000', tenantId) ||
-      await accountingService.getOrCreateAccount({
-        code: '1000',
-        name: 'Cash',
-        type: 'ASSET',
-        tenantId,
-        balance: 0
-      });
-
-    const bankAccount = await accountingService.getAccountByCode('1100', tenantId) ||
-      await accountingService.getOrCreateAccount({
-        code: '1100',
-        name: 'Bank Account',
-        type: 'ASSET',
-        tenantId,
-        balance: 0
-      });
-
-    // Map payment methods to accounts (only if cash payment > 0)
+    // Get payment account (only if cash payment > 0)
     let paymentAccount = null;
+    let paymentMethod = null;
     if (cashPaymentAmount > 0) {
-      if (paymentMethod === 'Cash') {
-        paymentAccount = cashAccount;
-      } else if (paymentMethod === 'Bank Transfer' || paymentMethod === 'Cheque') {
-        paymentAccount = bankAccount;
-      } else {
-        // Default to cash for other methods (Credit Card, etc.)
-        paymentAccount = cashAccount;
+      // Validate payment account exists and is Cash/Bank type
+      paymentAccount = await prisma.account.findFirst({
+        where: {
+          id: paymentAccountId,
+          tenantId,
+          type: 'ASSET',
+          accountSubType: { in: ['CASH', 'BANK'] }
+        }
+      });
+
+      if (!paymentAccount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid payment account. Account must be a Cash or Bank account.'
+          }
+        });
       }
+
+      // Derive payment method from account subType
+      paymentMethod = paymentAccount.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash';
     }
 
     let transactionLines = [];
@@ -445,7 +449,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const {
       date,
       amount,
-      paymentMethod
+      paymentAccountId
     } = req.body;
 
     // Get existing payment
@@ -492,12 +496,51 @@ router.put('/:id', authenticateToken, async (req, res) => {
     const newAmount = parseFloat(amount) || oldAmount;
     const amountDifference = newAmount - oldAmount;
     
-    const oldPaymentMethod = existingPayment.paymentMethod || 'Cash';
-    const newPaymentMethod = paymentMethod || oldPaymentMethod;
-    const paymentMethodChanged = oldPaymentMethod !== newPaymentMethod;
+    // Get old payment account from existing payment
+    let oldPaymentAccount = null;
+    if (existingPayment.accountId) {
+      oldPaymentAccount = await prisma.account.findUnique({
+        where: { id: existingPayment.accountId }
+      });
+    } else if (existingPayment.transaction) {
+      // Derive from transaction if accountId not set
+      const paymentAccountLine = existingPayment.transaction.transactionLines.find(
+        line => line.account.type === 'ASSET' && (line.account.accountSubType === 'CASH' || line.account.accountSubType === 'BANK')
+      );
+      if (paymentAccountLine) {
+        oldPaymentAccount = paymentAccountLine.account;
+      }
+    }
 
-    // If no amount change and no payment method change, just update date if provided
-    if (Math.abs(amountDifference) < 0.01 && !paymentMethodChanged) {
+    // Get new payment account
+    let newPaymentAccount = null;
+    if (paymentAccountId) {
+      newPaymentAccount = await prisma.account.findFirst({
+        where: {
+          id: paymentAccountId,
+          tenantId,
+          type: 'ASSET',
+          accountSubType: { in: ['CASH', 'BANK'] }
+        }
+      });
+
+      if (!newPaymentAccount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid payment account. Account must be a Cash or Bank account.'
+          }
+        });
+      }
+    }
+
+    const accountChanged = oldPaymentAccount && newPaymentAccount && oldPaymentAccount.id !== newPaymentAccount.id;
+    const oldPaymentMethod = oldPaymentAccount ? (oldPaymentAccount.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash') : 'Cash';
+    const newPaymentMethod = newPaymentAccount ? (newPaymentAccount.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash') : oldPaymentMethod;
+
+    // If no amount change and no account change, just update date if provided
+    if (Math.abs(amountDifference) < 0.01 && !accountChanged) {
       const updatedPayment = await prisma.payment.update({
         where: { id: id },
         data: {
@@ -511,42 +554,28 @@ router.put('/:id', authenticateToken, async (req, res) => {
       });
     }
 
-    // If only payment method changed (no amount change), create payment method adjustment
-    if (Math.abs(amountDifference) < 0.01 && paymentMethodChanged) {
+    // If only account changed (no amount change), create account adjustment
+    if (Math.abs(amountDifference) < 0.01 && accountChanged) {
+      if (!oldPaymentAccount || !newPaymentAccount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Cannot change account: old or new account not found'
+          }
+        });
+      }
+
       const result = await prisma.$transaction(async (tx) => {
         // Update payment record
         const updatedPayment = await tx.payment.update({
           where: { id: id },
           data: {
             ...(date && { date: new Date(date) }),
-            paymentMethod: newPaymentMethod
+            paymentMethod: newPaymentMethod,
+            accountId: newPaymentAccount.id
           }
         });
-
-        // Get old and new payment accounts
-        const oldPaymentAccountCode = (oldPaymentMethod !== 'Cash') ? '1100' : '1000';
-        const newPaymentAccountCode = (newPaymentMethod !== 'Cash') ? '1100' : '1000';
-        
-        const oldPaymentAccountName = oldPaymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
-        const newPaymentAccountName = newPaymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
-
-        const oldPaymentAccount = await accountingService.getAccountByCode(oldPaymentAccountCode, tenantId) ||
-          await accountingService.getOrCreateAccount({
-            code: oldPaymentAccountCode,
-            name: oldPaymentAccountName,
-            type: 'ASSET',
-            tenantId,
-            balance: 0
-          });
-
-        const newPaymentAccount = await accountingService.getAccountByCode(newPaymentAccountCode, tenantId) ||
-          await accountingService.getOrCreateAccount({
-            code: newPaymentAccountCode,
-            name: newPaymentAccountName,
-            type: 'ASSET',
-            tenantId,
-            balance: 0
-          });
 
         // Get invoice number for description
         let invoiceNumber = 'N/A';
@@ -564,10 +593,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
           }
         }
 
-        // Create payment method change transaction
+        // Create account change transaction
         // Credit old account (money moved out), Debit new account (money moved in)
-        const transactionNumber = `TXN-PAY-METHOD-${new Date().getFullYear()}-${Date.now()}`;
-        const description = `Payment Method Change: ${existingPayment.paymentNumber} - Invoice: ${invoiceNumber} (${oldPaymentMethod} → ${newPaymentMethod})`;
+        const transactionNumber = `TXN-PAY-ACCOUNT-${new Date().getFullYear()}-${Date.now()}`;
+        const description = `Payment Account Change: ${existingPayment.paymentNumber} - Invoice: ${invoiceNumber} (${oldPaymentAccount.name} → ${newPaymentAccount.name})`;
 
         const transactionLines = [
           {
@@ -617,8 +646,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
         updateData.date = new Date(date);
       }
       
-      if (paymentMethod) {
-        updateData.paymentMethod = paymentMethod;
+      if (newPaymentAccount) {
+        updateData.paymentMethod = newPaymentMethod;
+        updateData.accountId = newPaymentAccount.id;
       }
       
       // Update payment record
@@ -637,30 +667,26 @@ router.put('/:id', authenticateToken, async (req, res) => {
           balance: 0
         });
 
-      // Get old and new payment accounts
-      const oldPaymentAccountCode = (oldPaymentMethod !== 'Cash') ? '1100' : '1000';
-      const newPaymentAccountCode = (newPaymentMethod !== 'Cash') ? '1100' : '1000';
-      
-      const oldPaymentAccountName = oldPaymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
-      const newPaymentAccountName = newPaymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
-
-      const oldPaymentAccount = await accountingService.getAccountByCode(oldPaymentAccountCode, tenantId) ||
-        await accountingService.getOrCreateAccount({
-          code: oldPaymentAccountCode,
-          name: oldPaymentAccountName,
-          type: 'ASSET',
-          tenantId,
-          balance: 0
+      // Use existing accounts if available, otherwise get from IDs
+      if (!oldPaymentAccount && existingPayment.accountId) {
+        oldPaymentAccount = await prisma.account.findUnique({
+          where: { id: existingPayment.accountId }
         });
+      }
 
-      const newPaymentAccount = await accountingService.getAccountByCode(newPaymentAccountCode, tenantId) ||
-        await accountingService.getOrCreateAccount({
-          code: newPaymentAccountCode,
-          name: newPaymentAccountName,
-          type: 'ASSET',
-          tenantId,
-          balance: 0
+      if (!newPaymentAccount && paymentAccountId) {
+        newPaymentAccount = await prisma.account.findFirst({
+          where: {
+            id: paymentAccountId,
+            tenantId,
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
         });
+      }
+
+      // If account changed, use new account; otherwise use old account
+      const paymentAccount = newPaymentAccount || oldPaymentAccount;
 
       // Get invoice number for description
       let invoiceNumber = 'N/A';
@@ -684,8 +710,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
       if (Math.abs(amountDifference) > 0.01) {
         changes.push(`${amountDifference > 0 ? 'Increase' : 'Decrease'}: Rs. ${Math.abs(amountDifference).toFixed(2)}`);
       }
-      if (paymentMethodChanged) {
-        changes.push(`Method: ${oldPaymentMethod} → ${newPaymentMethod}`);
+      if (accountChanged) {
+        changes.push(`Account: ${oldPaymentAccount?.name || 'Unknown'} → ${newPaymentAccount?.name || 'Unknown'}`);
       }
       if (changes.length > 0) {
         description += ` (${changes.join(', ')})`;
@@ -696,37 +722,50 @@ router.put('/:id', authenticateToken, async (req, res) => {
       const transactionLines = [];
 
       // Handle the accounting adjustment
-      if (paymentMethodChanged && Math.abs(amountDifference) > 0.01) {
-        // Both amount and method changed: Reverse old payment, create new payment, adjust AP
-        // 1. Reverse old payment: Credit old account, Debit AP (reduce liability)
+      if (accountChanged && Math.abs(amountDifference) > 0.01) {
+        // Both amount and account changed: Reverse old payment, apply new payment
+        if (!oldPaymentAccount || !newPaymentAccount) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Cannot change account and amount: account information missing'
+            }
+          });
+        }
+
         transactionLines.push(
           {
             accountId: oldPaymentAccount.id,
-            debitAmount: 0,
-            creditAmount: oldAmount // Credit old account (reverse old payment)
+            debitAmount: oldAmount, // Debit old account (reverse credit)
+            creditAmount: 0
           },
           {
             accountId: apAccount.id,
             debitAmount: 0,
-            creditAmount: oldAmount // Credit AP (reverse old payment liability)
-          }
-        );
-        
-        // 2. Create new payment: Debit new account, Credit AP (increase liability)
-        transactionLines.push(
+            creditAmount: oldAmount // Credit AP (reverse debit)
+          },
           {
             accountId: newPaymentAccount.id,
-            debitAmount: newAmount,
-            creditAmount: 0 // Debit new account (new payment)
+            debitAmount: 0,
+            creditAmount: newAmount // Credit new account (new payment)
           },
           {
             accountId: apAccount.id,
-            debitAmount: newAmount,
-            creditAmount: 0 // Debit AP (new payment liability)
+            debitAmount: newAmount, // Debit AP (new payment)
+            creditAmount: 0
           }
         );
-      } else if (paymentMethodChanged) {
-        // Only method changed, same amount: Move money from old account to new account
+      } else if (accountChanged && !paymentAccount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Cannot change account: account information missing'
+          }
+        });
+      } else if (accountChanged) {
+        // Only account changed, same amount: Move money from old account to new account
         transactionLines.push(
           {
             accountId: oldPaymentAccount.id,
@@ -740,7 +779,17 @@ router.put('/:id', authenticateToken, async (req, res) => {
           }
         );
       } else {
-        // Only amount changed, same method: Adjust AP and payment account
+        // Only amount changed, same account: Adjust AP and payment account
+        if (!paymentAccount) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'Payment account not found'
+            }
+          });
+        }
+
         if (amountDifference > 0) {
           // Payment increased: Debit AP more, Credit payment account more
           transactionLines.push(
@@ -750,7 +799,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
               creditAmount: 0
             },
             {
-              accountId: newPaymentAccount.id,
+              accountId: paymentAccount.id,
               debitAmount: 0,
               creditAmount: amountDifference
             }
@@ -764,7 +813,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
               creditAmount: Math.abs(amountDifference)
             },
             {
-              accountId: newPaymentAccount.id,
+              accountId: paymentAccount.id,
               debitAmount: Math.abs(amountDifference),
               creditAmount: 0
             }

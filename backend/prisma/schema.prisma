@@ -351,6 +351,7 @@ model Account {
   code             String
   name             String
   type             String // ASSET, LIABILITY, INCOME, EXPENSE, EQUITY
+  accountSubType   String? // CASH, BANK, null (for non-payment accounts)
   parentId         String?
   balance          Float             @default(0)
   createdAt        DateTime          @default(now())
@@ -361,10 +362,12 @@ model Account {
   tenant           Tenant            @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
   transactionLines TransactionLine[]
   Expense          Expense[]
+  payments         Payment[]
 
   @@unique([code, tenantId])
   @@index([tenantId])
   @@index([type, tenantId])
+  @@index([accountSubType, tenantId])
   @@map("accounts")
 }
 
@@ -483,32 +486,34 @@ model LogisticsCompany {
 }
 
 model Payment {
-  id               String          @id @default(cuid())
-  paymentNumber    String
-  date             DateTime
-  type             String // CUSTOMER_PAYMENT, SUPPLIER_PAYMENT, REFUND
-  amount           Float
-  paymentMethod    String // Cash, Bank Transfer, Credit Card
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  tenantId         String
-  customerId       String?
-  supplierId       String?
-  orderId          String?
-  orderReturnId    String?
+  id                String           @id @default(cuid())
+  paymentNumber     String
+  date              DateTime
+  type              String // CUSTOMER_PAYMENT, SUPPLIER_PAYMENT, REFUND
+  amount            Float
+  paymentMethod     String // Cash, Bank Transfer, Credit Card (derived from account)
+  accountId         String? // Direct reference to payment account
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  tenantId          String
+  customerId        String?
+  supplierId        String?
+  orderId           String?
+  orderReturnId     String?
   purchaseInvoiceId String?
-  transactionId    String?         @unique
-  customer         Customer?       @relation(fields: [customerId], references: [id], onUpdate: NoAction)
-  supplier         Supplier?       @relation(fields: [supplierId], references: [id], onUpdate: NoAction)
-  order            Order?          @relation(fields: [orderId], references: [id], onUpdate: NoAction)
-  orderReturn      Return?         @relation(fields: [orderReturnId], references: [id], onUpdate: NoAction)
-  purchaseInvoice  PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
-  transaction      Transaction?    @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
-  tenant           Tenant          @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
-
-  @@index([purchaseInvoiceId])
+  transactionId     String?          @unique
+  customer          Customer?        @relation(fields: [customerId], references: [id], onUpdate: NoAction)
+  supplier          Supplier?        @relation(fields: [supplierId], references: [id], onUpdate: NoAction)
+  order             Order?           @relation(fields: [orderId], references: [id], onUpdate: NoAction)
+  orderReturn       Return?          @relation(fields: [orderReturnId], references: [id], onUpdate: NoAction)
+  purchaseInvoice   PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
+  transaction       Transaction?     @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+  account           Account?         @relation(fields: [accountId], references: [id], onUpdate: NoAction)
+  tenant            Tenant           @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
 
   @@unique([paymentNumber, tenantId])
+  @@index([purchaseInvoiceId])
+  @@index([accountId])
   @@index([tenantId, date])
   @@index([type, tenantId])
   @@index([customerId])

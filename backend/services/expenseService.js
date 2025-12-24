@@ -15,6 +15,7 @@ class ExpenseService {
       amount,
       description,
       accountId,
+      paymentAccountId,
       receipt,
       receiptData,
       receiptType
@@ -73,15 +74,33 @@ class ExpenseService {
       // Create accounting transaction
       const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
       
-      // Get cash/bank account
-      const cashAccount = await accountingService.getAccountByCode('1000', tenantId) ||
-        await accountingService.getOrCreateAccount({
-          code: '1000',
-          name: 'Cash',
-          type: 'ASSET',
-          tenantId,
-          balance: 0
+      // Get payment account (cash/bank)
+      let paymentAccount = null;
+      if (paymentAccountId) {
+        paymentAccount = await prisma.account.findFirst({
+          where: {
+            id: paymentAccountId,
+            tenantId,
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
         });
+
+        if (!paymentAccount) {
+          throw new Error('Invalid payment account. Account must be a Cash or Bank account.');
+        }
+      } else {
+        // Fallback to default Cash account if not provided
+        paymentAccount = await accountingService.getAccountByCode('1000', tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '1000',
+            name: 'Cash',
+            type: 'ASSET',
+            accountSubType: 'CASH',
+            tenantId,
+            balance: 0
+          });
+      }
 
       const transaction = await accountingService.createTransaction(
         {
@@ -97,7 +116,7 @@ class ExpenseService {
             creditAmount: 0
           },
           {
-            accountId: cashAccount.id,
+            accountId: paymentAccount.id,
             debitAmount: 0,
             creditAmount: amount
           }

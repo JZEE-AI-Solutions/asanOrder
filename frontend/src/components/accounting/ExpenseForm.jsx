@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import api from '../../services/api'
 import { useTenant } from '../../hooks/useTenant'
 import { toast } from 'react-hot-toast'
+import PaymentAccountSelector from './PaymentAccountSelector'
 
 function ExpenseForm({ expense, onClose }) {
   const { tenant } = useTenant()
@@ -11,6 +12,7 @@ function ExpenseForm({ expense, onClose }) {
     category: 'OTHER',
     amount: '',
     description: '',
+    paymentAccountId: '',
     receipt: null
   })
 
@@ -41,7 +43,8 @@ function ExpenseForm({ expense, onClose }) {
         date: formData.date,
         category: formData.category,
         amount: parseFloat(formData.amount),
-        description: formData.description
+        description: formData.description,
+        paymentAccountId: formData.paymentAccountId || null
       }
 
       if (expense) {
@@ -135,6 +138,18 @@ function ExpenseForm({ expense, onClose }) {
                 rows="3"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Enter description..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Payment Account <span className="text-gray-500 text-xs">(Optional - defaults to Cash if not selected)</span>
+              </label>
+              <PaymentAccountSelector
+                value={formData.paymentAccountId || ''}
+                onChange={(value) => setFormData(prev => ({ ...prev, paymentAccountId: value }))}
+                showQuickAdd={true}
+                required={false}
               />
             </div>
 

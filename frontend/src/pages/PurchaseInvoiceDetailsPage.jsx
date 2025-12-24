@@ -6,6 +6,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 import ModernLayout from '../components/ModernLayout'
 import { useTenant } from '../hooks'
+import PaymentAccountSelector from '../components/accounting/PaymentAccountSelector'
 
 const PurchaseInvoiceDetailsPage = () => {
   const navigate = useNavigate()
@@ -18,7 +19,7 @@ const PurchaseInvoiceDetailsPage = () => {
   const [paymentFormData, setPaymentFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     amount: '',
-    paymentMethod: 'Cash'
+    paymentAccountId: ''
   })
   const [processingPayment, setProcessingPayment] = useState(false)
   const [transactions, setTransactions] = useState([])
@@ -32,7 +33,7 @@ const PurchaseInvoiceDetailsPage = () => {
   const [editPaymentFormData, setEditPaymentFormData] = useState({
     date: '',
     amount: '',
-    paymentMethod: 'Cash',
+    paymentAccountId: '',
     note: ''
   })
   const [processingEditPayment, setProcessingEditPayment] = useState(false)
@@ -142,11 +143,30 @@ const PurchaseInvoiceDetailsPage = () => {
       const response = await api.get(`/accounting/transactions?${params}`)
       
       if (response.data?.success) {
+        // Debug: Log all transactions to see what we're getting
+        console.log('🔍 All transactions:', response.data.data?.length || 0)
+        console.log('🔍 Invoice ID:', invoiceId)
+        console.log('🔍 Invoice Number:', invoice?.invoiceNumber)
+        
         // Filter transactions related to this purchase invoice
-        const invoiceTransactions = (response.data.data || []).filter(txn => 
-          txn.purchaseInvoiceId === invoiceId || 
-          (txn.description && txn.description.includes(invoice.invoiceNumber))
-        )
+        const invoiceTransactions = (response.data.data || []).filter(txn => {
+          const matchesById = txn.purchaseInvoiceId === invoiceId
+          const matchesByDescription = txn.description && invoice?.invoiceNumber && 
+            txn.description.includes(invoice.invoiceNumber)
+          
+          if (matchesById || matchesByDescription) {
+            console.log('✅ Matching transaction:', {
+              id: txn.id,
+              transactionNumber: txn.transactionNumber,
+              purchaseInvoiceId: txn.purchaseInvoiceId,
+              description: txn.description
+            })
+          }
+          
+          return matchesById || matchesByDescription
+        })
+        
+        console.log('🔍 Filtered transactions:', invoiceTransactions.length)
         setTransactions(invoiceTransactions)
       }
     } catch (error) {
@@ -161,7 +181,7 @@ const PurchaseInvoiceDetailsPage = () => {
     setPaymentFormData({
       date: new Date().toISOString().split('T')[0],
       amount: remaining > 0 ? remaining.toString() : '',
-      paymentMethod: 'Cash'
+      paymentAccountId: ''
     })
     setShowPaymentForm(true)
   }
@@ -185,7 +205,7 @@ const PurchaseInvoiceDetailsPage = () => {
         date: paymentFormData.date,
         type: 'SUPPLIER_PAYMENT',
         amount: parseFloat(paymentFormData.amount),
-        paymentMethod: paymentFormData.paymentMethod,
+        paymentAccountId: paymentFormData.paymentAccountId,
         supplierId: invoice.supplier.id,
         purchaseInvoiceId: invoiceId // Link payment to this purchase invoice
       })
@@ -225,7 +245,7 @@ const PurchaseInvoiceDetailsPage = () => {
       await api.put(`/accounting/payments/${selectedPaymentForEdit.id}`, {
         date: editPaymentFormData.date,
         amount: newAmount,
-        paymentMethod: editPaymentFormData.paymentMethod
+        paymentAccountId: editPaymentFormData.paymentAccountId
       })
       
       toast.success('Payment updated successfully')
@@ -422,7 +442,7 @@ const PurchaseInvoiceDetailsPage = () => {
                             Rs. {payment.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                            {payment.paymentMethod}
+                            {payment.account?.name || payment.paymentMethod || 'N/A'}
                           </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                             {isInitialPayment ? (
@@ -438,7 +458,7 @@ const PurchaseInvoiceDetailsPage = () => {
                                 setEditPaymentFormData({
                                   date: new Date(payment.date).toISOString().split('T')[0],
                                   amount: payment.amount.toString(),
-                                  paymentMethod: payment.paymentMethod || 'Cash'
+                                  paymentAccountId: payment.accountId || ''
                                 })
                                 setShowEditPaymentForm(true)
                               }}
@@ -541,19 +561,14 @@ const PurchaseInvoiceDetailsPage = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Payment Method <span className="text-red-500">*</span>
+                      Payment Account <span className="text-red-500">*</span>
                     </label>
-                    <select
-                      value={paymentFormData.paymentMethod}
-                      onChange={(e) => setPaymentFormData(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                      required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-                    >
-                      <option value="Cash">Cash</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
-                      <option value="Cheque">Cheque</option>
-                      <option value="Credit Card">Credit Card</option>
-                    </select>
+                    <PaymentAccountSelector
+                      value={paymentFormData.paymentAccountId || ''}
+                      onChange={(value) => setPaymentFormData(prev => ({ ...prev, paymentAccountId: value }))}
+                      showQuickAdd={true}
+                      required={true}
+                    />
                   </div>
 
                   <div className="flex gap-3 pt-4">
@@ -648,20 +663,14 @@ const PurchaseInvoiceDetailsPage = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Payment Method <span className="text-red-500">*</span>
+                      Payment Account <span className="text-red-500">*</span>
                     </label>
-                    <select
-                      value={editPaymentFormData.paymentMethod}
-                      onChange={(e) => setEditPaymentFormData(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                      required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-                    >
-                      <option value="Cash">Cash</option>
-                      <option value="Bank Transfer">Bank Transfer</option>
-                      <option value="Cheque">Cheque</option>
-                      <option value="Credit Card">Credit Card</option>
-                      <option value="Other">Other</option>
-                    </select>
+                    <PaymentAccountSelector
+                      value={editPaymentFormData.paymentAccountId || ''}
+                      onChange={(value) => setEditPaymentFormData(prev => ({ ...prev, paymentAccountId: value }))}
+                      showQuickAdd={true}
+                      required={true}
+                    />
                   </div>
 
 

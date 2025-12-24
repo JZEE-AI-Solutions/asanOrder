@@ -7,6 +7,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ModernLayout from '../components/ModernLayout'
 import { useTenant } from '../hooks'
+import PaymentAccountSelector from '../components/accounting/PaymentAccountSelector'
 
 const AddPurchasePage = () => {
   const navigate = useNavigate()
@@ -38,7 +39,7 @@ const AddPurchasePage = () => {
       totalAmount: 0,
       paymentStatus: '',
       paymentAmount: '',
-      paymentMethod: 'Cash',
+      paymentAccountId: '',
       notes: '',
       items: [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }]
     }
@@ -169,6 +170,11 @@ const AddPurchasePage = () => {
   }
 
   const onSubmit = async (data) => {
+    // Prevent submission if any modal is open (safety check)
+    if (document.querySelector('.fixed.inset-0.bg-black.bg-opacity-50')) {
+      console.warn('Form submission prevented: Modal is open')
+      return
+    }
     // Validate items
     const validItems = data.items.filter(item => 
       item.name && item.name.trim() && 
@@ -226,7 +232,7 @@ const AddPurchasePage = () => {
         totalAmount: totalAmount,
         paymentAmount: paymentAmount > 0 ? paymentAmount : undefined,
         // Only include payment method if there's actual cash/bank payment
-        paymentMethod: paymentAmount > 0 ? (data.paymentMethod || 'Cash') : undefined,
+        paymentAccountId: paymentAmount > 0 ? (data.paymentAccountId || null) : null,
         notes: data.notes || null,
         useAdvanceBalance: advanceAmountUsed > 0,
         advanceAmountUsed: advanceAmountUsed > 0 ? advanceAmountUsed : undefined,
@@ -796,7 +802,7 @@ const AddPurchasePage = () => {
                               register('paymentStatus').onChange(e)
                               if (e.target.value === 'unpaid') {
                                 setValue('paymentAmount', '')
-                                setValue('paymentMethod', 'Cash')
+                                setValue('paymentAccountId', '')
                               } else if (e.target.value === 'paid') {
                                 const total = parseFloat(watch('totalAmount')) || 0
                                 setValue('paymentAmount', Math.max(0, total - advanceUsed).toFixed(2))
@@ -816,16 +822,16 @@ const AddPurchasePage = () => {
                         </div>
                       )}
 
-                      {/* Cash Payment Amount - Only show if needed */}
-                      {remaining > 0 && (
+                      {/* Cash Payment Amount - Show if payment status is not 'unpaid' and advance doesn't fully cover */}
+                      {showPaymentFields && watch('paymentStatus') !== 'unpaid' && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Cash/Bank Payment (Rs.)
-                            {remaining > 0 && <span className="text-red-500">*</span>}
+                            {watch('paymentStatus') === 'paid' || watch('paymentStatus') === 'partial' ? <span className="text-red-500">*</span> : ''}
                           </label>
                           <input
                             {...register('paymentAmount', {
-                              required: showPaymentFields && remaining > 0 && watch('paymentStatus') !== 'unpaid' ? 'Cash payment is required' : false,
+                              required: showPaymentFields && watch('paymentStatus') !== 'unpaid' && watch('paymentStatus') !== '' ? 'Cash payment is required' : false,
                               min: { value: 0, message: 'Cannot be negative' },
                               validate: (value) => {
                                 const cash = parseFloat(value) || 0
@@ -856,29 +862,21 @@ const AddPurchasePage = () => {
                         </div>
                       )}
 
-                      {/* Payment Method - Only show if cash payment > 0 and advance doesn't fully cover */}
+                      {/* Payment Account - Only show if cash payment > 0 and advance doesn't fully cover */}
                       {showPaymentFields && cashPayment > 0 && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Payment Method <span className="text-red-500">*</span>
+                            Payment Account <span className="text-red-500">*</span>
                           </label>
-                          <select
-                            {...register('paymentMethod', {
-                              required: cashPayment > 0 ? 'Payment method is required' : false
-                            })}
-                            className={`w-full px-3 py-2 bg-white text-gray-900 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                              errors.paymentMethod ? 'border-red-300' : 'border-gray-300'
-                            }`}
-                          >
-                            <option value="">Select method</option>
-                            <option value="Cash">Cash</option>
-                            <option value="Bank Transfer">Bank Transfer</option>
-                            <option value="Cheque">Cheque</option>
-                            <option value="Credit Card">Credit Card</option>
-                            <option value="Other">Other</option>
-                          </select>
-                          {errors.paymentMethod && (
-                            <p className="text-red-500 text-xs mt-1">{errors.paymentMethod.message}</p>
+                          <PaymentAccountSelector
+                            value={watch('paymentAccountId')}
+                            onChange={(value) => setValue('paymentAccountId', value)}
+                            showQuickAdd={true}
+                            required={cashPayment > 0}
+                            className={errors.paymentAccountId ? 'border-red-300' : ''}
+                          />
+                          {errors.paymentAccountId && (
+                            <p className="text-red-500 text-xs mt-1">{errors.paymentAccountId.message}</p>
                           )}
                         </div>
                       )}

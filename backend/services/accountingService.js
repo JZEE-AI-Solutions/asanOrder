@@ -113,11 +113,33 @@ class AccountingService {
    * @param {string} tenantId - Tenant ID
    * @returns {Array} Created accounts
    */
+  /**
+   * Get payment accounts (Cash or Bank) for a tenant
+   * @param {string} tenantId - Tenant ID
+   * @param {string} subType - Optional: 'CASH', 'BANK', or null for all
+   * @returns {Array} Payment accounts
+   */
+  async getPaymentAccounts(tenantId, subType = null) {
+    const where = {
+      tenantId,
+      type: 'ASSET',
+      accountSubType: subType ? subType : { not: null }
+    };
+
+    return await prisma.account.findMany({
+      where,
+      orderBy: [
+        { accountSubType: 'asc' },
+        { name: 'asc' }
+      ]
+    });
+  }
+
   async initializeChartOfAccounts(tenantId) {
     const defaultAccounts = [
       // Assets
-      { code: '1000', name: 'Cash', type: 'ASSET', balance: 0 },
-      { code: '1100', name: 'Bank Account', type: 'ASSET', balance: 0 },
+      { code: '1000', name: 'Cash', type: 'ASSET', accountSubType: 'CASH', balance: 0 },
+      { code: '1100', name: 'Bank Account', type: 'ASSET', accountSubType: 'BANK', balance: 0 },
       { code: '1200', name: 'Accounts Receivable', type: 'ASSET', balance: 0 },
       { code: '1210', name: 'Customer Advance Balance', type: 'ASSET', balance: 0 },
       { code: '1230', name: 'Advance to Suppliers', type: 'ASSET', balance: 0 },

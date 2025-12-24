@@ -45,7 +45,7 @@ const PurchasesManagement = () => {
     const [paymentFormData, setPaymentFormData] = useState({
       date: new Date().toISOString().split('T')[0],
       amount: '',
-      paymentMethod: 'Cash'
+      paymentAccountId: ''
     })
     const [processingPayment, setProcessingPayment] = useState(false)
     const [supplierBalance, setSupplierBalance] = useState(null)
@@ -105,7 +105,7 @@ const PurchasesManagement = () => {
         setPaymentFormData({
             date: new Date().toISOString().split('T')[0],
             amount: pending > 0 ? pending.toString() : '',
-            paymentMethod: 'Cash'
+            paymentAccountId: ''
         })
         setUseAdvanceBalance(false)
         setAdvanceAmountUsed('')
@@ -172,7 +172,7 @@ const PurchasesManagement = () => {
                 date: paymentFormData.date,
                 type: 'SUPPLIER_PAYMENT',
                 amount: cashPayment, // Only cash/bank payment amount
-                paymentMethod: cashPayment > 0 ? paymentFormData.paymentMethod : 'Cash', // Required but not used if 0
+                paymentAccountId: cashPayment > 0 ? paymentFormData.paymentAccountId : null,
                 supplierId: selectedInvoiceForPayment.supplierId || selectedInvoiceForPayment.supplier?.id,
                 purchaseInvoiceId: selectedInvoiceForPayment.id,
                 useAdvanceBalance: useAdvanceBalance && advanceUsed > 0,
@@ -876,23 +876,18 @@ const PurchasesManagement = () => {
                                     )
                                 })()}
 
-                                {/* Payment Method - Only show if cash payment > 0 */}
+                                {/* Payment Account - Only show if cash payment > 0 */}
                                 {parseFloat(paymentFormData.amount || 0) > 0 && (
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">
-                                            Payment Method <span className="text-red-500">*</span>
+                                            Payment Account <span className="text-red-500">*</span>
                                         </label>
-                                        <select
-                                            value={paymentFormData.paymentMethod}
-                                            onChange={(e) => setPaymentFormData(prev => ({ ...prev, paymentMethod: e.target.value }))}
-                                            required
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-                                        >
-                                            <option value="Cash">Cash</option>
-                                            <option value="Bank Transfer">Bank Transfer</option>
-                                            <option value="Cheque">Cheque</option>
-                                            <option value="Credit Card">Credit Card</option>
-                                        </select>
+                                        <PaymentAccountSelector
+                                            value={paymentFormData.paymentAccountId || ''}
+                                            onChange={(value) => setPaymentFormData(prev => ({ ...prev, paymentAccountId: value }))}
+                                            showQuickAdd={true}
+                                            required={true}
+                                        />
                                     </div>
                                 )}
 

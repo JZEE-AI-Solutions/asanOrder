@@ -207,7 +207,7 @@ function PaymentsPage() {
                       Rs. {payment.amount.toLocaleString()}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                      {payment.paymentMethod}
+                      {payment.account?.name || payment.paymentMethod || 'N/A'}
                     </td>
                   </tr>
                 ))

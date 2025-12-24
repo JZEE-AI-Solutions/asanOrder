@@ -48,7 +48,7 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const tenantId = req.user.tenant.id;
-    const { date, category, amount, description, accountId, receipt, receiptData, receiptType } = req.body;
+    const { date, category, amount, description, accountId, paymentAccountId, receipt, receiptData, receiptType } = req.body;
 
     if (!date || !category || !amount) {
       return res.status(400).json({
@@ -67,6 +67,7 @@ router.post('/', authenticateToken, async (req, res) => {
       amount: parseFloat(amount),
       description,
       accountId,
+      paymentAccountId,
       receipt,
       receiptData,
       receiptType

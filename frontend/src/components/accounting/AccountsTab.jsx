@@ -329,6 +329,7 @@ function AccountFormModal({ account, onClose }) {
     code: '',
     name: '',
     type: 'ASSET',
+    accountSubType: '',
     balance: '0'
   })
 
@@ -338,6 +339,7 @@ function AccountFormModal({ account, onClose }) {
         code: account.code,
         name: account.name,
         type: account.type,
+        accountSubType: account.accountSubType || '',
         balance: account.balance.toString()
       })
     }
@@ -362,6 +364,7 @@ function AccountFormModal({ account, onClose }) {
         // Create account
         await api.post('/accounting/accounts', {
           ...formData,
+          accountSubType: formData.accountSubType || null,
           balance: parseFloat(formData.balance)
         })
         toast.success('Account created successfully')
@@ -428,7 +431,15 @@ function AccountFormModal({ account, onClose }) {
               </label>
               <select
                 value={formData.type}
-                onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
+                onChange={(e) => {
+                  const newType = e.target.value
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    type: newType,
+                    // Clear accountSubType if not ASSET
+                    accountSubType: newType === 'ASSET' ? prev.accountSubType : ''
+                  }))
+                }}
                 required
                 disabled={!!account}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 min-h-[44px]"
@@ -440,6 +451,27 @@ function AccountFormModal({ account, onClose }) {
                 <option value="EXPENSE">Expense</option>
               </select>
             </div>
+
+            {/* Account Sub Type - Only for ASSET accounts */}
+            {formData.type === 'ASSET' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Account Sub Type <span className="text-gray-500 text-xs">(Optional - for Cash/Bank accounts)</span>
+                </label>
+                <select
+                  value={formData.accountSubType}
+                  onChange={(e) => setFormData(prev => ({ ...prev, accountSubType: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                >
+                  <option value="">None (Regular Asset)</option>
+                  <option value="CASH">Cash</option>
+                  <option value="BANK">Bank</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Select Cash or Bank if this is a payment account
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

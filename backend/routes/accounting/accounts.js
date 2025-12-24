@@ -64,11 +64,38 @@ router.post('/reinitialize', authenticateToken, async (req, res) => {
   }
 });
 
+// Get payment accounts
+router.get('/payment-accounts', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.user.tenant.id;
+    const { subType } = req.query; // Optional: CASH, BANK, or both
+
+    const accounts = await accountingService.getPaymentAccounts(
+      tenantId,
+      subType || null
+    );
+
+    res.json({
+      success: true,
+      data: accounts
+    });
+  } catch (error) {
+    console.error('Error fetching payment accounts:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to fetch payment accounts'
+      }
+    });
+  }
+});
+
 // Create account
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const tenantId = req.user.tenant.id;
-    const { code, name, type, parentId, balance } = req.body;
+    const { code, name, type, accountSubType, parentId, balance } = req.body;
 
     if (!code || !name || !type) {
       return res.status(400).json({
@@ -76,6 +103,28 @@ router.post('/', authenticateToken, async (req, res) => {
         error: {
           code: 'VALIDATION_ERROR',
           message: 'Code, name, and type are required'
+        }
+      });
+    }
+
+    // Validate accountSubType
+    if (accountSubType && !['CASH', 'BANK'].includes(accountSubType)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'accountSubType must be either CASH or BANK'
+        }
+      });
+    }
+
+    // Validate accountSubType is only set for ASSET type
+    if (accountSubType && type !== 'ASSET') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'accountSubType can only be set for ASSET type accounts'
         }
       });
     }
@@ -96,6 +145,7 @@ router.post('/', authenticateToken, async (req, res) => {
       code,
       name,
       type,
+      accountSubType: accountSubType || null,
       parentId,
       balance: balance || 0,
       tenantId
@@ -155,6 +205,85 @@ router.get('/:id', authenticateToken, async (req, res) => {
       error: {
         code: 'INTERNAL_ERROR',
         message: 'Failed to fetch account'
+      }
+    });
+  }
+});
+
+// Update account
+router.put('/:id', authenticateToken, async (req, res) => {
+  try {
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const { name, accountSubType } = req.body;
+
+    // Get the account
+    const account = await prisma.account.findFirst({
+      where: {
+        id,
+        tenantId
+      }
+    });
+
+    if (!account) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Account not found'
+        }
+      });
+    }
+
+    // Validate accountSubType if provided
+    if (accountSubType !== undefined && accountSubType !== null && accountSubType !== '') {
+      if (!['CASH', 'BANK'].includes(accountSubType)) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'accountSubType must be either CASH or BANK'
+          }
+        });
+      }
+
+      // Validate accountSubType is only set for ASSET type
+      if (account.type !== 'ASSET') {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'accountSubType can only be set for ASSET type accounts'
+          }
+        });
+      }
+    }
+
+    // Update account (only allow updating name and accountSubType, not code or type)
+    const updateData = {};
+    if (name !== undefined && name !== null && name.trim() !== '') {
+      updateData.name = name.trim();
+    }
+    if (accountSubType !== undefined) {
+      updateData.accountSubType = accountSubType || null;
+    }
+
+    const updatedAccount = await prisma.account.update({
+      where: { id },
+      data: updateData
+    });
+
+    res.json({
+      success: true,
+      data: updatedAccount
+    });
+  } catch (error) {
+    console.error('Error updating account:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error.message || 'Failed to update account'
       }
     });
   }

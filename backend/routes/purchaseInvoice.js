@@ -10,6 +10,30 @@ const { generateInvoiceNumber } = require('../utils/invoiceNumberGenerator');
 
 const router = express.Router();
 
+// Helper function to get payment method from account
+async function getPaymentMethodFromAccount(accountId, tenantId) {
+  try {
+    const account = await prisma.account.findFirst({
+      where: {
+        id: accountId,
+        tenantId,
+        type: 'ASSET',
+        accountSubType: { in: ['CASH', 'BANK'] }
+      }
+    });
+
+    if (!account) {
+      return 'Cash'; // Default fallback
+    }
+
+    // Derive payment method from account subType
+    return account.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash';
+  } catch (error) {
+    console.error('Error getting payment method from account:', error);
+    return 'Cash'; // Default fallback
+  }
+}
+
 // Test endpoint to check authentication
 router.get('/test-auth', authenticateToken, requireRole(['BUSINESS_OWNER']), (req, res) => {
   res.json({ 
@@ -46,7 +70,7 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    let { invoiceNumber, invoiceDate, totalAmount, products, supplierName, supplierId, paymentAmount, paymentMethod, notes, useAdvanceBalance, advanceAmountUsed } = req.body;
+    let { invoiceNumber, invoiceDate, totalAmount, products, supplierName, supplierId, paymentAmount, paymentAccountId, notes, useAdvanceBalance, advanceAmountUsed } = req.body;
     
     // Validate payment amount if provided
     let paidAmount = paymentAmount ? parseFloat(paymentAmount) : 0;
@@ -146,7 +170,7 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
           invoiceDate: new Date(invoiceDate),
           totalAmount: totalAmount,
           paymentAmount: paidAmount > 0 ? paidAmount : null,
-          paymentMethod: paidAmount > 0 ? (paymentMethod || null) : null,
+          paymentMethod: paidAmount > 0 ? (paymentAccountId ? await getPaymentMethodFromAccount(paymentAccountId, tenant.id) : null) : null,
           notes: notes || null,
           tenantId: tenant.id
         }
@@ -229,20 +253,28 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
         });
       }
 
-      // If paid with cash/bank (fully or partially), credit Cash/Bank based on payment method
+      // If paid with cash/bank (fully or partially), credit Cash/Bank based on selected account
       if (paidAmount > 0) {
-        // Determine payment account based on payment method
-        const paymentAccountCode = (paymentMethod && paymentMethod !== 'Cash') ? '1100' : '1000';
-        const paymentAccountName = paymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
-        
-        let paymentAccount = await accountingService.getAccountByCode(paymentAccountCode, tenant.id);
-        if (!paymentAccount) {
-          paymentAccount = await accountingService.getOrCreateAccount({
-            code: paymentAccountCode,
-            name: paymentAccountName,
-            type: 'ASSET',
+        // Require paymentAccountId when cash payment > 0
+        if (!paymentAccountId) {
+          return res.status(400).json({
+            error: 'Payment account is required when making cash/bank payment'
+          });
+        }
+
+        // Validate payment account exists and is Cash/Bank type
+        const paymentAccount = await prisma.account.findFirst({
+          where: {
+            id: paymentAccountId,
             tenantId: tenant.id,
-            balance: 0
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
+        });
+
+        if (!paymentAccount) {
+          return res.status(400).json({
+            error: 'Invalid payment account. Account must be a Cash or Bank account.'
           });
         }
 
@@ -354,7 +386,8 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
                 date: new Date(invoiceDate),
                 type: 'SUPPLIER_PAYMENT',
                 amount: paidAmount,
-                paymentMethod: paymentMethod || 'Cash',
+                paymentMethod: paymentAccountId ? await getPaymentMethodFromAccount(paymentAccountId, tenant.id) : 'Cash',
+                accountId: paymentAccountId || null,
                 tenantId: tenant.id,
                 supplierId: finalSupplierId,
                 purchaseInvoiceId: result.purchaseInvoice.id
@@ -663,7 +696,7 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       supplierName,
       supplierId,
       paymentAmount,
-      paymentMethod,
+      paymentAccountId,
       notes,
       items = []
     } = req.body;
@@ -723,7 +756,7 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           supplierName: supplierName || null,
           supplierId: finalSupplierId,
           paymentAmount: paidAmount > 0 ? paidAmount : null,
-          paymentMethod: paidAmount > 0 ? paymentMethod : null,
+          paymentMethod: paidAmount > 0 ? (paymentAccountId ? await getPaymentMethodFromAccount(paymentAccountId, tenant.id) : null) : null,
           notes: notes || null,
           tenantId: tenant.id
         }
@@ -836,17 +869,26 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
 
       // If paid (fully or partially), credit Cash/Bank
       if (paidAmount > 0) {
-        const paymentAccountCode = (paymentMethod && paymentMethod !== 'Cash') ? '1100' : '1000';
-        const paymentAccountName = paymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
-        
-        let paymentAccount = await accountingService.getAccountByCode(paymentAccountCode, tenant.id);
-        if (!paymentAccount) {
-          paymentAccount = await accountingService.getOrCreateAccount({
-            code: paymentAccountCode,
-            name: paymentAccountName,
-            type: 'ASSET',
+        // Require paymentAccountId when cash payment > 0
+        if (!paymentAccountId) {
+          return res.status(400).json({
+            error: 'Payment account is required when making cash/bank payment'
+          });
+        }
+
+        // Validate payment account exists and is Cash/Bank type
+        const paymentAccount = await prisma.account.findFirst({
+          where: {
+            id: paymentAccountId,
             tenantId: tenant.id,
-            balance: 0
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
+        });
+
+        if (!paymentAccount) {
+          return res.status(400).json({
+            error: 'Invalid payment account. Account must be a Cash or Bank account.'
           });
         }
 
@@ -907,7 +949,8 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
               date: new Date(invoiceDate),
               type: 'SUPPLIER_PAYMENT',
               amount: paidAmount,
-              paymentMethod: paymentMethod || 'Cash',
+              paymentMethod: paymentAccountId ? await getPaymentMethodFromAccount(paymentAccountId, tenant.id) : 'Cash',
+              accountId: paymentAccountId || null,
               tenantId: tenant.id,
               supplierId: finalSupplierId,
               purchaseInvoiceId: result.purchaseInvoice.id
