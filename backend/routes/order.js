@@ -7,6 +7,8 @@ const profitService = require('../services/profitService');
 const customerService = require('../services/customerService');
 const stockValidationService = require('../services/stockValidationService');
 const ShippingChargesService = require('../services/shippingChargesService');
+const accountingService = require('../services/accountingService');
+const codFeeService = require('../services/codFeeService');
 
 const router = express.Router();
 
@@ -493,12 +495,219 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
       return res.status(400).json({ error: 'Order can only be confirmed from pending status' });
     }
 
-    const updatedOrder = await prisma.order.update({
-      where: { id },
-      data: {
-        status: 'CONFIRMED',
-        businessOwnerId: req.user.id
+    // Calculate order total for accounting
+    let productsTotal = 0;
+    let selectedProductsList = [];
+    let productQuantities = {};
+    let productPrices = {};
+
+    try {
+      selectedProductsList = typeof order.selectedProducts === 'string' 
+        ? JSON.parse(order.selectedProducts) 
+        : (order.selectedProducts || []);
+      productQuantities = typeof order.productQuantities === 'string'
+        ? JSON.parse(order.productQuantities)
+        : (order.productQuantities || {});
+      productPrices = typeof order.productPrices === 'string'
+        ? JSON.parse(order.productPrices)
+        : (order.productPrices || {});
+    } catch (e) {
+      console.error('Error parsing order data for accounting:', e);
+    }
+
+    if (Array.isArray(selectedProductsList)) {
+      selectedProductsList.forEach(product => {
+        const quantity = productQuantities[product.id] || product.quantity || 1;
+        const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+        productsTotal += price * quantity;
+      });
+    }
+
+    const shippingCharges = order.shippingCharges || 0;
+    const orderTotal = productsTotal + shippingCharges;
+    const paymentAmount = order.paymentAmount || 0;
+    const codAmount = orderTotal - paymentAmount;
+
+    // Calculate COD fee if applicable
+    let codFee = null;
+    let codFeeCalculationType = null;
+    let logisticsCompanyId = null;
+
+    if (codAmount > 0 && req.body.logisticsCompanyId) {
+      try {
+        const codFeeResult = await codFeeService.calculateCODFee(req.body.logisticsCompanyId, codAmount);
+        codFee = codFeeResult.codFee;
+        codFeeCalculationType = codFeeResult.calculationType;
+        logisticsCompanyId = req.body.logisticsCompanyId;
+      } catch (codError) {
+        console.error('Error calculating COD fee:', codError);
+        // Don't fail order confirmation if COD fee calculation fails
       }
+    }
+
+    const updatedOrder = await prisma.$transaction(async (tx) => {
+      // Update order status
+      const updated = await tx.order.update({
+        where: { id },
+        data: {
+          status: 'CONFIRMED',
+          businessOwnerId: req.user.id,
+          codFee,
+          codAmount: codAmount > 0 ? codAmount : null,
+          codFeeCalculationType,
+          logisticsCompanyId
+        }
+      });
+
+      // Create accounting transaction for AR
+      try {
+        // Get or create accounts
+        const arAccount = await accountingService.getAccountByCode('1200', order.tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '1200',
+            name: 'Accounts Receivable',
+            type: 'ASSET',
+            tenantId: order.tenantId,
+            balance: 0
+          });
+
+        const salesRevenueAccount = await accountingService.getAccountByCode('4000', order.tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '4000',
+            name: 'Sales Revenue',
+            type: 'INCOME',
+            tenantId: order.tenantId,
+            balance: 0
+          });
+
+        const shippingRevenueAccount = await accountingService.getAccountByCode('4200', order.tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '4200',
+            name: 'Shipping Revenue',
+            type: 'INCOME',
+            tenantId: order.tenantId,
+            balance: 0
+          });
+
+        const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+        
+        const transactionLines = [
+          {
+            accountId: arAccount.id,
+            debitAmount: orderTotal,
+            creditAmount: 0
+          },
+          {
+            accountId: salesRevenueAccount.id,
+            debitAmount: 0,
+            creditAmount: productsTotal
+          },
+          {
+            accountId: shippingRevenueAccount.id,
+            debitAmount: 0,
+            creditAmount: shippingCharges
+          }
+        ];
+
+        // Create AR transaction
+        await accountingService.createTransaction(
+          {
+            transactionNumber,
+            date: new Date(),
+            description: `Order Confirmed: ${order.orderNumber}`,
+            tenantId: order.tenantId,
+            orderId: order.id
+          },
+          transactionLines
+        );
+
+        // If prepayment exists, create payment transaction
+        if (paymentAmount > 0) {
+          const cashAccount = await accountingService.getAccountByCode('1000', order.tenantId) ||
+            await accountingService.getOrCreateAccount({
+              code: '1000',
+              name: 'Cash',
+              type: 'ASSET',
+              tenantId: order.tenantId,
+              balance: 0
+            });
+
+          const paymentTransactionNumber = `TXN-${new Date().getFullYear()}-${Date.now() + 1}`;
+          
+          await accountingService.createTransaction(
+            {
+              transactionNumber: paymentTransactionNumber,
+              date: new Date(),
+              description: `Prepayment: ${order.orderNumber}`,
+              tenantId: order.tenantId,
+              orderId: order.id
+            },
+            [
+              {
+                accountId: cashAccount.id,
+                debitAmount: paymentAmount,
+                creditAmount: 0
+              },
+              {
+                accountId: arAccount.id,
+                debitAmount: 0,
+                creditAmount: paymentAmount
+              }
+            ]
+          );
+        }
+
+        // If COD order, accrue COD fee expense
+        if (codFee && codFee > 0) {
+          const codFeeExpenseAccount = await accountingService.getAccountByCode('5200', order.tenantId) ||
+            await accountingService.getOrCreateAccount({
+              code: '5200',
+              name: 'COD Fee Expense',
+              type: 'EXPENSE',
+              tenantId: order.tenantId,
+              balance: 0
+            });
+
+          const codFeePayableAccount = await accountingService.getAccountByCode('2200', order.tenantId) ||
+            await accountingService.getOrCreateAccount({
+              code: '2200',
+              name: 'COD Fee Payable',
+              type: 'LIABILITY',
+              tenantId: order.tenantId,
+              balance: 0
+            });
+
+          const codTransactionNumber = `TXN-${new Date().getFullYear()}-${Date.now() + 2}`;
+          
+          await accountingService.createTransaction(
+            {
+              transactionNumber: codTransactionNumber,
+              date: new Date(),
+              description: `COD Fee Accrued: ${order.orderNumber}`,
+              tenantId: order.tenantId,
+              orderId: order.id
+            },
+            [
+              {
+                accountId: codFeeExpenseAccount.id,
+                debitAmount: codFee,
+                creditAmount: 0
+              },
+              {
+                accountId: codFeePayableAccount.id,
+                debitAmount: 0,
+                creditAmount: codFee
+              }
+            ]
+          );
+        }
+      } catch (accountingError) {
+        console.error('Error creating accounting entries:', accountingError);
+        // Don't fail order confirmation if accounting fails
+        // Log error but continue
+      }
+
+      return updated;
     });
 
     // Decrease inventory when order is confirmed
@@ -547,28 +756,22 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
             whatsappUrl: whatsappUrl,
             customerPhone: customerPhone
           });
+          return; // Exit early
         } else {
           console.log(`⚠️  Could not generate WhatsApp URL for phone: ${customerPhone}`);
-          res.json({
-            message: 'Order confirmed successfully',
-            order: updatedOrder
-          });
         }
       } else {
         console.log(`⚠️  No valid phone number found in order ${order.orderNumber} formData`);
-        res.json({
-          message: 'Order confirmed successfully',
-          order: updatedOrder
-        });
       }
     } catch (whatsappError) {
       console.error('⚠️  Error generating WhatsApp notification (order still confirmed):', whatsappError);
-      // Don't fail the order confirmation if WhatsApp notification fails
-      res.json({
-        message: 'Order confirmed successfully',
-        order: updatedOrder
-      });
     }
+
+    // Default response if WhatsApp notification not sent
+    res.json({
+      message: 'Order confirmed successfully',
+      order: updatedOrder
+    });
   } catch (error) {
     console.error('Confirm order error:', error);
     res.status(500).json({ error: 'Failed to confirm order' });

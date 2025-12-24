@@ -4,6 +4,7 @@ const validator = require('validator');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const customerService = require('../services/customerService');
+const accountingService = require('../services/accountingService');
 
 const router = express.Router();
 
@@ -64,7 +65,8 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   body('state').optional().trim(),
   body('country').optional().trim(),
   body('postalCode').optional().trim(),
-  body('notes').optional().trim()
+  body('notes').optional().trim(),
+  body('balance').optional().isFloat().withMessage('Balance must be a number')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -100,16 +102,102 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       });
     }
 
+    // Extract balance if provided
+    const balanceAmount = customerData.balance ? parseFloat(customerData.balance) : 0;
+    const { balance, ...customerDataWithoutBalance } = customerData;
+
     // Create customer
     const customer = await prisma.customer.create({
       data: {
-        ...customerData,
+        ...customerDataWithoutBalance,
         tenantId: tenant.id,
         totalOrders: 0,
         totalSpent: 0,
-        isActive: true
+        isActive: true,
+        advanceBalance: balanceAmount < 0 ? Math.abs(balanceAmount) : 0
       }
     });
+
+    // Create accounting entry if balance is provided
+    if (balanceAmount !== 0) {
+      try {
+        // Get or create Opening Balance equity account
+        const openingBalanceAccount = await accountingService.getAccountByCode('3001', tenant.id) ||
+          await accountingService.getOrCreateAccount({
+            code: '3001',
+            name: 'Opening Balance',
+            type: 'EQUITY',
+            tenantId: tenant.id,
+            balance: 0
+          });
+
+        const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}-CUST-OB`;
+        const transactionLines = [];
+
+        if (balanceAmount < 0) {
+          // Negative balance = Customer advance (they paid us)
+          // Debit Customer Advance Balance (ASSET - money we received)
+          // Credit Opening Balance
+          const customerAdvanceAccount = await accountingService.getAccountByCode('1210', tenant.id) ||
+            await accountingService.getOrCreateAccount({
+              code: '1210',
+              name: 'Customer Advance Balance',
+              type: 'ASSET',
+              tenantId: tenant.id,
+              balance: 0
+            });
+
+          transactionLines.push(
+            {
+              accountId: customerAdvanceAccount.id,
+              debitAmount: Math.abs(balanceAmount), // Debit increases asset
+              creditAmount: 0
+            },
+            {
+              accountId: openingBalanceAccount.id,
+              debitAmount: 0,
+              creditAmount: Math.abs(balanceAmount)
+            }
+          );
+        } else {
+          // Positive balance = Customer owes us (Accounts Receivable)
+          // Debit Accounts Receivable (ASSET - money owed to us)
+          // Credit Opening Balance
+          const arAccount = await accountingService.getAccountByCode('1200', tenant.id) ||
+            await accountingService.getOrCreateAccount({
+              code: '1200',
+              name: 'Accounts Receivable',
+              type: 'ASSET',
+              tenantId: tenant.id,
+              balance: 0
+            });
+
+          transactionLines.push(
+            {
+              accountId: arAccount.id,
+              debitAmount: balanceAmount, // Debit increases asset
+              creditAmount: 0
+            },
+            {
+              accountId: openingBalanceAccount.id,
+              debitAmount: 0,
+              creditAmount: balanceAmount
+            }
+          );
+        }
+
+        await accountingService.createTransaction({
+          transactionNumber,
+          date: new Date(),
+          description: `Customer Opening Balance - ${customerData.name || customerData.phoneNumber}`,
+          tenantId: tenant.id
+        }, transactionLines);
+      } catch (accountingError) {
+        console.error('Error creating accounting entry for customer opening balance:', accountingError);
+        // Don't fail customer creation if accounting entry fails
+        // The balance is still stored in customer.advanceBalance and will be used in calculations
+      }
+    }
 
     // Log the creation
     await customerService.logCustomerAction(

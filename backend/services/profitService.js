@@ -1,588 +1,477 @@
 const prisma = require('../lib/db');
+const accountingService = require('./accountingService');
 
 class ProfitService {
   /**
-   * Parse JSON data safely
-   * @param {any} data - Data to parse
-   * @returns {Object|Array} Parsed data
+   * Calculate profit for a period
+   * @param {Object} filters - Filter options
+   * @returns {Object} Profit calculation
    */
-  parseJSON(data) {
-    if (!data) return {};
-    if (typeof data === 'object') return data;
-    try {
-      return JSON.parse(data);
-    } catch (e) {
-      console.error('Failed to parse JSON:', e);
-      return {};
-    }
-  }
+  async calculateProfit(filters = {}) {
+    const {
+      tenantId,
+      fromDate,
+      toDate
+    } = filters;
 
-  /**
-   * Calculate profit for a single order
-   * @param {Object} order - Order object
-   * @returns {Object} Profit details { totalRevenue, totalCost, profit, profitMargin }
-   */
-  async calculateOrderProfit(order) {
-    try {
-      const selectedProducts = this.parseJSON(order.selectedProducts) || [];
-      const productQuantities = this.parseJSON(order.productQuantities) || {};
-      const productPrices = this.parseJSON(order.productPrices) || {};
+    const dateFilter = {};
+    if (fromDate) dateFilter.gte = new Date(fromDate);
+    if (toDate) dateFilter.lte = new Date(toDate);
 
-      let totalRevenue = 0;
-      let totalCost = 0;
-
-      // Get all product IDs
-      const productIds = selectedProducts.map(p => p.id || p).filter(Boolean);
-      
-      // Fetch products with purchase prices
-      const products = await prisma.product.findMany({
-        where: {
-          id: { in: productIds },
-          tenantId: order.tenantId
-        },
-        select: {
-          id: true,
-          name: true,
-          lastPurchasePrice: true,
-          currentRetailPrice: true
-        }
-      });
-
-      // Create a map for quick lookup
-      const productMap = {};
-      products.forEach(p => {
-        productMap[p.id] = p;
-      });
-
-      // Calculate revenue and cost for each product
-      selectedProducts.forEach(product => {
-        const productId = product.id || product;
-        const quantity = productQuantities[productId] || product.quantity || 1;
-        const salePrice = productPrices[productId] || product.price || product.currentRetailPrice || 0;
-        
-        // Revenue = sale price * quantity
-        const revenue = salePrice * quantity;
-        totalRevenue += revenue;
-
-        // Cost = purchase price * quantity (use lastPurchasePrice or 0 if not available)
-        const productData = productMap[productId];
-        const purchasePrice = productData?.lastPurchasePrice || 0;
-        const cost = purchasePrice * quantity;
-        totalCost += cost;
-      });
-
-      const profit = totalRevenue - totalCost;
-      const profitMargin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-
-      return {
-        totalRevenue,
-        totalCost,
-        profit,
-        profitMargin: parseFloat(profitMargin.toFixed(2)),
-        items: selectedProducts.map(product => {
-          const productId = product.id || product;
-          const quantity = productQuantities[productId] || product.quantity || 1;
-          const salePrice = productPrices[productId] || product.price || product.currentRetailPrice || 0;
-          const productData = productMap[productId];
-          const purchasePrice = productData?.lastPurchasePrice || 0;
-          
-          return {
-            productId,
-            productName: productData?.name || product.name || 'Unknown',
-            quantity,
-            salePrice,
-            purchasePrice,
-            revenue: salePrice * quantity,
-            cost: purchasePrice * quantity,
-            profit: (salePrice - purchasePrice) * quantity
-          };
-        })
-      };
-    } catch (error) {
-      console.error('Error calculating order profit:', error);
-      return {
-        totalRevenue: 0,
-        totalCost: 0,
-        profit: 0,
-        profitMargin: 0,
-        items: []
-      };
-    }
-  }
-
-  /**
-   * Calculate aggregate profit for multiple orders
-   * @param {Array} orders - Array of order objects
-   * @param {Object} filters - Optional filters { status, startDate, endDate }
-   * @returns {Object} Aggregate profit details
-   */
-  async calculateAggregateProfit(orders, filters = {}) {
-    try {
-      let filteredOrders = orders;
-
-      // Apply filters
-      if (filters.status) {
-        filteredOrders = filteredOrders.filter(o => o.status === filters.status);
+    // Get revenue (Sales - Returns)
+    const confirmedOrders = await prisma.order.findMany({
+      where: {
+        tenantId,
+        status: 'CONFIRMED',
+        createdAt: dateFilter
+      },
+      select: {
+        selectedProducts: true,
+        productQuantities: true,
+        productPrices: true,
+        shippingCharges: true,
+        refundAmount: true
       }
-      if (filters.startDate) {
-        const startDate = new Date(filters.startDate);
-        filteredOrders = filteredOrders.filter(o => new Date(o.createdAt) >= startDate);
-      }
-      if (filters.endDate) {
-        const endDate = new Date(filters.endDate);
-        endDate.setHours(23, 59, 59, 999); // End of day
-        filteredOrders = filteredOrders.filter(o => new Date(o.createdAt) <= endDate);
+    });
+
+    let totalRevenue = 0;
+    let totalShippingRevenue = 0;
+
+    for (const order of confirmedOrders) {
+      // Parse order data
+      let selectedProducts = [];
+      let productQuantities = {};
+      let productPrices = {};
+
+      try {
+        selectedProducts = typeof order.selectedProducts === 'string' 
+          ? JSON.parse(order.selectedProducts) 
+          : (order.selectedProducts || []);
+        productQuantities = typeof order.productQuantities === 'string'
+          ? JSON.parse(order.productQuantities)
+          : (order.productQuantities || {});
+        productPrices = typeof order.productPrices === 'string'
+          ? JSON.parse(order.productPrices)
+          : (order.productPrices || {});
+      } catch (e) {
+        continue;
       }
 
-      // Only calculate for orders that are dispatched or completed (or confirmed if user wants)
-      const validStatuses = ['CONFIRMED', 'DISPATCHED', 'COMPLETED'];
-      filteredOrders = filteredOrders.filter(o => validStatuses.includes(o.status));
-
-      let totalRevenue = 0;
-      let totalCost = 0;
-      let totalProfit = 0;
-      const orderProfits = [];
-
-      // Calculate profit for each order
-      for (const order of filteredOrders) {
-        const profitData = await this.calculateOrderProfit(order);
-        totalRevenue += profitData.totalRevenue;
-        totalCost += profitData.totalCost;
-        totalProfit += profitData.profit;
-        
-        orderProfits.push({
-          orderId: order.id,
-          orderNumber: order.orderNumber,
-          status: order.status,
-          createdAt: order.createdAt,
-          ...profitData
+      // Calculate products revenue
+      if (Array.isArray(selectedProducts)) {
+        selectedProducts.forEach(product => {
+          const quantity = productQuantities[product.id] || product.quantity || 1;
+          const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+          totalRevenue += price * quantity;
         });
       }
 
-      const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-
-      return {
-        totalRevenue,
-        totalCost,
-        totalProfit,
-        profitMargin: parseFloat(profitMargin.toFixed(2)),
-        orderCount: filteredOrders.length,
-        orders: orderProfits
-      };
-    } catch (error) {
-      console.error('Error calculating aggregate profit:', error);
-      return {
-        totalRevenue: 0,
-        totalCost: 0,
-        totalProfit: 0,
-        profitMargin: 0,
-        orderCount: 0,
-        orders: []
-      };
+      // Add shipping revenue
+      const shippingCharges = order.shippingCharges || 0;
+      totalShippingRevenue += shippingCharges;
     }
+
+    // Subtract returns
+    const returns = await prisma.return.findMany({
+      where: {
+        tenantId,
+        returnType: {
+          in: ['CUSTOMER_FULL', 'CUSTOMER_PARTIAL']
+        },
+        status: {
+          in: ['APPROVED', 'REFUNDED']
+        },
+        returnDate: dateFilter
+      },
+      select: {
+        refundAmount: true
+      }
+    });
+
+    const totalReturns = returns.reduce((sum, r) => sum + (r.refundAmount || 0), 0);
+    totalRevenue -= totalReturns;
+
+    // Get expenses
+    const expenses = await prisma.expense.findMany({
+      where: {
+        tenantId,
+        date: dateFilter
+      },
+      select: {
+        amount: true,
+        category: true
+      }
+    });
+
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+
+    // Get shipping variance
+    const ordersWithVariance = await prisma.order.findMany({
+      where: {
+        tenantId,
+        shippingVariance: {
+          not: null
+        },
+        shippingVarianceDate: dateFilter
+      },
+      select: {
+        shippingVariance: true
+      }
+    });
+
+    const shippingVarianceExpense = ordersWithVariance
+      .filter(o => o.shippingVariance > 0)
+      .reduce((sum, o) => sum + o.shippingVariance, 0);
+
+    const shippingVarianceIncome = Math.abs(
+      ordersWithVariance
+        .filter(o => o.shippingVariance < 0)
+        .reduce((sum, o) => sum + o.shippingVariance, 0)
+    );
+
+    // Calculate net profit
+    const netProfit = totalRevenue + totalShippingRevenue - totalExpenses 
+      - shippingVarianceExpense + shippingVarianceIncome;
+
+    return {
+      period: {
+        fromDate: fromDate ? new Date(fromDate) : null,
+        toDate: toDate ? new Date(toDate) : null
+      },
+      revenue: {
+        products: totalRevenue,
+        shipping: totalShippingRevenue,
+        total: totalRevenue + totalShippingRevenue
+      },
+      returns: totalReturns,
+      expenses: {
+        total: totalExpenses,
+        byCategory: expenses.reduce((acc, e) => {
+          acc[e.category] = (acc[e.category] || 0) + e.amount;
+          return acc;
+        }, {})
+      },
+      shippingVariance: {
+        expense: shippingVarianceExpense,
+        income: shippingVarianceIncome,
+        net: shippingVarianceIncome - shippingVarianceExpense
+      },
+      netProfit,
+      profitMargin: (totalRevenue + totalShippingRevenue) > 0 
+        ? (netProfit / (totalRevenue + totalShippingRevenue)) * 100 
+        : 0
+    };
   }
 
   /**
-   * Get profit statistics for a tenant
-   * @param {string} tenantId - Tenant ID
-   * @param {Object} filters - Optional filters
-   * @returns {Object} Profit statistics
+   * Create profit distribution
+   * @param {Object} distributionData - Distribution data
+   * @returns {Object} Created distribution
    */
-  async getProfitStatistics(tenantId, filters = {}) {
-    try {
-      const whereClause = {
+  async createProfitDistribution(distributionData) {
+    const {
+      tenantId,
+      date,
+      fromDate,
+      toDate,
+      totalProfitAmount,
+      distributionMethod, // PERCENTAGE, EQUAL, CUSTOM
+      investorShares // Array of {investorId, percentage or amount}
+    } = distributionData;
+
+    const investors = await prisma.investor.findMany({
+      where: {
         tenantId,
-        status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] }
-      };
-
-      if (filters.startDate) {
-        whereClause.createdAt = { gte: new Date(filters.startDate) };
+        status: 'ACTIVE'
       }
-      if (filters.endDate) {
-        const endDate = new Date(filters.endDate);
-        endDate.setHours(23, 59, 59, 999);
-        whereClause.createdAt = {
-          ...whereClause.createdAt,
-          lte: endDate
-        };
-      }
+    });
 
-      const orders = await prisma.order.findMany({
-        where: whereClause,
-        select: {
-          id: true,
-          orderNumber: true,
-          status: true,
-          createdAt: true,
-          selectedProducts: true,
-          productQuantities: true,
-          productPrices: true,
-          tenantId: true
+    if (investors.length === 0) {
+      throw new Error('No active investors found');
+    }
+
+    // Calculate distribution amounts
+    const distributionItems = [];
+    let remainingProfit = totalProfitAmount;
+
+    if (distributionMethod === 'EQUAL') {
+      const sharePerInvestor = totalProfitAmount / investors.length;
+      investors.forEach(investor => {
+        distributionItems.push({
+          investorId: investor.id,
+          profitAmount: sharePerInvestor
+        });
+      });
+    } else if (distributionMethod === 'PERCENTAGE') {
+      investors.forEach(investor => {
+        const percentage = investor.investmentPercentage || (100 / investors.length);
+        const amount = totalProfitAmount * (percentage / 100);
+        distributionItems.push({
+          investorId: investor.id,
+          profitAmount: amount
+        });
+      });
+    } else if (distributionMethod === 'CUSTOM' && investorShares) {
+      investorShares.forEach(share => {
+        const amount = share.amount || (totalProfitAmount * (share.percentage / 100));
+        distributionItems.push({
+          investorId: share.investorId,
+          profitAmount: amount
+        });
+        remainingProfit -= amount;
+      });
+    } else {
+      throw new Error('Invalid distribution method');
+    }
+
+    // Generate distribution number
+    const distributionCount = await prisma.profitDistribution.count({
+      where: { tenantId }
+    });
+    const distributionNumber = `PROF-${new Date().getFullYear()}-${String(distributionCount + 1).padStart(4, '0')}`;
+
+    return await prisma.$transaction(async (tx) => {
+      // Create distribution
+      const distribution = await tx.profitDistribution.create({
+        data: {
+          distributionNumber,
+          date: new Date(date),
+          totalProfitAmount,
+          fromDate: new Date(fromDate),
+          toDate: new Date(toDate),
+          status: 'PENDING',
+          tenantId,
+          distributionItems: {
+            create: distributionItems.map(item => ({
+              investorId: item.investorId,
+              profitAmount: item.profitAmount
+            }))
+          }
+        },
+        include: {
+          distributionItems: {
+            include: {
+              investor: true
+            }
+          }
         }
       });
 
-      return await this.calculateAggregateProfit(orders, filters);
-    } catch (error) {
-      console.error('Error getting profit statistics:', error);
-      throw error;
-    }
+      return distribution;
+    });
   }
 
   /**
-   * Calculate profit for a purchase invoice
-   * @param {string} invoiceId - Purchase Invoice ID
+   * Approve profit distribution
+   * @param {string} distributionId - Distribution ID
    * @param {string} tenantId - Tenant ID
-   * @returns {Object} Profit details for the invoice
+   * @returns {Object} Updated distribution
    */
-  async calculatePurchaseInvoiceProfit(invoiceId, tenantId) {
-    try {
-      // Get purchase invoice with items
-      const invoice = await prisma.purchaseInvoice.findFirst({
-        where: {
-          id: invoiceId,
-          tenantId: tenantId
+  async approveProfitDistribution(distributionId, tenantId) {
+    return await prisma.profitDistribution.update({
+      where: {
+        id: distributionId,
+        tenantId
+      },
+      data: {
+        status: 'APPROVED'
+      },
+      include: {
+        distributionItems: {
+          include: {
+            investor: true
+          }
+        }
+      }
+    });
+  }
+
+  /**
+   * Distribute profit to investors (create accounting entries)
+   * @param {string} distributionId - Distribution ID
+   * @param {string} tenantId - Tenant ID
+   * @returns {Object} Updated distribution with transactions
+   */
+  async distributeProfit(distributionId, tenantId) {
+    const distribution = await prisma.profitDistribution.findFirst({
+      where: {
+        id: distributionId,
+        tenantId
+      },
+      include: {
+        distributionItems: {
+          include: {
+            investor: true
+          }
+        }
+      }
+    });
+
+    if (!distribution) {
+      throw new Error('Profit distribution not found');
+    }
+
+    if (distribution.status !== 'APPROVED') {
+      throw new Error('Profit distribution must be approved before distributing');
+    }
+
+    return await prisma.$transaction(async (tx) => {
+      // Get retained earnings account
+      const retainedEarningsAccount = await accountingService.getAccountByCode('3200', tenantId) ||
+        await accountingService.getOrCreateAccount({
+          code: '3200',
+          name: 'Retained Earnings',
+          type: 'EQUITY',
+          tenantId,
+          balance: 0
+        });
+
+      // Create profit payable accounts and transaction lines
+      const transactionLines = [
+        {
+          accountId: retainedEarningsAccount.id,
+          debitAmount: distribution.totalProfitAmount,
+          creditAmount: 0
+        }
+      ];
+
+      const profitPayableAccounts = {};
+
+      for (const item of distribution.distributionItems) {
+        // Get or create profit payable account for investor
+        const accountCode = `220${item.investor.id.slice(-1)}`;
+        let profitPayableAccount = await accountingService.getAccountByCode(accountCode, tenantId);
+        
+        if (!profitPayableAccount) {
+          profitPayableAccount = await accountingService.getOrCreateAccount({
+            code: accountCode,
+            name: `Profit Payable - ${item.investor.name}`,
+            type: 'LIABILITY',
+            tenantId,
+            balance: 0
+          });
+        }
+
+        profitPayableAccounts[item.investorId] = profitPayableAccount;
+
+        transactionLines.push({
+          accountId: profitPayableAccount.id,
+          debitAmount: 0,
+          creditAmount: item.profitAmount
+        });
+      }
+
+      // Create accounting transaction
+      const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+      const transaction = await accountingService.createTransaction(
+        {
+          transactionNumber,
+          date: distribution.date,
+          description: `Profit Distribution: ${distribution.distributionNumber}`,
+          tenantId
         },
+        transactionLines
+      );
+
+      // Update distribution status
+      await tx.profitDistribution.update({
+        where: { id: distributionId },
+        data: { 
+          transactionId: transaction.id,
+          status: 'DISTRIBUTED'
+        }
+      });
+
+      // Update investor profit balances
+      for (const item of distribution.distributionItems) {
+        await tx.investor.update({
+          where: { id: item.investorId },
+          data: {
+            // Note: profit received will be updated when withdrawal is made
+          }
+        });
+      }
+
+      // Update tenant
+      const tenant = await tx.tenant.findUnique({
+        where: { id: tenantId }
+      });
+      
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          totalProfitDistributed: (tenant.totalProfitDistributed || 0) + distribution.totalProfitAmount
+        }
+      });
+
+      return {
+        ...distribution,
+        transaction
+      };
+    });
+  }
+
+  /**
+   * Get profit distributions
+   * @param {Object} filters - Filter options
+   * @returns {Object} Distributions with pagination
+   */
+  async getProfitDistributions(filters = {}) {
+    const {
+      tenantId,
+      page = 1,
+      limit = 20,
+      sort = 'date',
+      order = 'desc',
+      status
+    } = filters;
+
+    const skip = (page - 1) * limit;
+
+    const where = {
+      tenantId
+    };
+
+    if (status) where.status = status;
+
+    const [distributions, total] = await Promise.all([
+      prisma.profitDistribution.findMany({
+        where,
         include: {
-          purchaseItems: {
+          distributionItems: {
             include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  currentRetailPrice: true,
-                  lastPurchasePrice: true
+              investor: true
+            }
+          },
+          transaction: {
+            include: {
+              transactionLines: {
+                include: {
+                  account: true
                 }
               }
             }
           }
-        }
-      });
+        },
+        orderBy: {
+          [sort]: order
+        },
+        skip,
+        take: limit
+      }),
+      prisma.profitDistribution.count({ where })
+    ]);
 
-      if (!invoice) {
-        return {
-          totalCost: 0,
-          totalRevenue: 0,
-          totalProfit: 0,
-          profitMargin: 0,
-          items: []
-        };
+    return {
+      data: distributions,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit)
       }
-
-      let totalCost = 0;
-      let totalRevenue = 0;
-      const itemProfits = [];
-
-      // For each purchase item, find sales and calculate profit
-      for (const purchaseItem of invoice.purchaseItems) {
-        const itemCost = purchaseItem.purchasePrice * purchaseItem.quantity;
-        totalCost += itemCost;
-
-        // Get all purchase invoices for this product, ordered by creation date (FIFO)
-        // Use createdAt instead of invoiceDate to ensure proper chronological order
-        const invoiceCreatedAt = new Date(invoice.createdAt);
-        
-        const allInvoicesForProduct = await prisma.purchaseInvoice.findMany({
-          where: {
-            tenantId: tenantId,
-            isDeleted: false,
-            purchaseItems: {
-              some: {
-                productId: purchaseItem.productId
-              }
-            }
-          },
-          include: {
-            purchaseItems: {
-              where: {
-                productId: purchaseItem.productId
-              }
-            }
-          },
-          orderBy: {
-            createdAt: 'asc' // Oldest first for FIFO (use createdAt for chronological order)
-          }
-        });
-
-        // Find all orders that contain this product and were created AFTER this invoice was created
-        // This ensures we only count sales that happened after this purchase invoice was created
-        const orders = await prisma.order.findMany({
-          where: {
-            tenantId: tenantId,
-            status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] },
-            createdAt: {
-              gte: invoiceCreatedAt // Only orders created on or after invoice creation
-            },
-            selectedProducts: {
-              contains: purchaseItem.productId || ''
-            }
-          },
-          select: {
-            id: true,
-            createdAt: true,
-            selectedProducts: true,
-            productQuantities: true,
-            productPrices: true
-          },
-          orderBy: {
-            createdAt: 'asc' // Process orders chronologically for FIFO
-          }
-        });
-
-        // Calculate total quantity from invoices created BEFORE this invoice (FIFO priority)
-        // Use createdAt to ensure proper chronological order
-        let previousInvoiceQuantity = 0;
-        const previousInvoices = [];
-        for (const prevInvoice of allInvoicesForProduct) {
-          if (new Date(prevInvoice.createdAt) < invoiceCreatedAt) {
-            for (const prevItem of prevInvoice.purchaseItems) {
-              if (prevItem.productId === purchaseItem.productId) {
-                previousInvoiceQuantity += prevItem.quantity;
-                previousInvoices.push({ invoice: prevInvoice, item: prevItem });
-              }
-            }
-          }
-        }
-
-        // Calculate how much was actually sold from previous invoices
-        // by processing orders that were created before this invoice
-        const ordersBeforeThisInvoice = await prisma.order.findMany({
-          where: {
-            tenantId: tenantId,
-            status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] },
-            createdAt: {
-              lt: invoiceCreatedAt // Orders created before this invoice
-            },
-            selectedProducts: {
-              contains: purchaseItem.productId || ''
-            }
-          },
-          select: {
-            id: true,
-            createdAt: true,
-            selectedProducts: true,
-            productQuantities: true,
-            productPrices: true
-          },
-          orderBy: {
-            createdAt: 'asc'
-          }
-        });
-
-        // Calculate total sold from previous invoices
-        let totalSoldFromPrevious = 0;
-        for (const order of ordersBeforeThisInvoice) {
-          const selectedProducts = this.parseJSON(order.selectedProducts) || [];
-          const productQuantities = this.parseJSON(order.productQuantities) || {};
-          const productInOrder = selectedProducts.find(p => (p.id || p) === purchaseItem.productId);
-          if (productInOrder) {
-            const orderQuantity = productQuantities[purchaseItem.productId] || productInOrder.quantity || 1;
-            totalSoldFromPrevious += orderQuantity;
-          }
-        }
-
-        // Remaining stock from previous invoices = total - sold
-        // If total sold exceeds previous invoice quantity, the excess comes from this invoice
-        let remainingFromPrevious = Math.max(0, previousInvoiceQuantity - totalSoldFromPrevious);
-        
-        // Calculate excess quantity from orders created before this invoice
-        // that should be allocated to this invoice (FIFO: when previous stock is exhausted)
-        let excessFromPreviousOrders = Math.max(0, totalSoldFromPrevious - previousInvoiceQuantity);
-
-        let itemRevenue = 0;
-        let soldQuantity = 0;
-
-        // First, allocate excess quantity from orders created before this invoice
-        // (when those orders sold more than previous invoices had in stock)
-        if (excessFromPreviousOrders > 0) {
-          // Find the orders that contributed to the excess
-          let allocatedExcess = 0;
-          for (const order of ordersBeforeThisInvoice) {
-            if (allocatedExcess >= excessFromPreviousOrders) break;
-            
-            const selectedProducts = this.parseJSON(order.selectedProducts) || [];
-            const productQuantities = this.parseJSON(order.productQuantities) || {};
-            const productPrices = this.parseJSON(order.productPrices) || {};
-            const productInOrder = selectedProducts.find(p => (p.id || p) === purchaseItem.productId);
-            
-            if (productInOrder) {
-              const orderQuantity = productQuantities[purchaseItem.productId] || productInOrder.quantity || 1;
-              const salePrice = productPrices[purchaseItem.productId] || productInOrder.price || purchaseItem.product?.currentRetailPrice || 0;
-              
-              // Calculate how much of this order should come from this invoice
-              const remainingExcess = excessFromPreviousOrders - allocatedExcess;
-              const quantityFromThisInvoice = Math.min(remainingExcess, orderQuantity);
-              
-              if (quantityFromThisInvoice > 0) {
-                itemRevenue += salePrice * quantityFromThisInvoice;
-                soldQuantity += quantityFromThisInvoice;
-                allocatedExcess += quantityFromThisInvoice;
-              }
-            }
-          }
-        }
-
-        // Calculate revenue from sales of this product using FIFO logic
-        // Process all orders chronologically and allocate to invoices in order
-        for (const order of orders) {
-          const selectedProducts = this.parseJSON(order.selectedProducts) || [];
-          const productQuantities = this.parseJSON(order.productQuantities) || {};
-          const productPrices = this.parseJSON(order.productPrices) || {};
-
-          const productInOrder = selectedProducts.find(p => (p.id || p) === purchaseItem.productId);
-          if (productInOrder) {
-            const orderQuantity = productQuantities[purchaseItem.productId] || productInOrder.quantity || 1;
-            const salePrice = productPrices[purchaseItem.productId] || productInOrder.price || purchaseItem.product?.currentRetailPrice || 0;
-            
-            // FIFO: First allocate to previous invoices (older stock), then to this invoice
-            let quantityFromThisInvoice = 0;
-            
-            if (remainingFromPrevious > 0) {
-              // First, allocate to previous invoices (older stock gets sold first)
-              const allocatedToPrevious = Math.min(orderQuantity, remainingFromPrevious);
-              remainingFromPrevious -= allocatedToPrevious;
-              
-              // Remaining quantity can come from this invoice (only after older stock is exhausted)
-              const remainingQuantity = orderQuantity - allocatedToPrevious;
-              quantityFromThisInvoice = Math.min(remainingQuantity, purchaseItem.quantity - soldQuantity);
-            } else {
-              // No previous stock remaining, all comes from this invoice
-              quantityFromThisInvoice = Math.min(orderQuantity, purchaseItem.quantity - soldQuantity);
-            }
-            
-            if (quantityFromThisInvoice > 0) {
-              itemRevenue += salePrice * quantityFromThisInvoice;
-              soldQuantity += quantityFromThisInvoice;
-            }
-          }
-        }
-
-        totalRevenue += itemRevenue;
-
-        // Only calculate profit for items that have been sold
-        // If nothing is sold, profit is 0 (not negative, as there's no transaction yet)
-        const soldItemsCost = soldQuantity > 0 ? (purchaseItem.purchasePrice * soldQuantity) : 0;
-        const itemProfit = itemRevenue - soldItemsCost;
-        const itemProfitMargin = itemRevenue > 0 ? (itemProfit / itemRevenue) * 100 : 0;
-
-        itemProfits.push({
-          purchaseItemId: purchaseItem.id,
-          productId: purchaseItem.productId,
-          productName: purchaseItem.name,
-          purchasePrice: purchaseItem.purchasePrice,
-          quantity: purchaseItem.quantity,
-          soldQuantity: soldQuantity,
-          cost: itemCost, // Total cost of all purchased items (for reference)
-          soldItemsCost: soldItemsCost, // Cost of only sold items
-          revenue: itemRevenue,
-          profit: itemProfit, // Profit only on sold items (0 if nothing sold)
-          profitMargin: parseFloat(itemProfitMargin.toFixed(2))
-        });
-      }
-
-      // Calculate profit only on sold items
-      // Total cost should only include cost of sold items, not all purchased items
-      let totalSoldItemsCost = 0;
-      itemProfits.forEach(item => {
-        if (item.soldQuantity > 0) {
-          totalSoldItemsCost += item.purchasePrice * item.soldQuantity;
-        }
-      });
-
-      const totalProfit = totalRevenue - totalSoldItemsCost;
-      const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-
-      // Debug logging
-      console.log('Purchase Invoice Profit Calculation:', {
-        invoiceNumber: invoice.invoiceNumber,
-        totalCost: totalCost,
-        totalSoldItemsCost: totalSoldItemsCost,
-        totalRevenue: totalRevenue,
-        totalProfit: totalProfit,
-        profitMargin: profitMargin
-      });
-
-      return {
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        totalCost, // Total cost of all purchased items (for reference)
-        totalSoldItemsCost: totalSoldItemsCost, // Cost of only sold items
-        totalRevenue,
-        totalProfit,
-        profitMargin: parseFloat(profitMargin.toFixed(2)),
-        items: itemProfits
-      };
-    } catch (error) {
-      console.error('Error calculating purchase invoice profit:', error);
-      return {
-        totalCost: 0,
-        totalRevenue: 0,
-        totalProfit: 0,
-        profitMargin: 0,
-        items: []
-      };
-    }
-  }
-
-  /**
-   * Get profit statistics for all purchase invoices
-   * @param {string} tenantId - Tenant ID
-   * @param {Object} filters - Optional filters
-   * @returns {Object} Aggregate profit for all invoices
-   */
-  async getPurchaseInvoicesProfit(tenantId, filters = {}) {
-    try {
-      const whereClause = {
-        tenantId,
-        isDeleted: false
-      };
-
-      if (filters.startDate) {
-        whereClause.invoiceDate = { gte: new Date(filters.startDate) };
-      }
-      if (filters.endDate) {
-        const endDate = new Date(filters.endDate);
-        endDate.setHours(23, 59, 59, 999);
-        whereClause.invoiceDate = {
-          ...whereClause.invoiceDate,
-          lte: endDate
-        };
-      }
-
-      const invoices = await prisma.purchaseInvoice.findMany({
-        where: whereClause,
-        select: {
-          id: true
-        }
-      });
-
-      let totalCost = 0;
-      let totalRevenue = 0;
-      const invoiceProfits = [];
-
-      for (const invoice of invoices) {
-        const profit = await this.calculatePurchaseInvoiceProfit(invoice.id, tenantId);
-        totalCost += profit.totalCost;
-        totalRevenue += profit.totalRevenue;
-        invoiceProfits.push(profit);
-      }
-
-      const totalProfit = totalRevenue - totalCost;
-      const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
-
-      return {
-        totalCost,
-        totalRevenue,
-        totalProfit,
-        profitMargin: parseFloat(profitMargin.toFixed(2)),
-        invoiceCount: invoices.length,
-        invoices: invoiceProfits
-      };
-    } catch (error) {
-      console.error('Error getting purchase invoices profit:', error);
-      throw error;
-    }
+    };
   }
 }
 
 module.exports = new ProfitService();
-

@@ -62,7 +62,10 @@ const Login = () => {
       if (result.success) {
         toast.success('Login successful!')
       } else {
-        toast.error(result.error)
+        const errorMsg = typeof result.error === 'string'
+          ? result.error
+          : result.error?.message || 'Login failed'
+        toast.error(errorMsg)
       }
     } catch (error) {
       console.error('Login error:', error)

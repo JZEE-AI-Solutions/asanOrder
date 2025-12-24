@@ -28,6 +28,9 @@ const AddPurchaseModal = ({ onClose, onSaved }) => {
       supplierName: '',
       invoiceDate: new Date().toISOString().split('T')[0],
       totalAmount: 0,
+      paymentStatus: '',
+      paymentAmount: '',
+      paymentMethod: 'Cash',
       notes: '',
       items: [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }]
     }
@@ -125,12 +128,44 @@ const AddPurchaseModal = ({ onClose, onSaved }) => {
 
     setIsSubmitting(true)
     try {
+      const totalAmount = parseFloat(data.totalAmount) || calculateTotal()
+      
+      // Determine payment amount based on payment status
+      let paymentAmount = 0
+      if (data.paymentStatus === 'paid') {
+        paymentAmount = totalAmount
+      } else if (data.paymentStatus === 'partial') {
+        paymentAmount = data.paymentAmount ? parseFloat(data.paymentAmount) : 0
+      } else {
+        paymentAmount = 0 // unpaid
+      }
+      
+      if (paymentAmount < 0 || paymentAmount > totalAmount) {
+        toast.error('Payment amount must be between 0 and total amount')
+        setIsSubmitting(false)
+        return
+      }
+
+      if (data.paymentStatus === 'paid' && paymentAmount !== totalAmount) {
+        toast.error('Payment amount must equal total amount for fully paid invoices')
+        setIsSubmitting(false)
+        return
+      }
+
+      if (data.paymentStatus === 'partial' && (paymentAmount <= 0 || paymentAmount >= totalAmount)) {
+        toast.error('Payment amount must be greater than 0 and less than total amount for partial payment')
+        setIsSubmitting(false)
+        return
+      }
+
       const payload = {
         // invoiceNumber is optional - backend will auto-generate if not provided
         invoiceNumber: data.invoiceNumber?.trim() || undefined,
         supplierName: data.supplierName || null,
         invoiceDate: data.invoiceDate,
-        totalAmount: parseFloat(data.totalAmount) || calculateTotal(),
+        totalAmount: totalAmount,
+        paymentAmount: paymentAmount > 0 ? paymentAmount : undefined,
+        paymentMethod: paymentAmount > 0 ? (data.paymentMethod || 'Cash') : undefined,
         notes: data.notes || null,
         products: validItems.map(item => {
           // Use newCategory if it exists, otherwise use category
@@ -243,6 +278,110 @@ const AddPurchaseModal = ({ onClose, onSaved }) => {
                 )}
                 <p className="text-xs text-gray-600 mt-1">Auto-calculated from items</p>
               </div>
+
+              <div className="form-group">
+                <label className="block text-sm font-bold text-gray-900 mb-2">
+                  Payment Status <span className="text-red-500">*</span>
+                </label>
+                <select
+                  {...register('paymentStatus', { required: 'Please select payment status' })}
+                  className="input-field bg-white text-gray-900 border-2"
+                  onChange={(e) => {
+                    register('paymentStatus').onChange(e)
+                    if (e.target.value === 'unpaid') {
+                      setValue('paymentAmount', '')
+                      setValue('paymentMethod', 'Cash')
+                    } else if (e.target.value === 'paid') {
+                      const total = parseFloat(watch('totalAmount')) || 0
+                      setValue('paymentAmount', total.toFixed(2))
+                    } else if (e.target.value === 'partial') {
+                      setValue('paymentAmount', '')
+                    }
+                  }}
+                >
+                  <option value="">Select payment status</option>
+                  <option value="unpaid">Unpaid (Cash on Delivery)</option>
+                  <option value="partial">Partially Paid</option>
+                  <option value="paid">Fully Paid</option>
+                </select>
+                {errors.paymentStatus && (
+                  <p className="text-red-500 text-xs mt-1">{errors.paymentStatus.message}</p>
+                )}
+              </div>
+
+              {watch('paymentStatus') && watch('paymentStatus') !== 'unpaid' && (
+                <>
+                  <div className="form-group">
+                    <label className="block text-sm font-bold text-gray-900 mb-2">
+                      Payment Amount (Rs.) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      {...register('paymentAmount', {
+                        required: watch('paymentStatus') !== 'unpaid' ? 'Payment amount is required' : false,
+                        min: { value: 0, message: 'Payment amount must be positive' },
+                        validate: (value) => {
+                          const total = parseFloat(watch('totalAmount')) || 0
+                          const payment = parseFloat(value) || 0
+                          if (payment > total) {
+                            return 'Payment amount cannot exceed total amount'
+                          }
+                          if (watch('paymentStatus') === 'paid' && payment < total) {
+                            return 'Payment amount must equal total amount for fully paid'
+                          }
+                          if (watch('paymentStatus') === 'partial' && payment >= total) {
+                            return 'Payment amount must be less than total amount for partial payment'
+                          }
+                          if (watch('paymentStatus') !== 'unpaid' && payment <= 0) {
+                            return 'Payment amount must be greater than 0'
+                          }
+                          return true
+                        }
+                      })}
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="input-field bg-white text-gray-900 border-2"
+                      placeholder="0.00"
+                      disabled={watch('paymentStatus') === 'paid'}
+                    />
+                    {errors.paymentAmount && (
+                      <p className="text-red-500 text-xs mt-1">{errors.paymentAmount.message}</p>
+                    )}
+                    {watch('paymentStatus') === 'paid' && (
+                      <p className="text-xs text-green-600 mt-1">
+                        Full amount ({watch('totalAmount') || '0.00'} Rs.) will be used
+                      </p>
+                    )}
+                    {watch('paymentStatus') === 'partial' && (
+                      <p className="text-xs text-gray-600 mt-1">
+                        Remaining amount will be recorded as payable
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="form-group">
+                    <label className="block text-sm font-bold text-gray-900 mb-2">
+                      Payment Method <span className="text-red-500">*</span>
+                    </label>
+                    <select
+                      {...register('paymentMethod', {
+                        required: watch('paymentStatus') !== 'unpaid' ? 'Payment method is required' : false
+                      })}
+                      className="input-field bg-white text-gray-900 border-2"
+                    >
+                      <option value="">Select payment method</option>
+                      <option value="Cash">Cash</option>
+                      <option value="Bank Transfer">Bank Transfer</option>
+                      <option value="Cheque">Cheque</option>
+                      <option value="Credit Card">Credit Card</option>
+                      <option value="Other">Other</option>
+                    </select>
+                    {errors.paymentMethod && (
+                      <p className="text-red-500 text-xs mt-1">{errors.paymentMethod.message}</p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="form-group mt-4">

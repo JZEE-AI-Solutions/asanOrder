@@ -82,7 +82,10 @@ const AddCustomerPage = () => {
         })
         setErrors(validationErrors)
       } else {
-        toast.error(error.response?.data?.error || 'Failed to create customer')
+        const errorMsg = typeof error.response?.data?.error === 'string'
+          ? error.response?.data?.error
+          : error.response?.data?.error?.message || 'Failed to create customer'
+        toast.error(errorMsg)
       }
     } finally {
       setLoading(false)

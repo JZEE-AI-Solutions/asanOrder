@@ -212,7 +212,10 @@ const ProductImageUpload = ({
     } catch (error) {
       console.error('Error uploading image:', error)
       console.error('Error response:', error.response?.data)
-      toast.error(error.response?.data?.error || 'Failed to upload image')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to upload image'
+      toast.error(errorMsg)
     } finally {
       setIsProcessing(false)
     }

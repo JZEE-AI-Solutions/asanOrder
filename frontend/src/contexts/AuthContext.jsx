@@ -52,9 +52,12 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user }
     } catch (error) {
       console.error('AuthContext: Login error:', error)
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Login failed'
       return { 
         success: false, 
-        error: error.response?.data?.error || 'Login failed' 
+        error: errorMsg
       }
     }
   }

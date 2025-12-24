@@ -391,3 +391,251 @@ This journal tracks project milestones, features, and conversations.
 
 **Status**: ✅ Completed
 
+## 2024-12-XX - Accounting Module Implementation
+
+### Feature: Comprehensive Accounting Module
+
+**Request**: Implement a standalone, full-fledged accounting module with customer/supplier balances, expenses, shipping charges, COD fees, investor management, profit calculation/distribution, and withdrawals.
+
+**Implementation Details**:
+
+1. **Database Schema** (`backend/prisma/schema.prisma`):
+   - Added 12 new models: Account, Transaction, TransactionLine, Expense, Supplier, LogisticsCompany, Payment, Investor, Investment, ProfitDistribution, ProfitDistributionItem, Withdrawal
+   - Updated existing models: Order (added refundAmount, returnStatus, advanceBalance, actualShippingCost, shippingVariance, codFee, codAmount, logisticsCompanyId), Return (added orderId, returnType, refundMethod, refundAmount, shippingChargeHandling), Customer (added advanceBalance), PurchaseInvoice (added supplierId), Tenant (added totalInvestedCapital, totalProfitDistributed, ownerWithdrawals)
+   - All models include proper indexes for performance
+   - Proper relations between models
+
+2. **Backend Services**:
+   - `accountingService.js` - Core accounting logic, double-entry transactions, chart of accounts initialization
+   - `balanceService.js` - Customer AR and Supplier AP balance calculations
+   - `expenseService.js` - Expense management with automatic accounting entries
+   - `codFeeService.js` - COD fee calculation (percentage, range-based, fixed)
+   - `returnService.js` - Customer order returns (full/partial) with flexible shipping handling
+   - `investorService.js` - Investor and investment management
+   - `profitService.js` - Profit calculation and distribution
+   - `withdrawalService.js` - Withdrawals (investor profit, owner personal, investor capital)
+
+3. **Backend Routes** (`backend/routes/accounting/`):
+   - Organized into focused modules: accounts.js, transactions.js, balances.js, expenses.js, payments.js, returns.js, investors.js, profit.js, withdrawals.js, logistics.js
+   - All routes use authentication middleware
+   - Standardized error handling and response format
+   - RESTful API design
+
+4. **Order Integration** (`backend/routes/order.js`):
+   - Auto-create AR transaction when order is confirmed
+   - Auto-create payment transaction if prepayment exists
+   - Auto-calculate and accrue COD fee if COD order
+   - All accounting entries are balanced (debits = credits)
+
+5. **Frontend Pages** (`frontend/src/pages/accounting/`):
+   - `AccountingDashboard.jsx` - Main overview with balance summary and recent transactions
+   - `ExpensesPage.jsx` - Expense management with filters and pagination
+   - `BalancesPage.jsx` - Customer AR and Supplier AP balances (tabs)
+   - `TransactionsPage.jsx` - Journal entries list with filters
+
+6. **Frontend Components** (`frontend/src/components/accounting/`):
+   - `ExpenseForm.jsx` - Create/edit expense form (mobile-friendly)
+
+7. **Navigation Updates**:
+   - Added "Accounting" menu item to Sidebar
+   - Added accounting routes to App.jsx
+   - Mobile-first responsive design
+
+**Key Features Implemented**:
+- Double-entry bookkeeping system
+- Automatic accounting entries on order confirmation
+- Customer AR and Supplier AP tracking
+- Expense management (Petrol, Utility, Other)
+- COD fee calculation and tracking
+- Customer order returns (full/partial) with flexible shipping handling
+- Investor management and investment tracking
+- Profit calculation and distribution
+- Withdrawals (investor and owner)
+- Balance summary dashboard
+- Mobile-friendly UI with 44px touch targets
+
+**Technical Implementation**:
+- Database: PostgreSQL with Prisma ORM
+- Backend: Node.js/Express with service layer architecture
+- Frontend: React with mobile-first Tailwind CSS
+- API: RESTful with standardized response format
+- Error handling: Comprehensive try-catch with user-friendly messages
+- Transactions: Database transactions for data consistency
+
+**Files Created/Modified**:
+- Backend: 15+ new service files, 10+ new route files, schema updates
+- Frontend: 4 new pages, 1 new component, navigation updates
+- Integration: Order confirmation endpoint updated
+
+**Status**: ✅ Core Implementation Completed
+
+**Next Steps**:
+- Run database migration: `npx prisma migrate dev --name accounting_module`
+- Test all accounting flows
+- Add remaining frontend pages (Settings with tabs for accounts, investors, logistics)
+- Add payment recording UI
+- Add return management UI
+- Add investor/profit management UI
+
+---
+
+## 2024-12-XX - Supplier Screen & Accounting Integration Review
+
+### Review: Supplier Screen on Business Order Dashboard
+
+**Request**: Review supplier screen on business order dashboard and its integration with accounting for any issues.
+
+**Issues Found and Fixed**:
+
+1. **Balance Calculation Not Returned for All Suppliers** ❌ → ✅
+   - **Issue**: The API endpoint `/accounting/suppliers` only calculated balance when `hasPendingPayment` filter was active. This meant suppliers in the normal list view didn't have calculated balance objects.
+   - **Impact**: UI couldn't display pending balances correctly, and balance calculations were inconsistent.
+   - **Fix**: Modified `backend/routes/accounting/suppliers.js` to always calculate balance for all suppliers, then filter by pending payments if needed. This ensures consistent data structure.
+
+2. **UI Type Mismatch** ❌ → ✅
+   - **Issue**: `SuppliersSection` component tried to access `supplier.balance.pending` (object property), but when filter was inactive, `supplier.balance` was just a number from the database field.
+   - **Impact**: Runtime errors when trying to access `.pending` on a number, causing UI to break.
+   - **Fix**: Updated `frontend/src/components/dashboard/SuppliersSection.jsx` to handle both cases: `supplier.balance?.pending` (calculated balance object) or `supplier.balance` (number fallback).
+
+3. **Balance Calculation Logic Clarification** ✅
+   - **Review**: Verified the balance calculation logic in `balanceService.calculateSupplierBalance()` correctly handles:
+     - Linked Payment records (preferred method)
+     - `paymentAmount` field (backward compatibility for old invoices)
+     - Avoids double counting by prioritizing linked payments
+   - **Enhancement**: Added clarifying comments to the code explaining the priority logic.
+
+**Files Modified**:
+- `backend/routes/accounting/suppliers.js` - Always calculate balance for all suppliers
+- `frontend/src/components/dashboard/SuppliersSection.jsx` - Handle both balance object and number types
+- `backend/services/balanceService.js` - Added clarifying comments
+
+**Status**: ✅ All Issues Fixed
+
+**Notes**:
+- The supplier screen is accessible via `/business/suppliers` route (separate page, not a tab in dashboard)
+- Balance calculation correctly handles both new Payment records and legacy `paymentAmount` fields
+- Accounting integration is working correctly - purchase invoices create proper accounting transactions
+
+---
+
+## 2024-12-XX - Clear All Data Functionality Review for Suppliers
+
+### Review: Clear All Data Functionality After Supplier Implementation
+
+**Request**: Review the "clear all data" functionality for tenants to ensure it properly handles suppliers and related accounting data after the supplier implementation.
+
+**Review Findings**:
+
+1. **Suppliers Are Properly Included** ✅
+   - Suppliers are included in the deletion process (step 18, now step 18 after fix)
+   - Stats tracking includes suppliers count
+   - Frontend warning message already mentions Suppliers
+
+2. **Deletion Order Issue** ❌ → ✅
+   - **Issue**: Suppliers were being deleted before Payments (step 17 vs step 18)
+   - **Impact**: While the foreign key constraint has `ON DELETE SET NULL` (which would set supplierId to NULL automatically), it's cleaner and safer to delete dependent records (Payments) before parent records (Suppliers)
+   - **Fix**: Swapped the order - Payments now deleted at step 17, Suppliers at step 18
+   - **Rationale**: Explicitly deleting dependent records first is cleaner than relying on database cascade behavior
+
+3. **Foreign Key Constraints Verified** ✅
+   - `purchase_invoices.supplierId` → `ON DELETE SET NULL` (PurchaseInvoices deleted before Suppliers)
+   - `payments.supplierId` → `ON DELETE SET NULL` (Payments now deleted before Suppliers)
+   - All related accounting data (Transactions, TransactionLines) properly handled
+
+4. **Complete Deletion Sequence Verified** ✅
+   - PurchaseInvoices deleted at step 6 (before Suppliers)
+   - Payments deleted at step 17 (before Suppliers)
+   - Suppliers deleted at step 18
+   - Transactions deleted at step 19 (after Payments)
+   - All accounting relationships properly handled
+
+**Files Modified**:
+- `backend/routes/tenant.js` - Fixed deletion order (Payments before Suppliers)
+
+**Status**: ✅ Review Complete - All Issues Fixed
+
+**Notes**:
+- The clear-all-data functionality properly handles all supplier-related data
+- Deletion order now follows best practices (dependent records before parent records)
+- All foreign key constraints are respected
+- Frontend warning message already includes Suppliers in the list
+
+---
+
+## 2024-12-XX - Supplier Advance Payment Adjustment Feature
+
+### Feature: Adjust Supplier Advance Payments in Purchase Invoice Creation
+
+**Request**: Implement functionality to adjust/use supplier advance payments when creating purchase invoices. If a supplier has paid advance payment (negative balance), the system should allow using that advance amount against new purchase invoices.
+
+**Implementation Details**:
+
+1. **Backend Changes**:
+
+   - **Added Supplier Advance Account** (`backend/services/accountingService.js`):
+     - Added account code `1220` - "Supplier Advance Balance" (LIABILITY type)
+     - This account tracks advance payments from suppliers
+
+   - **New API Endpoint** (`backend/routes/accounting/suppliers.js`):
+     - `GET /accounting/suppliers/by-name/:name/balance` - Fetches supplier balance by name
+     - Returns supplier info, balance details, and available advance amount
+     - Calculates available advance as: `totalPaid > totalOwed ? totalPaid - totalOwed : 0`
+
+   - **Updated Purchase Invoice Creation** (`backend/routes/purchaseInvoice.js`):
+     - Added support for `useAdvanceBalance` and `advanceAmountUsed` parameters
+     - Calculates available advance from supplier balance
+     - Adjusts payment amount: `paidAmount = paymentAmount - actualAdvanceUsed`
+     - Creates accounting entries:
+       - Debit: Inventory (totalAmount)
+       - Credit: Supplier Advance Balance (actualAdvanceUsed) - reduces liability
+       - Credit: Cash/Bank (paidAmount) - if cash payment made
+       - Credit: Accounts Payable (unpaidAmount) - if still unpaid
+     - Updates supplier balance after advance usage: `balance = balance + actualAdvanceUsed`
+
+2. **Frontend Changes** (`frontend/src/pages/AddPurchasePage.jsx`):
+
+   - **Supplier Name Field Enhancement**:
+     - Automatically fetches supplier balance when supplier name is entered
+     - Shows available advance balance if supplier has advance
+     - Displays loading state while fetching balance
+
+   - **Advance Balance UI Section**:
+     - Shows available advance amount
+     - Checkbox to "Use Advance Balance"
+     - Input field to specify advance amount to use (with max validation)
+     - Real-time calculation showing:
+       - Total Amount
+       - Advance Used
+       - Remaining Payment (Total - Advance)
+     - Visual breakdown with color-coded amounts
+
+   - **Form Submission**:
+     - Includes `useAdvanceBalance` and `advanceAmountUsed` in payload
+     - Backend automatically adjusts payment amounts
+
+3. **Accounting Logic**:
+
+   - **When Advance is Used**:
+     - Debit: Supplier Advance Balance (reduces liability - supplier owes us less)
+     - Credit: Accounts Payable (reduces what we owe supplier)
+     - Proper double-entry bookkeeping maintained
+
+   - **Supplier Balance Update**:
+     - When advance is used, supplier balance increases (becomes less negative)
+     - Example: If supplier has -5000 advance and uses 2000, balance becomes -3000
+
+**Files Modified**:
+- `backend/services/accountingService.js` - Added Supplier Advance Balance account
+- `backend/routes/accounting/suppliers.js` - Added balance by name endpoint
+- `backend/routes/purchaseInvoice.js` - Added advance adjustment logic
+- `frontend/src/pages/AddPurchasePage.jsx` - Added advance balance UI
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+- Advance balance is calculated as: `totalPaid > (openingBalance + totalInvoices)`
+- System automatically validates advance amount doesn't exceed available advance or invoice total
+- Accounting entries properly reflect advance usage
+- Supplier balance is automatically updated after advance usage
+- UI provides clear visual feedback on advance usage and remaining payment
+

@@ -133,7 +133,10 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
       
     } catch (error) {
       console.error('Error processing invoice:', error)
-      toast.error(error.response?.data?.error || 'Failed to process invoice')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to process invoice'
+      toast.error(errorMsg)
     } finally {
       setIsProcessing(false)
     }

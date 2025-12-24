@@ -4,6 +4,7 @@ import {
     Squares2X2Icon,
     ShoppingBagIcon,
     UsersIcon,
+    BuildingOfficeIcon,
     TagIcon,
     CurrencyDollarIcon,
     TruckIcon,
@@ -12,7 +13,8 @@ import {
     DocumentTextIcon,
     XMarkIcon,
     ChartBarIcon,
-    CogIcon
+    CogIcon,
+    CalculatorIcon
 } from '@heroicons/react/24/outline';
 
 const Sidebar = ({ onNewOrder, onLogout, isOpen, onClose }) => {
@@ -20,7 +22,9 @@ const Sidebar = ({ onNewOrder, onLogout, isOpen, onClose }) => {
         { name: 'Dashboard', icon: Squares2X2Icon, path: '/business' },
         { name: 'Orders', icon: ShoppingBagIcon, path: '/business/orders' },
         { name: 'Customers', icon: UsersIcon, path: '/business/customers' },
+        { name: 'Suppliers', icon: BuildingOfficeIcon, path: '/business/suppliers' },
         { name: 'Order Forms', icon: DocumentTextIcon, path: '/business/forms' },
+        { name: 'Accounting', icon: CalculatorIcon, path: '/business/accounting' },
         { name: 'Reports', icon: ChartBarIcon, path: '/business/reports' },
         { name: 'Settings', icon: CogIcon, path: '/business/settings' },
     ];

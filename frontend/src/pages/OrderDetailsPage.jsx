@@ -164,7 +164,10 @@ const OrderDetailsPage = () => {
             fetchOrderDetails()
         } catch (error) {
             console.error('Failed to update order:', error)
-            toast.error(error.response?.data?.error || 'Failed to update order')
+            const errorMsg = typeof error.response?.data?.error === 'string' 
+              ? error.response?.data?.error 
+              : error.response?.data?.error?.message || 'Failed to update order'
+            toast.error(errorMsg)
         } finally {
             setSaving(false)
         }
@@ -219,7 +222,10 @@ const OrderDetailsPage = () => {
         } catch (error) {
             console.error('Dispatch order error:', error)
             if (error.response?.data?.error) {
-                toast.error(error.response.data.error)
+                const errorMsg = typeof error.response.data.error === 'string'
+                  ? error.response.data.error
+                  : error.response.data.error?.message || 'Failed to confirm order'
+                toast.error(errorMsg)
             } else {
                 toast.error('Failed to dispatch order')
             }
@@ -319,7 +325,10 @@ const OrderDetailsPage = () => {
         } catch (error) {
             console.error('Receive payment error:', error)
             if (error.response?.data?.error) {
-                toast.error(error.response.data.error)
+                const errorMsg = typeof error.response.data.error === 'string'
+                  ? error.response.data.error
+                  : error.response.data.error?.message || 'Failed to confirm order'
+                toast.error(errorMsg)
             } else {
                 toast.error('Failed to record payment')
             }

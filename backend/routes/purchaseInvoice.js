@@ -4,6 +4,8 @@ const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const InventoryService = require('../services/inventoryService');
 const profitService = require('../services/profitService');
+const accountingService = require('../services/accountingService');
+const balanceService = require('../services/balanceService');
 const { generateInvoiceNumber } = require('../utils/invoiceNumberGenerator');
 
 const router = express.Router();
@@ -44,7 +46,76 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    let { invoiceNumber, invoiceDate, totalAmount, products, supplierName, notes } = req.body;
+    let { invoiceNumber, invoiceDate, totalAmount, products, supplierName, supplierId, paymentAmount, paymentMethod, notes, useAdvanceBalance, advanceAmountUsed } = req.body;
+    
+    // Validate payment amount if provided
+    let paidAmount = paymentAmount ? parseFloat(paymentAmount) : 0;
+    
+    // Create or find supplier if supplierName is provided (needed before advance calculation)
+    let finalSupplierId = supplierId || null;
+    if (supplierName && !supplierId) {
+      // Try to find existing supplier by name
+      let supplier = await prisma.supplier.findFirst({
+        where: {
+          tenantId: tenant.id,
+          name: {
+            equals: supplierName,
+            mode: 'insensitive'
+          }
+        }
+      });
+
+      // If not found, create new supplier
+      if (!supplier) {
+        supplier = await prisma.supplier.create({
+          data: {
+            name: supplierName,
+            tenantId: tenant.id,
+            balance: 0
+          }
+        });
+      }
+      finalSupplierId = supplier.id;
+    }
+    
+    // Handle advance balance adjustment if supplier exists and advance is being used
+    let actualAdvanceUsed = 0;
+    let advanceToSuppliersAccount = null;
+    
+    if (useAdvanceBalance && finalSupplierId) {
+      try {
+        // Calculate supplier balance to get available advance
+        const supplierBalance = await balanceService.calculateSupplierBalance(finalSupplierId);
+        // Available advance = negative pending balance (we paid them advance/returned products, they owe us goods)
+        // pending = (openingBalance + totalInvoices) - totalPaid
+        // If pending < 0, we have advance with supplier (we paid them/returned products, they owe us goods)
+        const availableAdvance = supplierBalance.pending < 0 ? Math.abs(supplierBalance.pending) : 0;
+        
+        if (availableAdvance > 0) {
+          // Use the specified advance amount or available advance, whichever is less
+          const requestedAdvance = advanceAmountUsed ? parseFloat(advanceAmountUsed) : availableAdvance;
+          actualAdvanceUsed = Math.min(requestedAdvance, availableAdvance, totalAmount);
+          
+          // Note: paidAmount and actualAdvanceUsed are separate payments
+          // Do NOT subtract advance from paidAmount - they are both separate payment methods
+        }
+      } catch (balanceError) {
+        console.error('Error calculating supplier balance for advance adjustment:', balanceError);
+        // Continue without advance adjustment if calculation fails
+      }
+    }
+    
+    // Validate total payment (advance + cash/bank) doesn't exceed total amount
+    const totalPayment = paidAmount + actualAdvanceUsed;
+    if (totalPayment > totalAmount) {
+      return res.status(400).json({ 
+        error: `Total payment (Rs. ${totalPayment.toFixed(2)}) exceeds invoice total (Rs. ${totalAmount.toFixed(2)})` 
+      });
+    }
+    
+    if (paidAmount < 0 || paidAmount > totalAmount) {
+      return res.status(400).json({ error: 'Payment amount must be between 0 and total amount' });
+    }
 
     // Auto-generate invoice number if not provided
     if (!invoiceNumber || invoiceNumber.trim() === '') {
@@ -71,8 +142,11 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
         data: {
           invoiceNumber: invoiceNumber,
           supplierName: supplierName || null,
+          supplierId: finalSupplierId,
           invoiceDate: new Date(invoiceDate),
           totalAmount: totalAmount,
+          paymentAmount: paidAmount > 0 ? paidAmount : null,
+          paymentMethod: paidAmount > 0 ? (paymentMethod || null) : null,
           notes: notes || null,
           tenantId: tenant.id
         }
@@ -109,6 +183,199 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       maxWait: 10000  // 10 seconds max wait
     });
 
+    // Create accounting transaction for purchase invoice
+    try {
+      // Get or create accounts
+      let inventoryAccount = await accountingService.getAccountByCode('1300', tenant.id);
+      if (!inventoryAccount) {
+        inventoryAccount = await accountingService.getOrCreateAccount({
+          code: '1300',
+          name: 'Inventory',
+          type: 'ASSET',
+          tenantId: tenant.id,
+          balance: 0
+        });
+      }
+
+      // Calculate amounts: totalAmount = paidAmount (cash/bank) + actualAdvanceUsed + unpaidAmount
+      const unpaidAmount = totalAmount - paidAmount - actualAdvanceUsed;
+      const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+      const transactionLines = [];
+
+      // Always debit Inventory
+      transactionLines.push({
+        accountId: inventoryAccount.id,
+        debitAmount: totalAmount,
+        creditAmount: 0
+      });
+
+      // If advance balance is used, credit Advance to Suppliers (reducing the asset - we're using the advance we paid them)
+      if (actualAdvanceUsed > 0) {
+        advanceToSuppliersAccount = await accountingService.getAccountByCode('1230', tenant.id);
+        if (!advanceToSuppliersAccount) {
+          advanceToSuppliersAccount = await accountingService.getOrCreateAccount({
+            code: '1230',
+            name: 'Advance to Suppliers',
+            type: 'ASSET',
+            tenantId: tenant.id,
+            balance: 0
+          });
+        }
+
+        transactionLines.push({
+          accountId: advanceToSuppliersAccount.id,
+          debitAmount: 0,
+          creditAmount: actualAdvanceUsed // Credit decreases asset (we're using the advance we paid them)
+        });
+      }
+
+      // If paid with cash/bank (fully or partially), credit Cash/Bank based on payment method
+      if (paidAmount > 0) {
+        // Determine payment account based on payment method
+        const paymentAccountCode = (paymentMethod && paymentMethod !== 'Cash') ? '1100' : '1000';
+        const paymentAccountName = paymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
+        
+        let paymentAccount = await accountingService.getAccountByCode(paymentAccountCode, tenant.id);
+        if (!paymentAccount) {
+          paymentAccount = await accountingService.getOrCreateAccount({
+            code: paymentAccountCode,
+            name: paymentAccountName,
+            type: 'ASSET',
+            tenantId: tenant.id,
+            balance: 0
+          });
+        }
+
+        transactionLines.push({
+          accountId: paymentAccount.id,
+          debitAmount: 0,
+          creditAmount: paidAmount
+        });
+      }
+
+      // If unpaid (fully or partially), credit Accounts Payable
+      if (unpaidAmount > 0) {
+        let apAccount = await accountingService.getAccountByCode('2000', tenant.id);
+        if (!apAccount) {
+          apAccount = await accountingService.getOrCreateAccount({
+            code: '2000',
+            name: 'Accounts Payable',
+            type: 'LIABILITY',
+            tenantId: tenant.id,
+            balance: 0
+          });
+        }
+
+        transactionLines.push({
+          accountId: apAccount.id,
+          debitAmount: 0,
+          creditAmount: unpaidAmount
+        });
+      }
+
+      // Create transaction
+      let description = `Purchase Invoice: ${invoiceNumber}${supplierName ? ` - ${supplierName}` : ''}`;
+      if (paidAmount > 0) {
+        description += ` (Paid: Rs. ${paidAmount})`;
+      }
+      if (actualAdvanceUsed > 0) {
+        description += ` (Advance Used: Rs. ${actualAdvanceUsed})`;
+      }
+      
+      await accountingService.createTransaction(
+        {
+          transactionNumber,
+          date: new Date(invoiceDate),
+          description,
+          tenantId: tenant.id,
+          purchaseInvoiceId: result.purchaseInvoice.id
+        },
+        transactionLines
+      );
+
+      // Update supplier balance if advance was used
+      if (actualAdvanceUsed > 0 && finalSupplierId) {
+        try {
+          const supplier = await prisma.supplier.findUnique({
+            where: { id: finalSupplierId }
+          });
+          
+          if (supplier) {
+            // Increase balance (reduce negative, or make it less negative)
+            // Since negative balance means advance, using advance means balance becomes less negative (closer to 0)
+            await prisma.supplier.update({
+              where: { id: finalSupplierId },
+              data: {
+                balance: (supplier.balance || 0) + actualAdvanceUsed
+              }
+            });
+          }
+        } catch (balanceUpdateError) {
+          console.error('Error updating supplier balance after advance usage:', balanceUpdateError);
+          // Don't fail invoice creation if balance update fails
+        }
+      }
+
+      // Create Payment records for tracking/display purposes
+      // The accounting entries are already created in the purchase transaction above
+      // We don't link them to the transaction (transactionId stays null) to avoid conflicts
+      if (finalSupplierId) {
+        try {
+          // Get current payment count for generating payment numbers
+          const paymentCount = await prisma.payment.count({
+            where: { tenantId: tenant.id }
+          });
+
+          // Create payment record for advance usage (if any)
+          if (actualAdvanceUsed > 0) {
+            const advancePaymentNumber = `PAY-${new Date().getFullYear()}-${String(paymentCount + 1).padStart(4, '0')}`;
+            await prisma.payment.create({
+              data: {
+                paymentNumber: advancePaymentNumber,
+                date: new Date(invoiceDate),
+                type: 'SUPPLIER_PAYMENT',
+                amount: actualAdvanceUsed,
+                paymentMethod: 'Advance Balance', // Special payment method for advance usage
+                tenantId: tenant.id,
+                supplierId: finalSupplierId,
+                purchaseInvoiceId: result.purchaseInvoice.id
+                // transactionId is null - accounting entries are in the purchase transaction
+              }
+            });
+            console.log(`✅ Advance payment record created: Rs. ${actualAdvanceUsed} for purchase invoice ${invoiceNumber}`);
+          }
+
+          // Create payment record for cash/bank payment (if any)
+          if (paidAmount > 0) {
+            const cashPaymentNumber = `PAY-${new Date().getFullYear()}-${String(paymentCount + (actualAdvanceUsed > 0 ? 2 : 1)).padStart(4, '0')}`;
+            await prisma.payment.create({
+              data: {
+                paymentNumber: cashPaymentNumber,
+                date: new Date(invoiceDate),
+                type: 'SUPPLIER_PAYMENT',
+                amount: paidAmount,
+                paymentMethod: paymentMethod || 'Cash',
+                tenantId: tenant.id,
+                supplierId: finalSupplierId,
+                purchaseInvoiceId: result.purchaseInvoice.id
+                // transactionId is null - accounting entries are in the purchase transaction
+              }
+            });
+            console.log(`✅ Cash/Bank payment record created: Rs. ${paidAmount} for purchase invoice ${invoiceNumber}`);
+          }
+        } catch (paymentError) {
+          console.error('Error creating payment records:', paymentError);
+          // Don't fail purchase invoice creation if payment record creation fails
+        }
+      }
+
+      console.log(`✅ Accounting entry created for purchase invoice ${invoiceNumber}`);
+    } catch (accountingError) {
+      console.error('Error creating accounting entries for purchase invoice:', accountingError);
+      // Don't fail purchase invoice creation if accounting fails
+      // Log error but continue
+    }
+
     // Update inventory using the inventory service (outside transaction)
     await InventoryService.updateInventoryFromPurchase(
       tenant.id,
@@ -125,7 +392,11 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
 
   } catch (error) {
     console.error('Create purchase invoice with products error:', error);
-    res.status(500).json({ error: 'Failed to create purchase invoice' });
+    const errorMessage = error.message || 'Failed to create purchase invoice';
+    res.status(500).json({ 
+      error: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
 
@@ -137,7 +408,7 @@ router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, 
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const { includeDeleted, page = 1, limit = 50 } = req.query;
+    const { includeDeleted, page = 1, limit = 50, supplierId } = req.query;
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.max(1, Math.min(100, parseInt(limit) || 50));
     const skipNum = (pageNum - 1) * limitNum;
@@ -148,6 +419,11 @@ router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, 
     if (includeDeleted !== 'true') {
       whereClause.isDeleted = false;
     }
+    
+    // Filter by supplier if provided
+    if (supplierId) {
+      whereClause.supplierId = supplierId;
+    }
 
     // Optimize: Add pagination, use select instead of include, limit purchaseItems
     const [purchaseInvoices, total] = await Promise.all([
@@ -157,14 +433,42 @@ router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, 
           id: true,
           invoiceNumber: true,
           supplierName: true,
+          supplierId: true,
           invoiceDate: true,
           totalAmount: true,
+          paymentAmount: true,
+          paymentMethod: true,
           image: true,
           notes: true,
           createdAt: true,
           updatedAt: true,
           isDeleted: true,
           deletedAt: true,
+          supplier: {
+            select: {
+              id: true,
+              name: true,
+              payments: {
+                where: {
+                  type: 'SUPPLIER_PAYMENT',
+                  purchaseInvoiceId: null // Legacy payments not linked to purchase invoice
+                },
+                select: {
+                  id: true,
+                  amount: true
+                }
+              }
+            }
+          },
+          payments: {
+            where: {
+              type: 'SUPPLIER_PAYMENT'
+            },
+            select: {
+              id: true,
+              amount: true
+            }
+          },
           // Only get count of items, not all items (unless needed)
           _count: {
             select: {
@@ -236,6 +540,43 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
             tenantId: true,
             purchaseInvoiceId: true,
             productId: true
+          }
+        },
+        supplier: {
+          include: {
+            payments: {
+              where: {
+                type: 'SUPPLIER_PAYMENT',
+                purchaseInvoiceId: null // Legacy payments not linked to purchase invoice
+              },
+              orderBy: {
+                date: 'desc'
+              },
+              select: {
+                id: true,
+                paymentNumber: true,
+                date: true,
+                amount: true,
+                paymentMethod: true,
+                supplierId: true
+              }
+            }
+          }
+        },
+        payments: {
+          where: {
+            type: 'SUPPLIER_PAYMENT'
+          },
+          orderBy: {
+            date: 'desc'
+          },
+          select: {
+            id: true,
+            paymentNumber: true,
+            date: true,
+            amount: true,
+            paymentMethod: true,
+            supplierId: true
           }
         },
         _count: {
@@ -319,10 +660,21 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       invoiceNumber, 
       invoiceDate, 
       totalAmount, 
-      supplierName, 
+      supplierName,
+      supplierId,
+      paymentAmount,
+      paymentMethod,
       notes,
       items = []
     } = req.body;
+
+    // Validate payment amount if provided
+    const paidAmount = paymentAmount ? parseFloat(paymentAmount) : 0;
+    if (paidAmount < 0 || paidAmount > totalAmount) {
+      return res.status(400).json({ 
+        error: 'Payment amount must be between 0 and total amount' 
+      });
+    }
 
     // Get tenant for the business owner
     const tenant = await prisma.tenant.findUnique({
@@ -331,6 +683,33 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
 
     if (!tenant) {
       return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Create or find supplier if supplierName is provided
+    let finalSupplierId = supplierId || null;
+    if (supplierName && !supplierId) {
+      // Try to find existing supplier by name
+      let supplier = await prisma.supplier.findFirst({
+        where: {
+          tenantId: tenant.id,
+          name: {
+            equals: supplierName,
+            mode: 'insensitive'
+          }
+        }
+      });
+
+      // If not found, create new supplier
+      if (!supplier) {
+        supplier = await prisma.supplier.create({
+          data: {
+            name: supplierName,
+            tenantId: tenant.id,
+            balance: 0
+          }
+        });
+      }
+      finalSupplierId = supplier.id;
     }
 
     // Use transaction to ensure data consistency
@@ -342,6 +721,9 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           invoiceDate: new Date(invoiceDate),
           totalAmount: parseFloat(totalAmount),
           supplierName: supplierName || null,
+          supplierId: finalSupplierId,
+          paymentAmount: paidAmount > 0 ? paidAmount : null,
+          paymentMethod: paidAmount > 0 ? paymentMethod : null,
           notes: notes || null,
           tenantId: tenant.id
         }
@@ -428,6 +810,124 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       timeout: 30000, // 30 seconds timeout
       maxWait: 10000  // 10 seconds max wait
     });
+
+    // Create accounting transaction for purchase invoice
+    try {
+      // Get or create accounts
+      const inventoryAccount = await accountingService.getAccountByCode('1300', tenant.id) ||
+        await accountingService.getOrCreateAccount({
+          code: '1300',
+          name: 'Inventory',
+          type: 'ASSET',
+          tenantId: tenant.id,
+          balance: 0
+        });
+
+      const unpaidAmount = parseFloat(totalAmount) - paidAmount;
+      const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+      const transactionLines = [];
+
+      // Always debit Inventory
+      transactionLines.push({
+        accountId: inventoryAccount.id,
+        debitAmount: parseFloat(totalAmount),
+        creditAmount: 0
+      });
+
+      // If paid (fully or partially), credit Cash/Bank
+      if (paidAmount > 0) {
+        const paymentAccountCode = (paymentMethod && paymentMethod !== 'Cash') ? '1100' : '1000';
+        const paymentAccountName = paymentAccountCode === '1100' ? 'Bank Account' : 'Cash';
+        
+        let paymentAccount = await accountingService.getAccountByCode(paymentAccountCode, tenant.id);
+        if (!paymentAccount) {
+          paymentAccount = await accountingService.getOrCreateAccount({
+            code: paymentAccountCode,
+            name: paymentAccountName,
+            type: 'ASSET',
+            tenantId: tenant.id,
+            balance: 0
+          });
+        }
+
+        transactionLines.push({
+          accountId: paymentAccount.id,
+          debitAmount: 0,
+          creditAmount: paidAmount
+        });
+      }
+
+      // If unpaid (fully or partially), credit Accounts Payable
+      if (unpaidAmount > 0) {
+        let apAccount = await accountingService.getAccountByCode('2000', tenant.id);
+        if (!apAccount) {
+          apAccount = await accountingService.getOrCreateAccount({
+            code: '2000',
+            name: 'Accounts Payable',
+            type: 'LIABILITY',
+            tenantId: tenant.id,
+            balance: 0
+          });
+        }
+
+        transactionLines.push({
+          accountId: apAccount.id,
+          debitAmount: 0,
+          creditAmount: unpaidAmount
+        });
+      }
+
+      // Create transaction
+      await accountingService.createTransaction(
+        {
+          transactionNumber,
+          date: new Date(invoiceDate),
+          description: `Purchase Invoice: ${invoiceNumber}${supplierName ? ` - ${supplierName}` : ''}${paidAmount > 0 ? ` (Paid: Rs. ${paidAmount})` : ''}`,
+          tenantId: tenant.id,
+          purchaseInvoiceId: result.purchaseInvoice.id
+        },
+        transactionLines
+      );
+
+      // Create Payment record for initial payment (if any) - for tracking/display purposes
+      // The accounting entries are already created in the purchase transaction above
+      // We don't link it to the transaction (transactionId stays null) to avoid conflicts
+      if (paidAmount > 0 && finalSupplierId) {
+        try {
+          // Generate payment number
+          const paymentCount = await prisma.payment.count({
+            where: { tenantId: tenant.id }
+          });
+          const paymentNumber = `PAY-${new Date().getFullYear()}-${String(paymentCount + 1).padStart(4, '0')}`;
+
+          // Create payment record linked to purchase invoice
+          await prisma.payment.create({
+            data: {
+              paymentNumber,
+              date: new Date(invoiceDate),
+              type: 'SUPPLIER_PAYMENT',
+              amount: paidAmount,
+              paymentMethod: paymentMethod || 'Cash',
+              tenantId: tenant.id,
+              supplierId: finalSupplierId,
+              purchaseInvoiceId: result.purchaseInvoice.id
+              // transactionId is null - accounting entries are in the purchase transaction
+            }
+          });
+
+          console.log(`✅ Initial payment record created for purchase invoice ${invoiceNumber}`);
+        } catch (paymentError) {
+          console.error('Error creating initial payment record:', paymentError);
+          // Don't fail purchase invoice creation if payment record creation fails
+        }
+      }
+
+      console.log(`✅ Accounting entry created for purchase invoice ${invoiceNumber}`);
+    } catch (accountingError) {
+      console.error('Error creating accounting entries for purchase invoice:', accountingError);
+      // Don't fail purchase invoice creation if accounting fails
+      // Log error but continue
+    }
 
     res.status(201).json({
       success: true,
@@ -557,8 +1057,11 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
       return res.status(404).json({ error: 'Purchase invoice not found' });
     }
 
-    // Store old purchase items for inventory adjustment
+    // Store old values for comparison
     const oldPurchaseItems = JSON.parse(JSON.stringify(existingInvoice.purchaseItems));
+    const oldTotalAmount = existingInvoice.totalAmount;
+    const newTotalAmount = totalAmount ? parseFloat(totalAmount) : oldTotalAmount;
+    const amountDifference = newTotalAmount - oldTotalAmount;
 
     // Update invoice and products in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -663,6 +1166,89 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
       timeout: 30000,
       maxWait: 10000
     });
+
+    // Create accounting adjustment entries if total amount changed
+    if (Math.abs(amountDifference) > 0.01) {
+      try {
+        // Get or create accounts
+        const inventoryAccount = await accountingService.getAccountByCode('1300', tenant.id) ||
+          await accountingService.getOrCreateAccount({
+            code: '1300',
+            name: 'Inventory',
+            type: 'ASSET',
+            tenantId: tenant.id,
+            balance: 0
+          });
+
+        const apAccount = await accountingService.getAccountByCode('2000', tenant.id) ||
+          await accountingService.getOrCreateAccount({
+            code: '2000',
+            name: 'Accounts Payable',
+            type: 'LIABILITY',
+            tenantId: tenant.id,
+            balance: 0
+          });
+
+        const invoiceNum = result.purchaseInvoice.invoiceNumber || existingInvoice.invoiceNumber;
+
+        // 1. Create purchase invoice amount adjustment
+        const transactionNumber = `TXN-ADJ-${new Date().getFullYear()}-${Date.now()}`;
+        const description = `Purchase Invoice Adjustment: ${invoiceNum} (${amountDifference > 0 ? 'Increase' : 'Decrease'}: Rs. ${Math.abs(amountDifference).toFixed(2)})`;
+
+        const transactionLines = [];
+
+        // Adjust Inventory
+        if (amountDifference > 0) {
+          // Increase: Debit Inventory
+          transactionLines.push({
+            accountId: inventoryAccount.id,
+            debitAmount: amountDifference,
+            creditAmount: 0
+          });
+        } else {
+          // Decrease: Credit Inventory
+          transactionLines.push({
+            accountId: inventoryAccount.id,
+            debitAmount: 0,
+            creditAmount: Math.abs(amountDifference)
+          });
+        }
+
+        // Adjust Accounts Payable (opposite of inventory)
+        if (amountDifference > 0) {
+          // Increase: Credit AP (we owe more)
+          transactionLines.push({
+            accountId: apAccount.id,
+            debitAmount: 0,
+            creditAmount: amountDifference
+          });
+        } else {
+          // Decrease: Debit AP (we owe less)
+          transactionLines.push({
+            accountId: apAccount.id,
+            debitAmount: Math.abs(amountDifference),
+            creditAmount: 0
+          });
+        }
+
+        // Create adjustment transaction linked to purchase invoice
+        await accountingService.createTransaction(
+          {
+            transactionNumber,
+            date: new Date(),
+            description,
+            tenantId: tenant.id,
+            purchaseInvoiceId: id
+          },
+          transactionLines
+        );
+
+        console.log(`✅ Accounting adjustment entry created for purchase invoice ${invoiceNum}: Rs. ${amountDifference > 0 ? '+' : ''}${amountDifference.toFixed(2)}`);
+      } catch (accountingError) {
+        console.error('❌ Error creating accounting adjustment entry:', accountingError);
+        // Don't fail the update if accounting adjustment fails, but log it
+      }
+    }
 
     // Update inventory if products were modified
     if (products && Array.isArray(products)) {

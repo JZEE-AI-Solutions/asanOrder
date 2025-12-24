@@ -63,7 +63,10 @@ const AdminDashboard = () => {
       setOrders(ordersRes.data.orders || [])
     } catch (error) {
       console.error('Dashboard data fetch error:', error)
-      toast.error(error.response?.data?.error || 'Failed to fetch dashboard data')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to fetch dashboard data'
+      toast.error(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -114,7 +117,7 @@ const AdminDashboard = () => {
   const handleClearAllData = async (tenant) => {
     const confirmed = await showConfirmation(
       'Clear All Data',
-      `⚠️ WARNING: This will permanently delete ALL data for "${tenant.businessName}" including:\n\n• All Orders\n• All Products\n• All Purchase Invoices\n• All Forms\n• All Customers\n• All Returns\n• All Product Logs\n\nThis action CANNOT be undone! Are you absolutely sure?`,
+      `⚠️ WARNING: This will permanently delete ALL data for "${tenant.businessName}" including:\n\n• All Orders\n• All Products\n• All Purchase Invoices\n• All Forms\n• All Customers\n• All Returns\n• All Product Logs\n• All Accounting Transactions (including opening balance transactions)\n• All Expenses, Payments, Suppliers, Investors, etc.\n\nAccounts will be preserved but reset to balance 0.\n\nThis action CANNOT be undone! Are you absolutely sure?`,
       'danger',
       'Yes, Clear All Data',
       'Cancel'
@@ -130,7 +133,10 @@ const AdminDashboard = () => {
       }
       fetchDashboardData()
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to clear tenant data')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to clear tenant data'
+      toast.error(errorMsg)
       console.error('Clear data error:', error)
     }
   }

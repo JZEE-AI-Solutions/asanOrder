@@ -10,6 +10,7 @@ const StatsCard = forwardRef(({
   trendValue,
   onClick,
   iconClassName,
+  valueClassName,
   ...props
 }, ref) => {
   const isClickable = !!onClick
@@ -38,7 +39,7 @@ const StatsCard = forwardRef(({
         <div className="ml-4 flex-1">
           <p className="text-sm font-medium text-gray-600">{title}</p>
           <div className="flex items-center">
-            <p className="text-2xl font-bold text-gray-900">{value}</p>
+            <p className={cn('text-2xl font-bold', valueClassName || 'text-gray-900')}>{value}</p>
             {trend && trendValue && (
               <span className={cn(
                 'ml-2 text-sm font-medium',

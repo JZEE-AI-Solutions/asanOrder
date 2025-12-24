@@ -15,6 +15,7 @@ import {
   LazyOrdersPage,
   LazyFormsPage,
   LazyCustomersPage,
+  LazySuppliersPage,
   LazyProductsPage,
   LazyPurchasesPage,
   LazyReturnsPage,
@@ -25,14 +26,26 @@ import {
   LazyOrderReceipt,
   LazyCustomerDetailsPage,
   LazyAddCustomerPage,
+  LazyAddSupplierPage,
+  LazyEditSupplierPage,
   LazyAddProductPage,
   LazyEditProductPage,
+  LazyAddPurchasePage,
   LazyProductManagementPage,
   LazyReportsPage,
   LazyEditPurchasePage,
+  LazyPurchaseInvoiceDetailsPage,
   LazyCreateFormPage,
   LazyEditFormPage,
-  LazySettingsPage
+  LazySettingsPage,
+  LazyAccountingDashboard,
+  LazyExpensesPage,
+  LazyBalancesPage,
+  LazyTransactionsPage,
+  LazyPaymentsPage,
+  LazyAccountingReturnsPage,
+  LazyAccountingSettingsPage,
+  LazyAccountLedgerPage
 } from './components/LazyComponents'
 
 // Synchronous components
@@ -124,6 +137,30 @@ function App() {
                 </ProtectedRoute>
               } />
 
+              <Route path="/business/suppliers" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazySuppliersPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/suppliers/new" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAddSupplierPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/suppliers/:supplierId/edit" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyEditSupplierPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
               <Route path="/business/forms" element={
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
@@ -204,6 +241,21 @@ function App() {
                 </ProtectedRoute>
               } />
 
+              <Route path="/business/purchases/add" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAddPurchasePage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/purchases/:invoiceId" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyPurchaseInvoiceDetailsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
               <Route path="/business/purchases/:invoiceId/edit" element={
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
@@ -224,6 +276,71 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyVendorsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              {/* Accounting routes */}
+              <Route path="/business/accounting" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAccountingDashboard />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/expenses" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyExpensesPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/balances" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyBalancesPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/transactions" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyTransactionsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/payments" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyPaymentsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/returns" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAccountingReturnsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/settings" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAccountingSettingsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/accounting/ledger/:accountId" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAccountLedgerPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

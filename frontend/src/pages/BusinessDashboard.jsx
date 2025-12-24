@@ -183,7 +183,10 @@ const BusinessDashboard = () => {
       toast.success(`Form URL: ${response.data.formUrl}`)
       fetchDashboardData()
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to publish form')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to publish form'
+      toast.error(errorMsg)
     }
   }
 
@@ -193,7 +196,10 @@ const BusinessDashboard = () => {
       toast.success(`Form "${formName}" unpublished successfully!`)
       fetchDashboardData()
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Failed to unpublish form')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to unpublish form'
+      toast.error(errorMsg)
     }
   }
 
@@ -210,7 +216,10 @@ const BusinessDashboard = () => {
       if (error.response?.data?.ordersCount > 0) {
         toast.error(`Cannot delete form with ${error.response.data.ordersCount} orders. Unpublish it instead.`)
       } else {
-        toast.error(error.response?.data?.error || 'Failed to delete form')
+        const errorMsg = typeof error.response?.data?.error === 'string'
+          ? error.response?.data?.error
+          : error.response?.data?.error?.message || 'Failed to delete form'
+        toast.error(errorMsg)
       }
     }
   }

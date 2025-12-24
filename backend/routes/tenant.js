@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const accountingService = require('../services/accountingService');
 
 const router = express.Router();
 
@@ -36,7 +37,20 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         customerLogs: 0,
         returns: 0,
         returnItems: 0,
-        productLogs: 0
+        productLogs: 0,
+        // Accounting module
+        transactionLines: 0,
+        profitDistributionItems: 0,
+        withdrawals: 0,
+        investments: 0,
+        payments: 0,
+        expenses: 0,
+        transactions: 0,
+        profitDistributions: 0,
+        investors: 0,
+        suppliers: 0,
+        logisticsCompanies: 0,
+        accounts: 0
       };
 
       // Delete in order of dependencies (child entities first, respecting foreign keys)
@@ -128,6 +142,103 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         where: { tenantId }
       });
 
+      // Accounting Module - Delete in order of dependencies
+      
+      // 12. Delete TransactionLines (references Transaction and Account - must be deleted before Transaction)
+      // First get all transactions for this tenant, then delete their lines
+      const tenantTransactions = await tx.transaction.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const transactionIds = tenantTransactions.map(t => t.id);
+      
+      if (transactionIds.length > 0) {
+        const transactionLines = await tx.transactionLine.deleteMany({
+          where: {
+            transactionId: {
+              in: transactionIds
+            }
+          }
+        });
+        stats.transactionLines = transactionLines.count || 0;
+      }
+
+      // 13. Delete ProfitDistributionItems (references ProfitDistribution, Investor, Transaction)
+      // First get all profit distributions for this tenant, then delete their items
+      const tenantProfitDistributions = await tx.profitDistribution.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const profitDistributionIds = tenantProfitDistributions.map(pd => pd.id);
+      
+      if (profitDistributionIds.length > 0) {
+        const profitDistributionItems = await tx.profitDistributionItem.deleteMany({
+          where: {
+            profitDistributionId: {
+              in: profitDistributionIds
+            }
+          }
+        });
+        stats.profitDistributionItems = profitDistributionItems.count || 0;
+      }
+
+      // 14. Delete Withdrawals (references Investor, ProfitDistribution, Transaction)
+      stats.withdrawals = await tx.withdrawal.deleteMany({
+        where: { tenantId }
+      });
+
+      // 15. Delete Investments (references Investor, Transaction)
+      stats.investments = await tx.investment.deleteMany({
+        where: { tenantId }
+      });
+
+      // 16. Delete Expenses (references Account, Transaction)
+      stats.expenses = await tx.expense.deleteMany({
+        where: { tenantId }
+      });
+
+      // 17. Delete Payments (references Customer, Supplier, Order, Return, Transaction)
+      // Delete before Suppliers and Transactions since Payments reference both
+      // (Foreign key has ON DELETE SET NULL, but cleaner to delete dependent records first)
+      stats.payments = await tx.payment.deleteMany({
+        where: { tenantId }
+      });
+
+      // 18. Delete Suppliers (has PurchaseInvoice, Payment - but PurchaseInvoices and Payments already deleted)
+      stats.suppliers = await tx.supplier.deleteMany({
+        where: { tenantId }
+      });
+
+      // 19. Delete Transactions (references Order, Return, PurchaseInvoice)
+      // Delete after Payments, Expenses, Investments since these reference Transactions
+      // (Transactions have one-to-one relationships with Payment, Expense, Investment, ProfitDistribution, Withdrawal)
+      stats.transactions = await tx.transaction.deleteMany({
+        where: { tenantId }
+      });
+
+      // 20. Delete ProfitDistributions (references Transaction, has ProfitDistributionItem and Withdrawal)
+      stats.profitDistributions = await tx.profitDistribution.deleteMany({
+        where: { tenantId }
+      });
+
+      // 21. Delete Investors (has Investment, ProfitDistributionItem, Withdrawal)
+      stats.investors = await tx.investor.deleteMany({
+        where: { tenantId }
+      });
+
+      // 22. Delete LogisticsCompanies (has Order - but Orders already deleted)
+      stats.logisticsCompanies = await tx.logisticsCompany.deleteMany({
+        where: { tenantId }
+      });
+
+      // 23. DO NOT DELETE ACCOUNTS - Accounts are system accounts and should be preserved
+      // Reset all account balances to 0 explicitly
+      await tx.account.updateMany({
+        where: { tenantId },
+        data: { balance: 0 }
+      });
+      stats.accounts = 0; // No accounts deleted
+
       return stats;
     }, {
       timeout: 60000 // 60 seconds timeout for large deletions
@@ -135,9 +246,12 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
 
     console.log(`✅ Cleared all data for tenant ${tenant.businessName}:`, result);
 
+    // Re-initialize accounts to ensure they exist (this only creates missing accounts, doesn't create transactions)
+    await accountingService.initializeChartOfAccounts(tenantId);
+
     res.json({
       success: true,
-      message: `All data cleared successfully for ${tenant.businessName}`,
+      message: `All data cleared successfully for ${tenant.businessName}. All transactions deleted, account balances reset to 0, and default accounts verified.`,
       stats: result
     });
 
@@ -246,6 +360,15 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
     }, {
       timeout: 20000
     });
+
+    // Initialize default chart of accounts for the new tenant
+    try {
+      await accountingService.initializeChartOfAccounts(result.id);
+      console.log(`✅ Initialized chart of accounts for new tenant: ${result.businessName}`);
+    } catch (accountError) {
+      console.error('Error initializing chart of accounts for new tenant:', accountError);
+      // Don't fail tenant creation if account initialization fails
+    }
 
     res.status(201).json({
       message: 'Tenant and business owner created successfully',

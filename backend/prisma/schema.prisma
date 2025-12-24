@@ -22,27 +22,40 @@ model User {
 }
 
 model Tenant {
-  id                    String            @id @default(cuid())
-  businessName          String
-  contactPerson         String
-  whatsappNumber        String
-  businessAddress       String?
-  businessType          String
-  businessCode          String            @unique
-  shippingCityCharges    String?           @db.Text
-  shippingQuantityRules String?           @db.Text
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  ownerId               String            @unique
-  customers             Customer[]
-  forms                 Form[]
-  orders                Order[]
-  productLogs           ProductLog[]
-  products              Product[]
-  purchaseInvoices      PurchaseInvoice[]
-  purchaseItems         PurchaseItem[]
-  returns               Return[]
-  owner                 User              @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
+  id                     String               @id @default(cuid())
+  businessName           String
+  contactPerson          String
+  whatsappNumber         String
+  businessAddress        String?
+  businessType           String
+  businessCode           String               @unique
+  shippingCityCharges    String?              @db.Text
+  shippingQuantityRules  String?              @db.Text
+  totalInvestedCapital   Float?               @default(0)
+  totalProfitDistributed Float?               @default(0)
+  ownerWithdrawals       Float?               @default(0)
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+  ownerId                String               @unique
+  customers              Customer[]
+  forms                  Form[]
+  orders                 Order[]
+  productLogs            ProductLog[]
+  products               Product[]
+  purchaseInvoices       PurchaseInvoice[]
+  purchaseItems          PurchaseItem[]
+  returns                Return[]
+  accounts               Account[]
+  transactions           Transaction[]
+  expenses               Expense[]
+  suppliers              Supplier[]
+  logisticsCompanies     LogisticsCompany[]
+  payments               Payment[]
+  investors              Investor[]
+  investments            Investment[]
+  profitDistributions    ProfitDistribution[]
+  withdrawals            Withdrawal[]
+  owner                  User                 @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
 
   @@map("tenants")
 }
@@ -82,32 +95,49 @@ model FormField {
 }
 
 model Order {
-  id                 String    @id @default(cuid())
-  orderNumber        String    @unique
-  formData           String
-  images             String?
-  imagesData         Bytes?
-  imagesType         String?
-  paymentAmount      Float?
-  shippingCharges     Float?
-  paymentReceipt     String?
-  paymentReceiptData Bytes?
-  paymentReceiptType String?
-  status             String    @default("PENDING")
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  formId             String
-  tenantId           String
-  businessOwnerId    String?
-  selectedProducts   String?   @db.Text
-  productQuantities  String?   @db.Text
-  productPrices      String?   @db.Text
-  customerId         String?
-  businessOwner      User?     @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  customer           Customer? @relation(fields: [customerId], references: [id], onUpdate: NoAction)
-  form               Form      @relation(fields: [formId], references: [id], onUpdate: NoAction)
-  tenant             Tenant    @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  id                    String            @id @default(cuid())
+  orderNumber           String            @unique
+  formData              String
+  images                String?
+  imagesData            Bytes?
+  imagesType            String?
+  paymentAmount         Float?
+  shippingCharges       Float?
+  paymentReceipt        String?
+  paymentReceiptData    Bytes?
+  paymentReceiptType    String?
+  status                String            @default("PENDING")
+  refundAmount          Float?            @default(0)
+  returnStatus          String? // NONE, PARTIAL, FULL
+  advanceBalance        Float?            @default(0)
+  actualShippingCost    Float?
+  shippingVariance      Float?
+  shippingVarianceDate  DateTime?
+  codFee                Float?
+  codAmount             Float?
+  codFeeCalculationType String?
+  logisticsCompanyId    String?
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  formId                String
+  tenantId              String
+  businessOwnerId       String?
+  selectedProducts      String?           @db.Text
+  productQuantities     String?           @db.Text
+  productPrices         String?           @db.Text
+  customerId            String?
+  businessOwner         User?             @relation("BusinessOwnerOrders", fields: [businessOwnerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  customer              Customer?         @relation(fields: [customerId], references: [id], onUpdate: NoAction)
+  form                  Form              @relation(fields: [formId], references: [id], onUpdate: NoAction)
+  tenant                Tenant            @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  logisticsCompany      LogisticsCompany? @relation(fields: [logisticsCompanyId], references: [id], onUpdate: NoAction)
+  transactions          Transaction[]
+  payments              Payment[]
+  orderReturns          Return[]
 
+  @@index([tenantId, status])
+  @@index([customerId])
+  @@index([logisticsCompanyId])
   @@map("orders")
 }
 
@@ -138,31 +168,31 @@ model PurchaseItem {
 }
 
 model Product {
-  id                    String         @id @default(cuid())
-  name                  String
-  description           String?
-  category              String?
-  sku                   String?
-  image                 String?
-  imageData             Bytes?
-  imageType             String?
-  isActive              Boolean        @default(true)
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-  tenantId              String
-  currentQuantity       Int            @default(0)
-  currentRetailPrice    Float?
-  lastPurchasePrice     Float?
-  lastSalePrice         Float?
-  lastUpdated           DateTime       @default(now())
-  maxStockLevel         Int?
-  minStockLevel         Int            @default(0)
-  shippingQuantityRules String?        @db.Text
+  id                            String         @id @default(cuid())
+  name                          String
+  description                   String?
+  category                      String?
+  sku                           String?
+  image                         String?
+  imageData                     Bytes?
+  imageType                     String?
+  isActive                      Boolean        @default(true)
+  createdAt                     DateTime       @default(now())
+  updatedAt                     DateTime       @updatedAt
+  tenantId                      String
+  currentQuantity               Int            @default(0)
+  currentRetailPrice            Float?
+  lastPurchasePrice             Float?
+  lastSalePrice                 Float?
+  lastUpdated                   DateTime       @default(now())
+  maxStockLevel                 Int?
+  minStockLevel                 Int            @default(0)
+  shippingQuantityRules         String?        @db.Text
   shippingDefaultQuantityCharge Float?
-  useDefaultShipping    Boolean        @default(true)
-  productLogs           ProductLog[]
-  tenant                Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
-  purchaseItems         PurchaseItem[]
+  useDefaultShipping            Boolean        @default(true)
+  productLogs                   ProductLog[]
+  tenant                        Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  purchaseItems                 PurchaseItem[]
 
   @@map("products")
 }
@@ -193,8 +223,11 @@ model PurchaseInvoice {
   id            String         @id @default(cuid())
   invoiceNumber String
   supplierName  String?
+  supplierId    String?
   invoiceDate   DateTime
   totalAmount   Float
+  paymentAmount Float?
+  paymentMethod String?
   image         String?
   imageData     Bytes?
   imageType     String?
@@ -207,31 +240,48 @@ model PurchaseInvoice {
   deletedBy     String?
   isDeleted     Boolean        @default(false)
   tenant        Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  supplier      Supplier?      @relation(fields: [supplierId], references: [id], onUpdate: NoAction)
   purchaseItems PurchaseItem[]
   returns       Return[]
+  transactions  Transaction[]
+  payments      Payment[]
 
+  @@index([supplierId])
   @@map("purchase_invoices")
 }
 
 model Return {
-  id                String           @id @default(cuid())
-  returnNumber      String
-  reason            String?
-  returnDate        DateTime
-  totalAmount       Float
-  status            String           @default("PENDING")
-  notes             String?
-  image             String?
-  imageData         Bytes?
-  imageType         String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  tenantId          String
-  purchaseInvoiceId String?
-  returnItems       ReturnItem[]
-  purchaseInvoice   PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
-  tenant            Tenant           @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  id                     String           @id @default(cuid())
+  returnNumber           String
+  reason                 String?
+  returnDate             DateTime
+  totalAmount            Float
+  status                 String           @default("PENDING")
+  notes                  String?
+  image                  String?
+  imageData              Bytes?
+  imageType              String?
+  orderId                String?
+  returnType             String // SUPPLIER, CUSTOMER_FULL, CUSTOMER_PARTIAL
+  refundMethod           String? // Cash, Bank Transfer, Credit to Account
+  refundAmount           Float?
+  shippingChargeHandling String? // CUSTOMER_PAYS, FULL_REFUND, DEDUCT_FROM_ADVANCE
+  shippingChargeAmount   Float?
+  advanceBalanceUsed     Float?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  tenantId               String
+  purchaseInvoiceId      String?
+  returnItems            ReturnItem[]
+  order                  Order?           @relation(fields: [orderId], references: [id], onUpdate: NoAction)
+  purchaseInvoice        PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
+  tenant                 Tenant           @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  transactions           Transaction[]
+  payments               Payment[]
 
+  @@index([tenantId, returnType])
+  @@index([orderId])
+  @@index([purchaseInvoiceId])
   @@map("returns")
 }
 
@@ -265,6 +315,7 @@ model Customer {
   totalOrders     Int           @default(0)
   totalSpent      Float         @default(0)
   lastOrderDate   DateTime?
+  advanceBalance  Float?        @default(0)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   tenantId        String
@@ -272,6 +323,7 @@ model Customer {
   customerLogs    CustomerLog[]
   tenant          Tenant        @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
   orders          Order[]
+  payments        Payment[]
 
   @@unique([phoneNumber, tenantId])
   @@map("customers")
@@ -290,4 +342,287 @@ model CustomerLog {
   customer    Customer @relation(fields: [customerId], references: [id], onUpdate: NoAction)
 
   @@map("customer_logs")
+}
+
+// Accounting Module Models
+
+model Account {
+  id               String            @id @default(cuid())
+  code             String
+  name             String
+  type             String // ASSET, LIABILITY, INCOME, EXPENSE, EQUITY
+  parentId         String?
+  balance          Float             @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  tenantId         String
+  parent           Account?          @relation("AccountHierarchy", fields: [parentId], references: [id], onUpdate: NoAction)
+  children         Account[]         @relation("AccountHierarchy")
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  transactionLines TransactionLine[]
+  Expense          Expense[]
+
+  @@unique([code, tenantId])
+  @@index([tenantId])
+  @@index([type, tenantId])
+  @@map("accounts")
+}
+
+model Transaction {
+  id                     String                   @id @default(cuid())
+  transactionNumber      String
+  date                   DateTime
+  description            String?
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  tenantId               String
+  orderId                String?
+  orderReturnId          String?                  @unique
+  purchaseInvoiceId      String?
+  tenant                 Tenant                   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  order                  Order?                   @relation(fields: [orderId], references: [id], onUpdate: NoAction)
+  orderReturn            Return?                  @relation(fields: [orderReturnId], references: [id], onUpdate: NoAction)
+  purchaseInvoice        PurchaseInvoice?         @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
+  transactionLines       TransactionLine[]
+  payment                Payment?
+  expense                Expense?
+  investment             Investment?
+  profitDistribution     ProfitDistribution?
+  withdrawal             Withdrawal?
+  ProfitDistributionItem ProfitDistributionItem[]
+
+  @@unique([transactionNumber, tenantId])
+  @@index([tenantId, date])
+  @@index([orderId])
+  @@index([orderReturnId])
+  @@index([purchaseInvoiceId])
+  @@map("transactions")
+}
+
+model TransactionLine {
+  id            String      @id @default(cuid())
+  debitAmount   Float       @default(0)
+  creditAmount  Float       @default(0)
+  createdAt     DateTime    @default(now())
+  transactionId String
+  accountId     String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  account       Account     @relation(fields: [accountId], references: [id], onUpdate: NoAction)
+
+  @@index([transactionId])
+  @@index([accountId])
+  @@index([transactionId, accountId])
+  @@map("transaction_lines")
+}
+
+model Expense {
+  id            String       @id @default(cuid())
+  expenseNumber String
+  date          DateTime
+  category      String // PETROL, UTILITY, OTHER
+  amount        Float
+  description   String?
+  receipt       String?
+  receiptData   Bytes?
+  receiptType   String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  tenantId      String
+  accountId     String?
+  transactionId String?      @unique
+  account       Account?     @relation(fields: [accountId], references: [id], onUpdate: NoAction)
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+
+  @@unique([expenseNumber, tenantId])
+  @@index([tenantId, date])
+  @@index([category, tenantId])
+  @@map("expenses")
+}
+
+model Supplier {
+  id               String            @id @default(cuid())
+  name             String
+  contact          String?
+  address          String?
+  email            String?
+  phone            String?
+  balance          Float             @default(0)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  tenantId         String
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  purchaseInvoices PurchaseInvoice[]
+  payments         Payment[]
+
+  @@index([tenantId])
+  @@map("suppliers")
+}
+
+model LogisticsCompany {
+  id                    String   @id @default(cuid())
+  name                  String
+  contact               String?
+  address               String?
+  email                 String?
+  phone                 String?
+  codFeeCalculationType String // PERCENTAGE, RANGE_BASED, FIXED
+  codFeePercentage      Float?
+  codFeeRules           String?  @db.Text // JSON array for range-based
+  fixedCodFee           Float?
+  status                String   @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  tenantId              String
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  orders                Order[]
+
+  @@index([tenantId])
+  @@index([status, tenantId])
+  @@map("logistics_companies")
+}
+
+model Payment {
+  id               String          @id @default(cuid())
+  paymentNumber    String
+  date             DateTime
+  type             String // CUSTOMER_PAYMENT, SUPPLIER_PAYMENT, REFUND
+  amount           Float
+  paymentMethod    String // Cash, Bank Transfer, Credit Card
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  tenantId         String
+  customerId       String?
+  supplierId       String?
+  orderId          String?
+  orderReturnId    String?
+  purchaseInvoiceId String?
+  transactionId    String?         @unique
+  customer         Customer?       @relation(fields: [customerId], references: [id], onUpdate: NoAction)
+  supplier         Supplier?       @relation(fields: [supplierId], references: [id], onUpdate: NoAction)
+  order            Order?          @relation(fields: [orderId], references: [id], onUpdate: NoAction)
+  orderReturn      Return?         @relation(fields: [orderReturnId], references: [id], onUpdate: NoAction)
+  purchaseInvoice  PurchaseInvoice? @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
+  transaction      Transaction?    @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+
+  @@index([purchaseInvoiceId])
+
+  @@unique([paymentNumber, tenantId])
+  @@index([tenantId, date])
+  @@index([type, tenantId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@map("payments")
+}
+
+model Investor {
+  id                      String                   @id @default(cuid())
+  name                    String
+  contact                 String?
+  address                 String?
+  email                   String?
+  phone                   String?
+  investmentPercentage    Float?
+  totalInvestedAmount     Float                    @default(0)
+  totalProfitReceived     Float                    @default(0)
+  currentBalance          Float                    @default(0)
+  status                  String                   @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  tenantId                String
+  tenant                  Tenant                   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  investments             Investment[]
+  profitDistributionItems ProfitDistributionItem[]
+  withdrawals             Withdrawal[]
+
+  @@index([tenantId])
+  @@index([status, tenantId])
+  @@map("investors")
+}
+
+model Investment {
+  id               String       @id @default(cuid())
+  investmentNumber String
+  date             DateTime
+  amount           Float
+  description      String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  tenantId         String
+  investorId       String
+  transactionId    String?      @unique
+  investor         Investor     @relation(fields: [investorId], references: [id], onUpdate: NoAction)
+  transaction      Transaction? @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+  tenant           Tenant       @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+
+  @@unique([investmentNumber, tenantId])
+  @@index([tenantId, date])
+  @@index([investorId])
+  @@map("investments")
+}
+
+model ProfitDistribution {
+  id                 String                   @id @default(cuid())
+  distributionNumber String
+  date               DateTime
+  totalProfitAmount  Float
+  fromDate           DateTime
+  toDate             DateTime
+  status             String                   @default("PENDING") // PENDING, APPROVED, DISTRIBUTED
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  tenantId           String
+  transactionId      String?                  @unique
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  transaction        Transaction?             @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+  distributionItems  ProfitDistributionItem[]
+  withdrawals        Withdrawal[]
+
+  @@unique([distributionNumber, tenantId])
+  @@index([tenantId, date])
+  @@index([status, tenantId])
+  @@map("profit_distributions")
+}
+
+model ProfitDistributionItem {
+  id                   String             @id @default(cuid())
+  profitAmount         Float
+  createdAt            DateTime           @default(now())
+  profitDistributionId String
+  investorId           String
+  transactionId        String?
+  profitDistribution   ProfitDistribution @relation(fields: [profitDistributionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  investor             Investor           @relation(fields: [investorId], references: [id], onUpdate: NoAction)
+  transaction          Transaction?       @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+
+  @@index([profitDistributionId])
+  @@index([investorId])
+  @@map("profit_distribution_items")
+}
+
+model Withdrawal {
+  id                   String              @id @default(cuid())
+  withdrawalNumber     String
+  date                 DateTime
+  amount               Float
+  type                 String // INVESTOR_PROFIT, OWNER_PERSONAL, INVESTOR_CAPITAL
+  withdrawalMethod     String // Cash, Bank Transfer
+  description          String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  tenantId             String
+  investorId           String?
+  profitDistributionId String?
+  transactionId        String?             @unique
+  investor             Investor?           @relation(fields: [investorId], references: [id], onUpdate: NoAction)
+  profitDistribution   ProfitDistribution? @relation(fields: [profitDistributionId], references: [id], onUpdate: NoAction)
+  transaction          Transaction?        @relation(fields: [transactionId], references: [id], onUpdate: NoAction)
+  tenant               Tenant              @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+
+  @@unique([withdrawalNumber, tenantId])
+  @@index([tenantId, date])
+  @@index([type, tenantId])
+  @@index([investorId])
+  @@map("withdrawals")
 }

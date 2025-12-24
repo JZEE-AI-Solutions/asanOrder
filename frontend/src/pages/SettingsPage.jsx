@@ -103,7 +103,10 @@ const SettingsPage = () => {
       toast.success('Shipping configuration saved successfully!')
     } catch (error) {
       console.error('Error saving shipping config:', error)
-      toast.error(error.response?.data?.error || 'Failed to save shipping configuration')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to save shipping configuration'
+      toast.error(errorMsg)
     } finally {
       setSaving(false)
     }
@@ -117,7 +120,10 @@ const SettingsPage = () => {
       refreshUser()
     } catch (error) {
       console.error('Profile update error:', error)
-      toast.error(error.response?.data?.error || 'Failed to update profile')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to update profile'
+      toast.error(errorMsg)
     } finally {
       setSaving(false)
     }
@@ -130,7 +136,10 @@ const SettingsPage = () => {
       toast.success('Business information updated successfully!')
     } catch (error) {
       console.error('Tenant update error:', error)
-      toast.error(error.response?.data?.error || 'Failed to update business information')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to update business information'
+      toast.error(errorMsg)
     } finally {
       setSaving(false)
     }
@@ -174,7 +183,10 @@ const SettingsPage = () => {
       setPasswordErrors({})
     } catch (error) {
       console.error('Password change error:', error)
-      toast.error(error.response?.data?.error || 'Failed to change password')
+      const errorMsg = typeof error.response?.data?.error === 'string'
+        ? error.response?.data?.error
+        : error.response?.data?.error?.message || 'Failed to change password'
+      toast.error(errorMsg)
     } finally {
       setSaving(false)
     }

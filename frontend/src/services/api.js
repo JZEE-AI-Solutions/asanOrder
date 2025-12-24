@@ -37,7 +37,10 @@ api.interceptors.response.use(
     
     // Show error toast for non-401 errors
     if (error.response?.status !== 401) {
-      const message = error.response?.data?.error || 'Something went wrong'
+      const errorData = error.response?.data?.error
+      const message = typeof errorData === 'string'
+        ? errorData
+        : errorData?.message || error.response?.data?.message || 'Something went wrong'
       toast.error(message)
     }
     

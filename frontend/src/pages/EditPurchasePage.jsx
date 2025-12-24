@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
-import { ArrowLeftIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, PlusIcon, TrashIcon, CurrencyDollarIcon, PencilIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
@@ -17,6 +17,15 @@ const EditPurchasePage = () => {
   const [categories, setCategories] = useState([])
   const [loadingCategories, setLoadingCategories] = useState(false)
   const [newCategoryInputs, setNewCategoryInputs] = useState({})
+  const [invoice, setInvoice] = useState(null)
+  const [payments, setPayments] = useState([])
+  const [showPaymentForm, setShowPaymentForm] = useState(false)
+  const [paymentFormData, setPaymentFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    amount: '',
+    paymentMethod: 'Cash'
+  })
+  const [processingPayment, setProcessingPayment] = useState(false)
   
   const {
     register,
@@ -72,6 +81,18 @@ const EditPurchasePage = () => {
           toast.error('Invoice not found')
           navigate('/business/purchases')
           return
+        }
+
+        // Store invoice data
+        setInvoice(invoice)
+        
+        // Store payments - prefer payments linked to invoice, fall back to supplier payments (legacy)
+        if (invoice.payments && Array.isArray(invoice.payments) && invoice.payments.length > 0) {
+          setPayments(invoice.payments)
+        } else if (invoice.supplier?.payments) {
+          setPayments(invoice.supplier.payments)
+        } else {
+          setPayments([])
         }
 
         // Pre-fill form with invoice data
@@ -139,6 +160,70 @@ const EditPurchasePage = () => {
       setTimeout(() => calculateTotal(), 100)
     } else {
       toast.error('At least one item is required')
+    }
+  }
+
+  const calculateRemainingBalance = () => {
+    if (!invoice) return 0
+    const totalPaid = payments.reduce((sum, payment) => sum + payment.amount, 0)
+    return invoice.totalAmount - totalPaid
+  }
+
+  const handleMakePayment = () => {
+    const remaining = calculateRemainingBalance()
+    setPaymentFormData({
+      date: new Date().toISOString().split('T')[0],
+      amount: remaining > 0 ? remaining.toString() : '',
+      paymentMethod: 'Cash'
+    })
+    setShowPaymentForm(true)
+  }
+
+  const handlePaymentSubmit = async (e) => {
+    e.preventDefault()
+    
+    if (!invoice?.supplier?.id) {
+      toast.error('Supplier information not available')
+      return
+    }
+
+    if (!paymentFormData.amount || parseFloat(paymentFormData.amount) <= 0) {
+      toast.error('Please enter a valid payment amount')
+      return
+    }
+
+    setProcessingPayment(true)
+    try {
+      await api.post('/accounting/payments', {
+        date: paymentFormData.date,
+        type: 'SUPPLIER_PAYMENT',
+        amount: parseFloat(paymentFormData.amount),
+        paymentMethod: paymentFormData.paymentMethod,
+        supplierId: invoice.supplier.id,
+        purchaseInvoiceId: invoiceId // Link payment to this purchase invoice
+      })
+      
+      toast.success('Payment recorded successfully')
+      setShowPaymentForm(false)
+      
+      // Refresh invoice data to get updated payments
+      const response = await api.get(`/purchase-invoice/${invoiceId}`)
+      const updatedInvoice = response.data.purchaseInvoice
+      setInvoice(updatedInvoice)
+      // Prefer payments linked to invoice, fall back to supplier payments (legacy)
+      if (updatedInvoice.payments && Array.isArray(updatedInvoice.payments) && updatedInvoice.payments.length > 0) {
+        setPayments(updatedInvoice.payments)
+      } else if (updatedInvoice.supplier?.payments) {
+        setPayments(updatedInvoice.supplier.payments)
+      } else {
+        setPayments([])
+      }
+    } catch (error) {
+      console.error('Error recording payment:', error)
+      const errorMessage = error.response?.data?.error?.message || 'Failed to record payment'
+      toast.error(errorMessage)
+    } finally {
+      setProcessingPayment(false)
     }
   }
 
@@ -494,6 +579,191 @@ const EditPurchasePage = () => {
               })}
             </div>
           </div>
+
+          {/* Payments Section */}
+          {invoice && invoice.supplier && (
+            <div className="card p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-gray-900">Payments</h2>
+                <button
+                  type="button"
+                  onClick={handleMakePayment}
+                  className="btn-primary flex items-center min-h-[44px]"
+                >
+                  <CurrencyDollarIcon className="h-5 w-5 mr-2" />
+                  Make Payment
+                </button>
+              </div>
+
+              {/* Payment Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="text-sm text-gray-600">Total Amount</p>
+                  <p className="text-lg font-bold text-gray-900">Rs. {invoice.totalAmount.toLocaleString()}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Total Paid</p>
+                  <p className="text-lg font-bold text-green-600">
+                    Rs. {payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Remaining Balance</p>
+                  <p className={`text-lg font-bold ${calculateRemainingBalance() > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    Rs. {calculateRemainingBalance().toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              {/* Payments List */}
+              {payments.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No payments recorded yet</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Payment #</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Method</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {payments.map((payment) => (
+                        <tr key={payment.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(payment.date).toLocaleDateString()}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {payment.paymentNumber}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900">
+                            Rs. {payment.amount.toLocaleString()}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                            {payment.paymentMethod}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm">
+                            <button
+                              onClick={() => {
+                                window.location.href = `/business/purchases/${invoiceId}`
+                              }}
+                              className="text-blue-600 hover:text-blue-900"
+                              title="Edit Payment (View Invoice)"
+                            >
+                              <PencilIcon className="h-4 w-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Payment Form Modal */}
+          {showPaymentForm && invoice?.supplier && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+                <div className="p-6">
+                  <div className="flex justify-between items-center mb-6">
+                    <h2 className="text-xl font-bold text-gray-900">Make Payment</h2>
+                    <button
+                      onClick={() => setShowPaymentForm(false)}
+                      className="text-gray-400 hover:text-gray-600 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <form onSubmit={handlePaymentSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Supplier
+                      </label>
+                      <input
+                        type="text"
+                        value={invoice.supplierName || invoice.supplier.name || ''}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-600 min-h-[44px]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Date <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        value={paymentFormData.date}
+                        onChange={(e) => setPaymentFormData(prev => ({ ...prev, date: e.target.value }))}
+                        required
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Amount <span className="text-red-500">*</span>
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max={calculateRemainingBalance()}
+                        value={paymentFormData.amount}
+                        onChange={(e) => setPaymentFormData(prev => ({ ...prev, amount: e.target.value }))}
+                        required
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                        placeholder="0.00"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Remaining balance: Rs. {calculateRemainingBalance().toLocaleString()}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Payment Method <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={paymentFormData.paymentMethod}
+                        onChange={(e) => setPaymentFormData(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                        required
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="Bank Transfer">Bank Transfer</option>
+                        <option value="Cheque">Cheque</option>
+                        <option value="Credit Card">Credit Card</option>
+                      </select>
+                    </div>
+
+                    <div className="flex gap-3 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setShowPaymentForm(false)}
+                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors min-h-[44px]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={processingPayment}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[44px]"
+                      >
+                        {processingPayment ? 'Processing...' : 'Record Payment'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Footer Actions */}
           <div className="flex justify-end space-x-3 pt-4 border-t">

@@ -635,7 +635,10 @@ const ClientFormDynamic = () => {
         const missingFields = error.response.data.missingFields
         toast.error(`Missing required fields: ${missingFields.join(', ')}`)
       } else if (error.response?.data?.error) {
-        toast.error(error.response.data.error)
+        const errorMsg = typeof error.response.data.error === 'string'
+          ? error.response.data.error
+          : error.response.data.error?.message || 'Failed to submit order'
+        toast.error(errorMsg)
       } else {
         toast.error('Failed to submit order')
       }
