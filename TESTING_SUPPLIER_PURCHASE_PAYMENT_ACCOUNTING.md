@@ -4,6 +4,9 @@
 - Tenant: Test Tenant
 - Chart of Accounts should be initialized
 - All accounts should have zero balance initially (or known opening balances)
+- **Multiple Cash/Bank Accounts**: The system now supports multiple cash and bank accounts. Users can create and select from multiple payment accounts during purchase and payment operations.
+- **Payment Account Selection**: Instead of hardcoded "Cash" or "Bank Transfer", users must select a specific payment account (Cash or Bank type) from a dropdown.
+- **Quick Add Account**: Users can create new cash/bank accounts on-the-fly from purchase and payment forms.
 
 ---
 
@@ -115,6 +118,7 @@ Create a purchase invoice from Supplier A (who has Rs. 10,000 advance) for Rs. 8
    - Advance Used: Rs. 8,000 (auto)
    - Payment Status: "Fully Paid"
    - Payment Amount: Not shown (fully covered by advance)
+   - Payment Account: Not shown (no cash/bank payment needed)
 4. Save
 
 ### Expected Accounting Impact
@@ -158,9 +162,9 @@ Create a purchase invoice from Supplier A (Rs. 2,000 advance remaining) for Rs. 
    - Available Advance: Rs. 2,000
    - Purchase Amount: Rs. 5,000
    - Advance Used: Rs. 2,000 (auto)
-   - Payment Status: "Partially Paid"
-   - Payment Amount: Rs. 3,000
-   - Payment Method: "Cash"
+   - Payment Status: "Partially Paid" or "Fully Paid" (if remaining = 0)
+   - Cash/Bank Payment (Rs.): Rs. 3,000
+   - Payment Account: Select a Cash account (e.g., "Main Cash" or create new via "Quick Add Account")
 4. Save
 
 ### Expected Accounting Impact
@@ -174,22 +178,23 @@ Create a purchase invoice from Supplier A (Rs. 2,000 advance remaining) for Rs. 
 
 **Transaction 3 - Cash Payment:**
 - Debit: Accounts Payable (2000) - Rs. 3,000
-- Credit: Cash (1000) - Rs. 3,000
+- Credit: Selected Cash Account (e.g., "Main Cash") - Rs. 3,000
 
 **Payment Records:**
-1. Payment Method: "Advance Balance", Amount: Rs. 2,000
-2. Payment Method: "Cash", Amount: Rs. 3,000
+1. Payment Method: "Advance Balance", Amount: Rs. 2,000 (no payment record, only accounting entry)
+2. Payment Method: "Cash" (derived from account type), Amount: Rs. 3,000, Account: Selected Cash Account
 
 ### Verification Points
 - [ ] Purchase invoice created
-- [ ] Two payment records created (advance + cash)
+- [ ] One payment record created (cash payment only; advance usage is accounting entry only)
 - [ ] Supplier advance balance: Rs. 0 (fully utilized)
 - [ ] Accounts Payable: Net Rs. 0 (5,000 - 2,000 - 3,000)
-- [ ] Cash decreased by Rs. 3,000
+- [ ] Selected Cash Account decreased by Rs. 3,000
 - [ ] Inventory increased by Rs. 5,000
-- [ ] Purchase card shows "Partially Paid" or "Fully Paid" (depending on remaining)
-- [ ] Journal entries show all three transactions
+- [ ] Purchase card shows "Fully Paid" (if remaining = 0)
+- [ ] Journal entries show all transactions (purchase + advance usage + cash payment)
 - [ ] Product balance increased by 5 units
+- [ ] Payment record shows correct account name (not just "Cash")
 
 ---
 
@@ -209,8 +214,9 @@ Create a purchase invoice from Supplier B (we owe Rs. 15,000) for Rs. 12,000, pa
    - Available Advance: Rs. 0 (no advance)
    - Purchase Amount: Rs. 12,000
    - Payment Status: "Fully Paid"
-   - Payment Amount: Rs. 12,000
-   - Payment Method: "Cash"
+   - Cash/Bank Payment (Rs.): Rs. 12,000
+   - Payment Account: Select a Cash or Bank account (e.g., "Main Cash" or "Primary Bank Account")
+   - **Quick Add Account**: Can create new account on-the-fly if needed
 4. Save
 
 ### Expected Accounting Impact
@@ -218,22 +224,23 @@ Create a purchase invoice from Supplier B (we owe Rs. 15,000) for Rs. 12,000, pa
 - Debit: Inventory (1300) - Rs. 12,000
 - Credit: Accounts Payable (2000) - Rs. 12,000
 
-**Transaction 2 - Cash Payment:**
+**Transaction 2 - Cash/Bank Payment:**
 - Debit: Accounts Payable (2000) - Rs. 12,000
-- Credit: Cash (1000) - Rs. 12,000
+- Credit: Selected Payment Account (Cash or Bank) - Rs. 12,000
 
 **Payment Record:**
-- Payment Method: "Cash", Amount: Rs. 12,000
+- Payment Method: "Cash" or "Bank Transfer" (derived from account type), Amount: Rs. 12,000, Account: Selected Payment Account
 
 ### Verification Points
 - [ ] Purchase invoice created
-- [ ] Payment record created
+- [ ] Payment record created with correct account reference
 - [ ] Accounts Payable: Net Rs. 3,000 (15,000 + 12,000 - 12,000)
-- [ ] Cash decreased by Rs. 12,000
+- [ ] Selected Payment Account decreased by Rs. 12,000
 - [ ] Inventory increased by Rs. 12,000
 - [ ] Purchase card shows "Fully Paid"
 - [ ] Journal entries show both transactions
 - [ ] Product balance increased by 20 units
+- [ ] Payment record shows account name (not just generic "Cash" or "Bank Transfer")
 
 ---
 
@@ -282,34 +289,35 @@ Make payment for PI-004 (Rs. 7,000 unpaid) using supplier advance (if available)
 ### Steps
 1. Navigate to Purchases → Find "PI-004"
 2. Click "Make Payment"
-3. Enter:
+3. Verify Payment Summary (at top of modal) shows:
+   - Invoice Total: Rs. 7,000
+   - Pending Before Payment: Rs. 7,000
+   - From Advance: Rs. 0 (if no advance) or available amount
+   - Cash/Bank Payment: Rs. 7,000
+   - Remaining After Payment: Rs. 0
+4. Enter:
    - Date: Today
-   - Verify Payment Summary shows:
-     - Invoice Total: Rs. 7,000
-     - Pending Before Payment: Rs. 7,000
-     - From Advance: Rs. 0 (if no advance) or available amount
-     - Cash/Bank Payment: Rs. 7,000
-     - Remaining After Payment: Rs. 0
-   - Payment Method: "Bank Transfer"
    - Amount: Rs. 7,000
-4. Save
+   - Payment Account: Select a Bank account (e.g., "Primary Bank Account" or create new via "Quick Add Account")
+5. Save
 
 ### Expected Accounting Impact
 **Transaction - Payment:**
 - Debit: Accounts Payable (2000) - Rs. 7,000
-- Credit: Bank Account (1100) - Rs. 7,000
+- Credit: Selected Bank Account (e.g., "Primary Bank Account") - Rs. 7,000
 
 **Payment Record:**
-- Payment Method: "Bank Transfer", Amount: Rs. 7,000
+- Payment Method: "Bank Transfer" (derived from account type), Amount: Rs. 7,000, Account: Selected Bank Account
 
 ### Verification Points
-- [ ] Payment record created
+- [ ] Payment record created with correct account reference
 - [ ] Accounts Payable: Net Rs. 3,000 (10,000 - 7,000)
-- [ ] Bank Account decreased by Rs. 7,000
+- [ ] Selected Bank Account decreased by Rs. 7,000
 - [ ] Purchase card shows "Fully Paid"
-- [ ] Payment appears in "View Payments" section
-- [ ] Journal entry shows payment transaction
+- [ ] Payment appears in "View Payments" section with account name
+- [ ] Journal entry shows payment transaction with account name
 - [ ] Transaction linked to purchase invoice
+- [ ] Payment record shows account name (not just generic "Bank Transfer")
 
 ---
 
@@ -379,32 +387,34 @@ Edit payment for PI-002 to increase from Rs. 3,000 to Rs. 4,000 (cash payment).
 ### Steps
 1. Navigate to Purchases → Find "PI-002"
 2. Click "View Details" or navigate to invoice details
-3. Find payment record (Cash, Rs. 3,000)
+3. Find payment record (shows account name, Rs. 3,000)
 4. Click "Edit Payment" (pencil icon)
 5. Change:
    - Amount: Rs. 3,000 → Rs. 4,000
-   - Payment Method: "Cash" (or change to "Bank Transfer")
+   - Payment Account: Keep same account OR change to different Cash/Bank account
 6. Save
 
 ### Expected Accounting Impact
 **Adjustment Transaction:**
-- If same method (Cash):
+- If same account (only amount changed):
   - Debit: Accounts Payable (2000) - Rs. 1,000 (increase payment)
-  - Credit: Cash (1000) - Rs. 1,000 (increase payment)
-- If method changed (Cash → Bank):
-  - Credit: Cash (1000) - Rs. 3,000 (reverse old)
-  - Debit: Cash (1000) - Rs. 4,000 (new payment)
-  - Debit: Accounts Payable (2000) - Rs. 1,000 (increase)
-  - Credit: Bank Account (1100) - Rs. 4,000 (new payment)
-  - Credit: Accounts Payable (2000) - Rs. 3,000 (reverse old)
+  - Credit: Same Payment Account - Rs. 1,000 (increase payment)
+- If account changed (Cash → Bank or Bank → Cash):
+  - **Step 1 - Account Transfer:**
+    - Credit: Old Payment Account - Rs. 3,000 (money moved out)
+    - Debit: New Payment Account - Rs. 3,000 (money moved in)
+  - **Step 2 - Amount Adjustment:**
+    - Debit: Accounts Payable (2000) - Rs. 1,000 (increase payment)
+    - Credit: New Payment Account - Rs. 1,000 (increase payment)
 
 ### Verification Points
-- [ ] Payment record updated
-- [ ] Adjustment transaction created
+- [ ] Payment record updated with new amount and account (if changed)
+- [ ] Adjustment transaction(s) created correctly
 - [ ] Accounts Payable adjusted correctly
-- [ ] Cash/Bank accounts adjusted correctly
-- [ ] Journal shows adjustment transaction
+- [ ] Payment accounts adjusted correctly (old account credited, new account debited if changed)
+- [ ] Journal shows adjustment transaction(s)
 - [ ] Transaction linked to purchase invoice
+- [ ] Payment record shows updated account name
 
 ---
 
@@ -416,16 +426,17 @@ Edit payment for PI-003 to decrease from Rs. 12,000 to Rs. 10,000.
 ### Steps
 1. Navigate to Purchases → Find "PI-003"
 2. Click "View Details"
-3. Find payment record (Cash, Rs. 12,000)
+3. Find payment record (shows account name, Rs. 12,000)
 4. Click "Edit Payment"
 5. Change:
    - Amount: Rs. 12,000 → Rs. 10,000
+   - Payment Account: Keep same account
 6. Save
 
 ### Expected Accounting Impact
 **Adjustment Transaction:**
 - Credit: Accounts Payable (2000) - Rs. 2,000 (reduce payment)
-- Debit: Cash (1000) - Rs. 2,000 (get money back)
+- Debit: Same Payment Account - Rs. 2,000 (get money back)
 
 ### Verification Points
 - [ ] Payment record updated
@@ -445,25 +456,26 @@ Edit payment for PI-003 to change from Cash to Bank Transfer (same amount).
 ### Steps
 1. Navigate to Purchases → Find "PI-003"
 2. Click "View Details"
-3. Find payment record (Cash, Rs. 10,000)
+3. Find payment record (shows account name, Rs. 10,000)
 4. Click "Edit Payment"
 5. Change:
-   - Payment Method: "Cash" → "Bank Transfer"
+   - Payment Account: Change from Cash account to Bank account (or vice versa)
    - Amount: Rs. 10,000 (unchanged)
 6. Save
 
 ### Expected Accounting Impact
-**Payment Method Change Transaction:**
-- Credit: Cash (1000) - Rs. 10,000 (money moved out)
-- Debit: Bank Account (1100) - Rs. 10,000 (money moved in)
+**Payment Account Change Transaction:**
+- Credit: Old Payment Account (e.g., "Main Cash") - Rs. 10,000 (money moved out)
+- Debit: New Payment Account (e.g., "Primary Bank Account") - Rs. 10,000 (money moved in)
 
 ### Verification Points
-- [ ] Payment record updated (method changed)
-- [ ] Payment method change transaction created
-- [ ] Cash increased by Rs. 10,000
-- [ ] Bank Account decreased by Rs. 10,000
+- [ ] Payment record updated (account changed, payment method derived from new account type)
+- [ ] Payment account change transaction created
+- [ ] Old Payment Account increased by Rs. 10,000 (money returned)
+- [ ] New Payment Account decreased by Rs. 10,000 (money moved)
 - [ ] Accounts Payable unchanged
-- [ ] Journal shows payment method change transaction
+- [ ] Journal shows payment account change transaction
+- [ ] Payment record shows new account name
 
 ---
 
@@ -485,8 +497,8 @@ Execute all steps sequentially and verify accounting after each step.
 - Supplier C Advance Balance: Rs. 0 (20,000 - 15,000 - 5,000)
 - Accounts Payable: Rs. 5,000 (12,000 - 7,000)
 - Inventory: Rs. 33,000 (15,000 + 8,000 + 10,000)
-- Cash: Decreased by Rs. 3,000 (original payment)
-- Bank Account: Decreased by Rs. 12,000 (7,000 + 5,000)
+- Cash Accounts: Decreased by Rs. 3,000 (original payment from selected cash account)
+- Bank Accounts: Decreased by Rs. 12,000 (7,000 + 5,000 from selected bank accounts)
 
 ### Verification Points
 - [ ] All transactions appear in journal
@@ -572,8 +584,8 @@ Verify all accounts show correct balances after all test cases.
 
 ### Expected Account Balances (Cumulative from all tests):
 - **Assets:**
-  - Cash (1000): Should reflect all cash payments
-  - Bank Account (1100): Should reflect all bank payments
+  - Cash Accounts (accountSubType: CASH): Should reflect all cash payments from respective accounts
+  - Bank Accounts (accountSubType: BANK): Should reflect all bank payments from respective accounts
   - Inventory (1300): Should reflect all purchase amounts
   - Advance to Suppliers (1230): Should reflect supplier advances (if any)
 
@@ -683,13 +695,14 @@ Verify accounting impact when payment method changes.
 - [ ] Edit purchase (change products)
 
 ### Payment Operations
-- [ ] Make payment from purchase card (cash)
-- [ ] Make payment from purchase card (bank)
+- [ ] Make payment from purchase card (select cash account)
+- [ ] Make payment from purchase card (select bank account)
 - [ ] Make payment using advance
-- [ ] Edit payment (increase amount)
-- [ ] Edit payment (decrease amount)
-- [ ] Edit payment (change method only)
-- [ ] Edit payment (change amount + method)
+- [ ] Create new payment account on-the-fly (Quick Add Account)
+- [ ] Edit payment (increase amount, same account)
+- [ ] Edit payment (decrease amount, same account)
+- [ ] Edit payment (change account only, same amount)
+- [ ] Edit payment (change amount + account)
 
 ### Accounting Verification
 - [ ] All transactions balanced (Debits = Credits)
@@ -712,4 +725,9 @@ Verify accounting impact when payment method changes.
 - Verify transaction linking to purchase invoices
 - Ensure all accounts remain balanced
 - Product balances should match inventory transactions
+- **Multiple Payment Accounts**: Users can create and manage multiple cash and bank accounts
+- **Account Selection**: Always select a specific payment account (not generic "Cash" or "Bank")
+- **Quick Add Account**: New accounts can be created on-the-fly from purchase and payment forms
+- **Account Names**: Payment records show actual account names (e.g., "Main Cash", "Primary Bank Account") instead of generic types
+- **Account Changes**: When payment account changes, a transfer transaction is created between old and new accounts
 

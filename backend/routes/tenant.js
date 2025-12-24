@@ -50,7 +50,8 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         investors: 0,
         suppliers: 0,
         logisticsCompanies: 0,
-        accounts: 0
+        accounts: 0,
+        userCreatedAccounts: 0
       };
 
       // Delete in order of dependencies (child entities first, respecting foreign keys)
@@ -231,13 +232,31 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         where: { tenantId }
       });
 
-      // 23. DO NOT DELETE ACCOUNTS - Accounts are system accounts and should be preserved
-      // Reset all account balances to 0 explicitly
+      // 23. Delete user-created cash/bank accounts (keep only default system accounts)
+      // Delete accounts with accountSubType that are NOT the default Cash (1000) or Bank (1100)
+      const deletedUserAccounts = await tx.account.deleteMany({
+        where: {
+          tenantId,
+          OR: [
+            {
+              accountSubType: 'CASH',
+              code: { not: '1000' } // Keep default Cash account
+            },
+            {
+              accountSubType: 'BANK',
+              code: { not: '1100' } // Keep default Bank account
+            }
+          ]
+        }
+      });
+      stats.userCreatedAccounts = deletedUserAccounts.count;
+
+      // 24. Reset all remaining account balances to 0 (preserve system accounts)
       await tx.account.updateMany({
         where: { tenantId },
         data: { balance: 0 }
       });
-      stats.accounts = 0; // No accounts deleted
+      stats.accounts = 0; // System accounts preserved, only balances reset
 
       return stats;
     }, {
@@ -251,7 +270,7 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
 
     res.json({
       success: true,
-      message: `All data cleared successfully for ${tenant.businessName}. All transactions deleted, account balances reset to 0, and default accounts verified.`,
+      message: `All data cleared successfully for ${tenant.businessName}. All transactions deleted, user-created cash/bank accounts deleted, account balances reset to 0, and default accounts verified.`,
       stats: result
     });
 

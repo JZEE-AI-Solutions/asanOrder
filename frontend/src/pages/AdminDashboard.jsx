@@ -117,7 +117,7 @@ const AdminDashboard = () => {
   const handleClearAllData = async (tenant) => {
     const confirmed = await showConfirmation(
       'Clear All Data',
-      `⚠️ WARNING: This will permanently delete ALL data for "${tenant.businessName}" including:\n\n• All Orders\n• All Products\n• All Purchase Invoices\n• All Forms\n• All Customers\n• All Returns\n• All Product Logs\n• All Accounting Transactions (including opening balance transactions)\n• All Expenses, Payments, Suppliers, Investors, etc.\n\nAccounts will be preserved but reset to balance 0.\n\nThis action CANNOT be undone! Are you absolutely sure?`,
+      `⚠️ WARNING: This will permanently delete ALL data for "${tenant.businessName}" including:\n\n• All Orders\n• All Products\n• All Purchase Invoices\n• All Forms\n• All Customers\n• All Returns\n• All Product Logs\n• All Accounting Transactions (including opening balance transactions)\n• All Expenses, Payments, Suppliers, Investors, etc.\n• All User-Created Cash/Bank Accounts (default system accounts preserved)\n\nSystem accounts will be preserved but reset to balance 0.\n\nThis action CANNOT be undone! Are you absolutely sure?`,
       'danger',
       'Yes, Clear All Data',
       'Cancel'
