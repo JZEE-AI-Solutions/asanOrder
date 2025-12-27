@@ -101,7 +101,8 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   body('address').optional().trim(),
   body('email').optional().isEmail().withMessage('Invalid email address'),
   body('phone').optional().trim(),
-  body('balance').optional().isFloat().withMessage('Balance must be a number')
+  body('balance').optional().isFloat().withMessage('Balance must be a number'),
+  body('openingBalanceDate').optional().isISO8601().withMessage('Opening balance date must be a valid date')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -113,7 +114,7 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
     }
 
     const tenantId = req.user.tenant.id;
-    const { name, contact, address, email, phone, balance = 0 } = req.body;
+    const { name, contact, address, email, phone, balance = 0, openingBalanceDate } = req.body;
 
     // Check if supplier with same name already exists
     const existingSupplier = await prisma.supplier.findFirst({
@@ -214,9 +215,12 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           );
         }
 
+        // Use provided opening balance date or current date
+        const transactionDate = openingBalanceDate ? new Date(openingBalanceDate) : new Date();
+        
         await accountingService.createTransaction({
           transactionNumber,
-          date: new Date(),
+          date: transactionDate,
           description: `Supplier Opening Balance - ${name}`,
           tenantId
         }, transactionLines);
@@ -320,17 +324,19 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
 
 // Update supplier
 router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
-  body('name').optional().trim().isLength({ min: 2 }),
-  body('contact').optional().trim(),
-  body('address').optional().trim(),
-  body('email').optional().isEmail(),
-  body('phone').optional().trim(),
-  body('balance').optional().isFloat()
+  body('name').optional({ nullable: true, checkFalsy: true }).trim().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
+  body('contact').optional({ nullable: true, checkFalsy: true }).trim(),
+  body('address').optional({ nullable: true, checkFalsy: true }).trim(),
+  body('email').optional({ nullable: true, checkFalsy: true }).trim().isEmail().withMessage('Please enter a valid email address'),
+  body('phone').optional({ nullable: true, checkFalsy: true }).trim(),
+  body('balance').optional({ nullable: true }).isFloat().withMessage('Balance must be a valid number'),
+  body('openingBalanceDate').optional({ nullable: true }).isISO8601().withMessage('Opening balance date must be a valid date')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
+        success: false,
         error: 'Validation failed',
         details: errors.array()
       });
@@ -339,6 +345,13 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
     const tenantId = req.user.tenant.id;
     const { id } = req.params;
     const updateData = req.body;
+    
+    // Clean up empty strings to null for optional fields
+    if (updateData.email === '') updateData.email = null;
+    if (updateData.contact === '') updateData.contact = null;
+    if (updateData.address === '') updateData.address = null;
+    if (updateData.phone === '') updateData.phone = null;
+    if (updateData.openingBalanceDate === '') updateData.openingBalanceDate = null;
 
     // Verify supplier belongs to tenant
     const supplier = await prisma.supplier.findFirst({
@@ -407,6 +420,9 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
 
           const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}-SUP-ADJ`;
           const transactionLines = [];
+          
+          // Use provided opening balance date or current date for adjustment
+          const transactionDate = updateData.openingBalanceDate ? new Date(updateData.openingBalanceDate) : new Date();
 
           // Determine which accounts need adjustment based on old and new balance types
           const oldIsAdvance = oldBalance < 0;
@@ -574,7 +590,7 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           if (transactionLines.length > 0) {
             await accountingService.createTransaction({
               transactionNumber,
-              date: new Date(),
+              date: transactionDate,
               description: `Supplier Balance Adjustment - ${supplier.name}`,
               tenantId
             }, transactionLines);
@@ -827,5 +843,288 @@ router.get('/by-name/:name/balance', authenticateToken, requireRole(['BUSINESS_O
   }
 });
 
-module.exports = router;
+// Get supplier ledger (all transactions)
+router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const { fromDate, toDate } = req.query;
 
+    // Verify supplier belongs to tenant
+    const supplier = await prisma.supplier.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!supplier) {
+      return res.status(404).json({
+        success: false,
+        error: 'Supplier not found'
+      });
+    }
+
+    // Build date filter
+    const dateFilter = {};
+    if (fromDate) {
+      dateFilter.gte = new Date(fromDate);
+    }
+    if (toDate) {
+      dateFilter.lte = new Date(toDate);
+    }
+
+    // Fetch all purchase invoices
+    const purchaseInvoices = await prisma.purchaseInvoice.findMany({
+      where: {
+        supplierId: id,
+        tenantId,
+        isDeleted: false,
+        ...(Object.keys(dateFilter).length > 0 && {
+          invoiceDate: dateFilter
+        })
+      },
+      include: {
+        purchaseItems: {
+          select: {
+            id: true,
+            name: true,
+            quantity: true,
+            purchasePrice: true
+          }
+        },
+        returns: {
+          include: {
+            returnItems: {
+              select: {
+                id: true,
+                productName: true,
+                quantity: true,
+                purchasePrice: true
+              }
+            }
+          }
+        },
+        payments: {
+          where: {
+            type: 'SUPPLIER_PAYMENT'
+          },
+          select: {
+            id: true,
+            paymentNumber: true,
+            date: true,
+            amount: true,
+            account: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          },
+          orderBy: {
+            date: 'asc'
+          }
+        }
+      },
+      orderBy: {
+        invoiceDate: 'asc'
+      }
+    });
+
+    // Fetch all payments (including those not linked to invoices)
+    const allPayments = await prisma.payment.findMany({
+      where: {
+        supplierId: id,
+        type: 'SUPPLIER_PAYMENT',
+        ...(Object.keys(dateFilter).length > 0 && {
+          date: dateFilter
+        })
+      },
+      select: {
+        id: true,
+        paymentNumber: true,
+        date: true,
+        amount: true,
+        purchaseInvoiceId: true,
+        account: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        date: 'asc'
+      }
+    });
+
+    // Find opening balance transaction date from accounting transactions
+    let openingBalanceDate = supplier.createdAt; // Default to supplier creation date
+    if (supplier.balance !== 0) {
+      try {
+        // Find the opening balance transaction for this supplier
+        const openingBalanceTransaction = await prisma.transaction.findFirst({
+          where: {
+            tenantId,
+            description: {
+              contains: `Supplier Opening Balance - ${supplier.name}`,
+              mode: 'insensitive'
+            }
+          },
+          orderBy: {
+            date: 'asc'
+          },
+          select: {
+            date: true
+          }
+        });
+        
+        if (openingBalanceTransaction) {
+          openingBalanceDate = openingBalanceTransaction.date;
+        }
+      } catch (error) {
+        console.error('Error fetching opening balance transaction date:', error);
+        // Use supplier.createdAt as fallback
+      }
+    }
+
+    // Build ledger entries
+    const ledgerEntries = [];
+
+    // Add opening balance entry FIRST (before all other transactions)
+    if (supplier.balance !== 0) {
+      ledgerEntries.push({
+        date: openingBalanceDate,
+        type: 'OPENING_BALANCE',
+        description: 'Opening Balance',
+        reference: null,
+        debit: supplier.balance > 0 ? supplier.balance : 0,
+        credit: supplier.balance < 0 ? Math.abs(supplier.balance) : 0,
+        isOpeningBalance: true
+      });
+    }
+
+    // Add purchase invoice entries
+    purchaseInvoices.forEach(invoice => {
+      const purchaseTotal = invoice.purchaseItems.reduce((sum, item) => 
+        sum + (item.quantity * item.purchasePrice), 0);
+      const returnTotal = invoice.returns.reduce((sum, ret) => 
+        sum + ret.returnItems.reduce((retSum, item) => 
+          retSum + (item.quantity * item.purchasePrice), 0), 0);
+      const netAmount = purchaseTotal - returnTotal;
+
+      if (netAmount > 0) {
+        // Purchase invoice (increases what we owe)
+        ledgerEntries.push({
+          date: invoice.invoiceDate,
+          type: 'PURCHASE_INVOICE',
+          description: `Purchase Invoice: ${invoice.invoiceNumber}`,
+          reference: invoice.invoiceNumber,
+          invoiceId: invoice.id,
+          debit: netAmount,
+          credit: 0,
+          purchaseTotal,
+          returnTotal
+        });
+      } else if (netAmount < 0) {
+        // Return-only invoice (decreases what we owe)
+        ledgerEntries.push({
+          date: invoice.invoiceDate,
+          type: 'RETURN',
+          description: `Return: ${invoice.invoiceNumber}`,
+          reference: invoice.invoiceNumber,
+          invoiceId: invoice.id,
+          debit: 0,
+          credit: Math.abs(netAmount),
+          purchaseTotal: 0,
+          returnTotal: Math.abs(netAmount)
+        });
+      }
+    });
+
+    // Add payment entries
+    allPayments.forEach(payment => {
+      ledgerEntries.push({
+        date: payment.date,
+        type: 'PAYMENT',
+        description: `Payment: ${payment.paymentNumber}${payment.account ? ` (${payment.account.name})` : ''}`,
+        reference: payment.paymentNumber,
+        paymentId: payment.id,
+        invoiceId: payment.purchaseInvoiceId,
+        debit: 0,
+        credit: payment.amount,
+        accountName: payment.account?.name || null
+      });
+    });
+
+    // Sort by date (chronological order)
+    // Opening balance should always appear first, even if its date is later
+    ledgerEntries.sort((a, b) => {
+      // Opening balance always comes first
+      if (a.type === 'OPENING_BALANCE' && b.type !== 'OPENING_BALANCE') {
+        return -1;
+      }
+      if (a.type !== 'OPENING_BALANCE' && b.type === 'OPENING_BALANCE') {
+        return 1;
+      }
+      
+      // For non-opening balance entries, sort by date
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateA - dateB;
+      }
+      // If same date, sort by type: invoices, then payments
+      const typeOrder = { PURCHASE_INVOICE: 1, RETURN: 1, PAYMENT: 2 };
+      return (typeOrder[a.type] || 99) - (typeOrder[b.type] || 99);
+    });
+
+    // Calculate running balance
+    // Start from 0, then apply opening balance, then apply other transactions chronologically
+    let runningBalance = 0;
+    ledgerEntries.forEach(entry => {
+      // For supplier ledger: debit increases what we owe, credit decreases
+      // Opening balance: positive balance (we owe) = debit, negative balance (they owe) = credit
+      // Purchase invoice: increases what we owe = debit
+      // Payment: decreases what we owe = credit
+      runningBalance = runningBalance + entry.debit - entry.credit;
+      entry.balance = runningBalance;
+    });
+
+    // Calculate summary
+    const summary = {
+      openingBalance: supplier.balance || 0,
+      totalPurchases: purchaseInvoices.reduce((sum, inv) => {
+        const purchaseTotal = inv.purchaseItems.reduce((s, item) => s + (item.quantity * item.purchasePrice), 0);
+        const returnTotal = inv.returns.reduce((s, ret) => 
+          s + ret.returnItems.reduce((rs, item) => rs + (item.quantity * item.purchasePrice), 0), 0);
+        const netAmount = purchaseTotal - returnTotal;
+        return sum + (netAmount > 0 ? netAmount : 0);
+      }, 0),
+      totalReturns: purchaseInvoices.reduce((sum, inv) => {
+        const purchaseTotal = inv.purchaseItems.reduce((s, item) => s + (item.quantity * item.purchasePrice), 0);
+        const returnTotal = inv.returns.reduce((s, ret) => 
+          s + ret.returnItems.reduce((rs, item) => rs + (item.quantity * item.purchasePrice), 0), 0);
+        const netAmount = purchaseTotal - returnTotal;
+        return sum + (netAmount < 0 ? Math.abs(netAmount) : 0);
+      }, 0),
+      totalPayments: allPayments.reduce((sum, p) => sum + p.amount, 0),
+      closingBalance: runningBalance
+    };
+
+    res.json({
+      success: true,
+      supplier: {
+        id: supplier.id,
+        name: supplier.name
+      },
+      ledgerEntries,
+      summary
+    });
+  } catch (error) {
+    console.error('Error fetching supplier ledger:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch supplier ledger'
+    });
+  }
+});
+
+module.exports = router;

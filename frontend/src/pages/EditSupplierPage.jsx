@@ -16,7 +16,8 @@ const EditSupplierPage = () => {
         phone: '',
         address: '',
         balance: '0',
-        balanceType: 'we_owe' // 'we_owe' or 'they_owe'
+        balanceType: 'we_owe', // 'we_owe' or 'they_owe'
+        openingBalanceDate: new Date().toISOString().split('T')[0] // Default to today
     })
     const [loading, setLoading] = useState(false)
     const [fetching, setFetching] = useState(true)
@@ -47,6 +48,10 @@ const EditSupplierPage = () => {
                 const balanceType = openingBalance < 0 ? 'they_owe' : 'we_owe'
                 const balanceAmount = Math.abs(openingBalance)
 
+                // Get opening balance date from supplier (if stored) or use today as default
+                // Note: We'll need to fetch this from the first opening balance transaction if available
+                const openingBalanceDate = new Date().toISOString().split('T')[0] // Default to today, can be improved later
+
                 setFormData({
                     name: supplier.name || '',
                     contact: supplier.contact || '',
@@ -54,7 +59,8 @@ const EditSupplierPage = () => {
                     phone: supplier.phone || '',
                     address: supplier.address || '',
                     balance: balanceAmount.toString(),
-                    balanceType
+                    balanceType,
+                    openingBalanceDate
                 })
             } catch (error) {
                 console.error('Failed to fetch supplier:', error)
@@ -102,6 +108,10 @@ const EditSupplierPage = () => {
             newErrors.balance = 'Balance must be a valid number'
         }
 
+        if (formData.balance && parseFloat(formData.balance) > 0 && !formData.openingBalanceDate) {
+            newErrors.openingBalanceDate = 'Opening balance date is required when balance is set'
+        }
+
         setErrors(newErrors)
         return Object.keys(newErrors).length === 0
     }
@@ -123,12 +133,13 @@ const EditSupplierPage = () => {
                 : balanceAmount   // Positive if we owe supplier
 
             const payload = {
-                name: formData.name,
-                contact: formData.contact,
-                email: formData.email,
-                phone: formData.phone,
-                address: formData.address,
-                balance: actualBalance
+                name: formData.name.trim(),
+                contact: formData.contact?.trim() || null,
+                email: formData.email?.trim() || null,
+                phone: formData.phone?.trim() || null,
+                address: formData.address?.trim() || null,
+                balance: actualBalance,
+                openingBalanceDate: formData.openingBalanceDate || null
             }
 
             await api.put(`/accounting/suppliers/${supplierId}`, payload)
@@ -365,6 +376,28 @@ const EditSupplierPage = () => {
                                 </p>
                             </div>
                         </div>
+
+                        {/* Opening Balance Date */}
+                        {formData.balance && parseFloat(formData.balance) > 0 && (
+                            <div className="mt-4">
+                                <label htmlFor="openingBalanceDate" className="block text-sm font-medium text-gray-700 mb-1">
+                                    Opening Balance Date *
+                                </label>
+                                <input
+                                    type="date"
+                                    id="openingBalanceDate"
+                                    name="openingBalanceDate"
+                                    value={formData.openingBalanceDate}
+                                    onChange={handleInputChange}
+                                    className={`w-full px-3 py-2 bg-white text-gray-900 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${errors.openingBalanceDate ? 'border-red-300' : 'border-gray-300'
+                                        }`}
+                                />
+                                {errors.openingBalanceDate && <p className="mt-1 text-sm text-red-600">{errors.openingBalanceDate}</p>}
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Select the date when this opening balance was established
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Actions */}

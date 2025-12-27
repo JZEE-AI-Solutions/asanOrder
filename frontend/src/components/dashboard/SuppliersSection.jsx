@@ -14,7 +14,8 @@ import {
     Squares2X2Icon,
     ListBulletIcon,
     FunnelIcon,
-    PencilIcon
+    PencilIcon,
+    DocumentTextIcon
 } from '@heroicons/react/24/outline'
 
 const SuppliersSection = ({
@@ -229,6 +230,16 @@ const SuppliersSection = ({
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation()
+                                                navigate(`/business/suppliers/${supplier.id}/ledger`)
+                                            }}
+                                            className="p-2 text-green-600 hover:text-green-900 hover:bg-green-50 rounded-lg transition-colors"
+                                            title="View Ledger"
+                                        >
+                                            <DocumentTextIcon className="h-5 w-5" />
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
                                                 navigate(`/business/suppliers/${supplier.id}/edit`)
                                             }}
                                             className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
@@ -310,6 +321,16 @@ const SuppliersSection = ({
                                     {supplier.email || 'No email'}
                                 </span>
                                 <div className="flex items-center space-x-2">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation()
+                                            navigate(`/business/suppliers/${supplier.id}/ledger`)
+                                        }}
+                                        className="p-2 text-green-600 hover:text-green-900 hover:bg-green-50 rounded-lg transition-colors"
+                                        title="View Ledger"
+                                    >
+                                        <DocumentTextIcon className="h-4 w-4" />
+                                    </button>
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation()

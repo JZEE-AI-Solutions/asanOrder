@@ -4,6 +4,56 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Search products by name (Business Owner only)
+router.get('/search/:query', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const { query } = req.params;
+
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const products = await prisma.product.findMany({
+      where: {
+        tenantId: tenant.id,
+        OR: [
+          { name: { contains: query, mode: 'insensitive' } },
+          { sku: { contains: query, mode: 'insensitive' } },
+          { category: { contains: query, mode: 'insensitive' } }
+        ]
+      },
+      orderBy: { name: 'asc' },
+      take: 10,
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        category: true,
+        sku: true,
+        currentQuantity: true,
+        lastPurchasePrice: true,
+        currentRetailPrice: true
+      }
+    });
+
+    res.json({
+      success: true,
+      products
+    });
+  } catch (error) {
+    console.error('Error searching products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to search products'
+    });
+  }
+});
+
 // Get recent products for a tenant (for form creation)
 router.get('/recent/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), async (req, res) => {
   try {

@@ -189,7 +189,8 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
         : `${extractedProducts.length} products saved successfully!`
       
       toast.success(message)
-      onProductsExtracted(extractedProducts, invoiceData)
+      // Pass both products and returns to the callback
+      onProductsExtracted(extractedProducts, extractedReturns, invoiceData)
     } catch (error) {
       console.error('Error saving products and returns:', error)
       console.error('Error response:', error.response?.data)
@@ -765,6 +766,18 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
                 >
                   Back
                 </button>
+                {onProductsExtracted && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onProductsExtracted(extractedProducts, extractedReturns, invoiceData)
+                      handleClose()
+                    }}
+                    className="btn-primary flex items-center bg-blue-600 hover:bg-blue-700"
+                  >
+                    Use in Form
+                  </button>
+                )}
                 <button
                   onClick={saveProducts}
                   className="btn-primary flex items-center"

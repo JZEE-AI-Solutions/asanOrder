@@ -45,7 +45,8 @@ import {
   LazyPaymentsPage,
   LazyAccountingReturnsPage,
   LazyAccountingSettingsPage,
-  LazyAccountLedgerPage
+  LazyAccountLedgerPage,
+  LazySupplierLedgerPage
 } from './components/LazyComponents'
 
 // Synchronous components
@@ -157,6 +158,14 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyEditSupplierPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/suppliers/:id/ledger" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazySupplierLedgerPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

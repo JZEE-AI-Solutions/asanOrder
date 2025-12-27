@@ -7,6 +7,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 import ModernLayout from '../components/ModernLayout'
 import { useTenant } from '../hooks'
+import PaymentAccountSelector from '../components/accounting/PaymentAccountSelector'
 
 const EditPurchasePage = () => {
   const navigate = useNavigate()
@@ -26,6 +27,13 @@ const EditPurchasePage = () => {
     paymentMethod: 'Cash'
   })
   const [processingPayment, setProcessingPayment] = useState(false)
+  const [returnHandlingMethod, setReturnHandlingMethod] = useState('REDUCE_AP')
+  const [returnRefundAccountId, setReturnRefundAccountId] = useState('')
+  // Product autocomplete state - store suggestions per field
+  const [productSuggestions, setProductSuggestions] = useState({})
+  const [showProductSuggestions, setShowProductSuggestions] = useState({})
+  const [productSearchTimeouts, setProductSearchTimeouts] = useState({})
+  const [lastSearchQueries, setLastSearchQueries] = useState({}) // Track last search to prevent duplicates
   
   const {
     register,
@@ -42,7 +50,8 @@ const EditPurchasePage = () => {
       invoiceDate: new Date().toISOString().split('T')[0],
       totalAmount: 0,
       notes: '',
-      items: [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }]
+      items: [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }],
+      returnItems: []
     }
   })
 
@@ -95,6 +104,29 @@ const EditPurchasePage = () => {
           setPayments([])
         }
 
+        // Extract return items from invoice
+        const returnItems = invoice.returns && invoice.returns.length > 0
+          ? invoice.returns.flatMap(ret => ret.returnItems.map(ri => ({
+              id: ri.id,
+              name: ri.productName || '',
+              productName: ri.productName || '',
+              quantity: ri.quantity || 1,
+              purchasePrice: ri.purchasePrice || 0,
+              sku: ri.sku || '',
+              category: '',
+              description: ri.description || '',
+              reason: ri.reason || 'Purchase invoice return'
+            })))
+          : []
+
+        // Set return handling method and refund account from response
+        if (response.data.returnHandlingMethod) {
+          setReturnHandlingMethod(response.data.returnHandlingMethod)
+        }
+        if (response.data.returnRefundAccountId) {
+          setReturnRefundAccountId(response.data.returnRefundAccountId)
+        }
+
         // Pre-fill form with invoice data
         reset({
           invoiceNumber: invoice.invoiceNumber || '',
@@ -112,7 +144,8 @@ const EditPurchasePage = () => {
                 category: item.category || '',
                 description: item.description || ''
               }))
-            : [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }]
+            : [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }],
+          returnItems: returnItems
         })
       } catch (error) {
         console.error('Failed to fetch invoice:', error)
@@ -131,24 +164,38 @@ const EditPurchasePage = () => {
     name: 'items'
   })
 
-  const watchedItems = watch('items')
+  const { fields: returnFields, append: appendReturn, remove: removeReturn } = useFieldArray({
+    control,
+    name: 'returnItems'
+  })
 
-  // Calculate total amount from items
+  const watchedItems = watch('items')
+  const watchedReturnItems = watch('returnItems')
+
+  // Calculate total amount from items (purchases - returns)
   const calculateTotal = () => {
-    const total = watchedItems.reduce((sum, item) => {
+    const purchaseTotal = watchedItems.reduce((sum, item) => {
       const quantity = parseFloat(item?.quantity) || 0
       const price = parseFloat(item?.purchasePrice) || 0
       return sum + (quantity * price)
     }, 0)
-    setValue('totalAmount', total.toFixed(2))
-    return total
+    
+    const returnTotal = (watchedReturnItems || []).reduce((sum, item) => {
+      const quantity = parseFloat(item?.quantity) || 0
+      const price = parseFloat(item?.purchasePrice) || 0
+      return sum + (quantity * price)
+    }, 0)
+    
+    const netTotal = purchaseTotal - returnTotal
+    setValue('totalAmount', Math.max(0, netTotal).toFixed(2))
+    return { purchaseTotal, returnTotal, netTotal }
   }
 
-  // Update total when items change
+  // Update total when items or return items change
   useEffect(() => {
     calculateTotal()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [watchedItems])
+  }, [watchedItems, watchedReturnItems])
 
   const addItem = () => {
     append({ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' })
@@ -240,13 +287,45 @@ const EditPurchasePage = () => {
       return
     }
 
+    // Validate return items
+    const validReturnItems = (data.returnItems || []).filter(item => 
+      item.name?.trim() && 
+      parseFloat(item.quantity) > 0 && 
+      parseFloat(item.purchasePrice) >= 0
+    )
+
+    // Calculate totals
+    const totals = calculateTotal()
+    const purchaseTotal = totals.purchaseTotal
+    const returnTotal = totals.returnTotal
+    const netTotal = totals.netTotal
+
+    // Validate net amount
+    if (returnTotal > purchaseTotal) {
+      toast.error(`Return total (Rs. ${returnTotal.toFixed(2)}) cannot exceed purchase total (Rs. ${purchaseTotal.toFixed(2)})`)
+      return
+    }
+
+    // Validate return handling method if return items exist
+    if (validReturnItems.length > 0) {
+      if (!returnHandlingMethod) {
+        toast.error('Please select a return handling method')
+        return
+      }
+      
+      if (returnHandlingMethod === 'REFUND' && !returnRefundAccountId) {
+        toast.error('Please select a refund account for returns')
+        return
+      }
+    }
+
     setIsSubmitting(true)
     try {
       const payload = {
         invoiceNumber: data.invoiceNumber?.trim() || undefined,
         supplierName: data.supplierName || null,
         invoiceDate: data.invoiceDate,
-        totalAmount: parseFloat(data.totalAmount) || calculateTotal(),
+        totalAmount: netTotal, // Net amount (purchases - returns)
         notes: data.notes || null,
         products: validItems.map(item => {
           // Use newCategory if it exists, otherwise use category
@@ -263,7 +342,20 @@ const EditPurchasePage = () => {
             category: categoryValue,
             description: item.description?.trim() || null
           }
-        })
+        }),
+        returnItems: validReturnItems.length > 0 ? validReturnItems.map(item => ({
+          id: item.id, // Include id for existing return items
+          name: item.name.trim(),
+          productName: item.name.trim(),
+          quantity: parseInt(item.quantity),
+          purchasePrice: parseFloat(item.purchasePrice),
+          sku: item.sku?.trim() || null,
+          category: item.category?.trim() || null,
+          description: item.description?.trim() || null,
+          reason: item.reason || 'Purchase invoice return'
+        })) : [],
+        returnHandlingMethod: validReturnItems.length > 0 ? returnHandlingMethod : undefined,
+        returnRefundAccountId: validReturnItems.length > 0 && returnHandlingMethod === 'REFUND' ? returnRefundAccountId : undefined
       }
 
       await api.put(`/purchase-invoice/${invoiceId}/with-products`, payload)
@@ -350,7 +442,7 @@ const EditPurchasePage = () => {
 
               <div className="form-group">
                 <label className="block text-sm font-bold text-gray-900 mb-2">
-                  Total Amount (Rs.) *
+                  Net Amount (Rs.) *
                 </label>
                 <input
                   {...register('totalAmount', { 
@@ -367,7 +459,18 @@ const EditPurchasePage = () => {
                 {errors.totalAmount && (
                   <p className="text-red-500 text-xs mt-1">{errors.totalAmount.message}</p>
                 )}
-                <p className="text-xs text-gray-600 mt-1">Auto-calculated from items</p>
+                {(() => {
+                  const totals = calculateTotal()
+                  return (
+                    <div className="text-xs text-gray-600 mt-1 space-y-1">
+                      <p>Purchase Total: Rs. {totals.purchaseTotal.toFixed(2)}</p>
+                      {totals.returnTotal > 0 && (
+                        <p className="text-red-600">Return Total: -Rs. {totals.returnTotal.toFixed(2)}</p>
+                      )}
+                      <p className="font-semibold">Net Amount: Rs. {totals.netTotal.toFixed(2)}</p>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 
@@ -420,18 +523,162 @@ const EditPurchasePage = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div className="form-group">
+                      <div className="form-group relative">
                         <label className="block text-sm font-bold text-gray-900 mb-2">
                           Product Name *
                         </label>
                         <input
                           {...register(`items.${index}.name`, { 
                             required: 'Product name is required',
-                            onChange: () => setTimeout(() => calculateTotal(), 100)
+                            onChange: (e) => {
+                              const productName = e.target.value.trim()
+                              const fieldKey = `items.${index}`
+                              
+                              // Clear previous timeout
+                              if (productSearchTimeouts[fieldKey]) {
+                                clearTimeout(productSearchTimeouts[fieldKey])
+                                delete productSearchTimeouts[fieldKey]
+                              }
+                              
+                              // Update total calculation
+                              setTimeout(() => calculateTotal(), 100)
+                              
+                              if (productName.length >= 2) {
+                                // Check if we already have results for this query
+                                const lastQuery = lastSearchQueries[fieldKey]
+                                if (lastQuery === productName && productSuggestions[fieldKey]?.length > 0) {
+                                  // Already searched for this, just show suggestions
+                                  setShowProductSuggestions(prev => ({
+                                    ...prev,
+                                    [fieldKey]: true
+                                  }))
+                                  return
+                                }
+                                
+                                // Debounce search - wait 500ms after user stops typing
+                                const timeout = setTimeout(async () => {
+                                  // Double-check query hasn't changed
+                                  const currentValue = watch(`items.${index}.name`)?.trim()
+                                  if (currentValue !== productName) {
+                                    return // Query changed, ignore this result
+                                  }
+                                  
+                                  try {
+                                    const response = await api.get(`/products/search/${encodeURIComponent(productName)}`)
+                                    if (response.data.success) {
+                                      setLastSearchQueries(prev => ({
+                                        ...prev,
+                                        [fieldKey]: productName
+                                      }))
+                                      setProductSuggestions(prev => ({
+                                        ...prev,
+                                        [fieldKey]: response.data.products || []
+                                      }))
+                                      setShowProductSuggestions(prev => ({
+                                        ...prev,
+                                        [fieldKey]: true
+                                      }))
+                                    }
+                                  } catch (error) {
+                                    // Silently fail - don't spam console
+                                    if (error.code !== 'ERR_CANCELED' && error.code !== 'ERR_INSUFFICIENT_RESOURCES') {
+                                      console.error('Error searching products:', error)
+                                    }
+                                    setProductSuggestions(prev => ({
+                                      ...prev,
+                                      [fieldKey]: []
+                                    }))
+                                  }
+                                }, 500)
+                                setProductSearchTimeouts(prev => ({
+                                  ...prev,
+                                  [fieldKey]: timeout
+                                }))
+                              } else {
+                                setProductSuggestions(prev => {
+                                  const newState = { ...prev }
+                                  delete newState[fieldKey]
+                                  return newState
+                                })
+                                setShowProductSuggestions(prev => {
+                                  const newState = { ...prev }
+                                  delete newState[fieldKey]
+                                  return newState
+                                })
+                                setLastSearchQueries(prev => {
+                                  const newState = { ...prev }
+                                  delete newState[fieldKey]
+                                  return newState
+                                })
+                              }
+                            }
                           })}
                           className="input-field bg-white text-gray-900 border-2"
-                          placeholder="Enter product name"
+                          placeholder="Type to search products..."
+                          autoComplete="off"
+                          onFocus={() => {
+                            const productName = watch(`items.${index}.name`)?.trim()
+                            const fieldKey = `items.${index}`
+                            if (productName && productName.length >= 2 && productSuggestions[fieldKey]?.length > 0) {
+                              setShowProductSuggestions(prev => ({
+                                ...prev,
+                                [fieldKey]: true
+                              }))
+                            }
+                          }}
+                          onBlur={() => {
+                            const fieldKey = `items.${index}`
+                            // Delay hiding suggestions to allow click on suggestion
+                            setTimeout(() => {
+                              setShowProductSuggestions(prev => ({
+                                ...prev,
+                                [fieldKey]: false
+                              }))
+                            }, 200)
+                          }}
                         />
+                        {/* Product Autocomplete Dropdown */}
+                        {showProductSuggestions[`items.${index}`] && productSuggestions[`items.${index}`]?.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {productSuggestions[`items.${index}`].map((product) => (
+                              <div
+                                key={product.id}
+                                className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                onClick={() => {
+                                  setValue(`items.${index}.name`, product.name)
+                                  if (product.lastPurchasePrice) {
+                                    setValue(`items.${index}.purchasePrice`, product.lastPurchasePrice)
+                                  }
+                                  if (product.category) {
+                                    setValue(`items.${index}.category`, product.category)
+                                  }
+                                  if (product.sku) {
+                                    setValue(`items.${index}.sku`, product.sku)
+                                  }
+                                  if (product.description) {
+                                    setValue(`items.${index}.description`, product.description)
+                                  }
+                                  setShowProductSuggestions(prev => ({
+                                    ...prev,
+                                    [`items.${index}`]: false
+                                  }))
+                                  setTimeout(() => calculateTotal(), 100)
+                                }}
+                              >
+                                <div className="font-medium text-gray-900">{product.name}</div>
+                                {product.category && (
+                                  <div className="text-xs text-gray-500">Category: {product.category}</div>
+                                )}
+                                {product.lastPurchasePrice && (
+                                  <div className="text-xs text-gray-500">Last Price: Rs. {product.lastPurchasePrice.toFixed(2)}</div>
+                                )}
+                                {product.currentQuantity !== undefined && (
+                                  <div className="text-xs text-gray-500">Stock: {product.currentQuantity}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {itemErrors?.name && (
                           <p className="text-red-500 text-xs mt-1">{itemErrors.name.message}</p>
                         )}
@@ -577,6 +824,358 @@ const EditPurchasePage = () => {
                   </div>
                 )
               })}
+            </div>
+          </div>
+
+          {/* Return Items Section */}
+          <div className="card p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">Return Items</h2>
+              <button
+                type="button"
+                onClick={() => appendReturn({ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '', reason: 'Purchase invoice return' })}
+                className="btn-secondary flex items-center text-sm"
+              >
+                <PlusIcon className="h-4 w-4 mr-1" />
+                Add Return Item
+              </button>
+            </div>
+
+            {/* Return Handling Method */}
+            {returnFields.length > 0 && (
+              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Return Handling Method <span className="text-red-500">*</span>
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="returnHandlingMethod"
+                      value="REDUCE_AP"
+                      checked={returnHandlingMethod === 'REDUCE_AP'}
+                      onChange={(e) => {
+                        setReturnHandlingMethod(e.target.value)
+                        setReturnRefundAccountId('')
+                      }}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">Reduce Accounts Payable (deducts from what we owe supplier)</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      name="returnHandlingMethod"
+                      value="REFUND"
+                      checked={returnHandlingMethod === 'REFUND'}
+                      onChange={(e) => setReturnHandlingMethod(e.target.value)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm text-gray-700">Refund to Account (supplier refunds money)</span>
+                  </label>
+                </div>
+                {returnHandlingMethod === 'REFUND' && (
+                  <div className="mt-3">
+                    <PaymentAccountSelector
+                      value={returnRefundAccountId}
+                      onChange={(accountId) => setReturnRefundAccountId(accountId)}
+                      showQuickAdd={true}
+                      required={true}
+                      className="w-full"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              {returnFields.map((field, index) => {
+                const returnItemErrors = errors.returnItems?.[index]
+                const returnItem = watchedReturnItems?.[index]
+                const returnItemTotal = (parseFloat(returnItem?.quantity) || 0) * (parseFloat(returnItem?.purchasePrice) || 0)
+
+                return (
+                  <div key={field.id} className="border rounded-lg p-4 bg-red-50 border-red-200">
+                    <div className="flex justify-between items-center mb-3">
+                      <h5 className="font-semibold text-red-900">Return Item {index + 1}</h5>
+                      <button
+                        type="button"
+                        onClick={() => removeReturn(index)}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        <TrashIcon className="h-5 w-5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="form-group relative">
+                        <label className="block text-sm font-bold text-gray-900 mb-2">
+                          Product Name <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          {...register(`returnItems.${index}.name`, { 
+                            required: 'Product name is required',
+                            onChange: (e) => {
+                              const productName = e.target.value.trim()
+                              const fieldKey = `returnItems.${index}`
+                              
+                              // Clear previous timeout
+                              if (productSearchTimeouts[fieldKey]) {
+                                clearTimeout(productSearchTimeouts[fieldKey])
+                                delete productSearchTimeouts[fieldKey]
+                              }
+                              
+                              // Update total calculation
+                              setTimeout(() => calculateTotal(), 100)
+                              
+                              if (productName.length >= 2) {
+                                // Check if we already have results for this query
+                                const lastQuery = lastSearchQueries[fieldKey]
+                                if (lastQuery === productName && productSuggestions[fieldKey]?.length > 0) {
+                                  // Already searched for this, just show suggestions
+                                  setShowProductSuggestions(prev => ({
+                                    ...prev,
+                                    [fieldKey]: true
+                                  }))
+                                  return
+                                }
+                                
+                                // Debounce search - wait 500ms after user stops typing
+                                const timeout = setTimeout(async () => {
+                                  // Double-check query hasn't changed
+                                  const currentValue = watch(`items.${index}.name`)?.trim()
+                                  if (currentValue !== productName) {
+                                    return // Query changed, ignore this result
+                                  }
+                                  
+                                  try {
+                                    const response = await api.get(`/products/search/${encodeURIComponent(productName)}`)
+                                    if (response.data.success) {
+                                      setLastSearchQueries(prev => ({
+                                        ...prev,
+                                        [fieldKey]: productName
+                                      }))
+                                      setProductSuggestions(prev => ({
+                                        ...prev,
+                                        [fieldKey]: response.data.products || []
+                                      }))
+                                      setShowProductSuggestions(prev => ({
+                                        ...prev,
+                                        [fieldKey]: true
+                                      }))
+                                    }
+                                  } catch (error) {
+                                    // Silently fail - don't spam console
+                                    if (error.code !== 'ERR_CANCELED' && error.code !== 'ERR_INSUFFICIENT_RESOURCES') {
+                                      console.error('Error searching products:', error)
+                                    }
+                                    setProductSuggestions(prev => ({
+                                      ...prev,
+                                      [fieldKey]: []
+                                    }))
+                                  }
+                                }, 500)
+                                setProductSearchTimeouts(prev => ({
+                                  ...prev,
+                                  [fieldKey]: timeout
+                                }))
+                              } else {
+                                setProductSuggestions(prev => {
+                                  const newState = { ...prev }
+                                  delete newState[fieldKey]
+                                  return newState
+                                })
+                                setShowProductSuggestions(prev => {
+                                  const newState = { ...prev }
+                                  delete newState[fieldKey]
+                                  return newState
+                                })
+                                setLastSearchQueries(prev => {
+                                  const newState = { ...prev }
+                                  delete newState[fieldKey]
+                                  return newState
+                                })
+                              }
+                            }
+                          })}
+                          className={`input-field bg-white text-gray-900 border-2 ${
+                            returnItemErrors?.name ? 'border-red-300' : ''
+                          }`}
+                          placeholder="Type to search products..."
+                          autoComplete="off"
+                          onFocus={() => {
+                            const productName = watch(`returnItems.${index}.name`)?.trim()
+                            const fieldKey = `returnItems.${index}`
+                            if (productName && productName.length >= 2 && productSuggestions[fieldKey]?.length > 0) {
+                              setShowProductSuggestions(prev => ({
+                                ...prev,
+                                [fieldKey]: true
+                              }))
+                            }
+                          }}
+                          onBlur={() => {
+                            const fieldKey = `returnItems.${index}`
+                            // Delay hiding suggestions to allow click on suggestion
+                            setTimeout(() => {
+                              setShowProductSuggestions(prev => ({
+                                ...prev,
+                                [fieldKey]: false
+                              }))
+                            }, 200)
+                          }}
+                        />
+                        {/* Product Autocomplete Dropdown */}
+                        {showProductSuggestions[`returnItems.${index}`] && productSuggestions[`returnItems.${index}`]?.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                            {productSuggestions[`returnItems.${index}`].map((product) => (
+                              <div
+                                key={product.id}
+                                className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                onClick={() => {
+                                  setValue(`returnItems.${index}.name`, product.name)
+                                  if (product.lastPurchasePrice) {
+                                    setValue(`returnItems.${index}.purchasePrice`, product.lastPurchasePrice)
+                                  }
+                                  if (product.category) {
+                                    setValue(`returnItems.${index}.category`, product.category)
+                                  }
+                                  if (product.sku) {
+                                    setValue(`returnItems.${index}.sku`, product.sku)
+                                  }
+                                  if (product.description) {
+                                    setValue(`returnItems.${index}.description`, product.description)
+                                  }
+                                  setShowProductSuggestions(prev => ({
+                                    ...prev,
+                                    [`returnItems.${index}`]: false
+                                  }))
+                                  setTimeout(() => calculateTotal(), 100)
+                                }}
+                              >
+                                <div className="font-medium text-gray-900">{product.name}</div>
+                                {product.category && (
+                                  <div className="text-xs text-gray-500">Category: {product.category}</div>
+                                )}
+                                {product.lastPurchasePrice && (
+                                  <div className="text-xs text-gray-500">Last Price: Rs. {product.lastPurchasePrice.toFixed(2)}</div>
+                                )}
+                                {product.currentQuantity !== undefined && (
+                                  <div className="text-xs text-gray-500">Stock: {product.currentQuantity}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {returnItemErrors?.name && (
+                          <p className="text-red-500 text-xs mt-1">{returnItemErrors.name.message}</p>
+                        )}
+                      </div>
+
+                      <div className="form-group">
+                        <label className="block text-sm font-bold text-gray-900 mb-2">
+                          Quantity <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          {...register(`returnItems.${index}.quantity`, { 
+                            required: 'Quantity is required',
+                            min: { value: 1, message: 'Quantity must be at least 1' },
+                            onChange: () => setTimeout(() => calculateTotal(), 100)
+                          })}
+                          type="number"
+                          min="1"
+                          className={`input-field bg-white text-gray-900 border-2 ${
+                            returnItemErrors?.quantity ? 'border-red-300' : ''
+                          }`}
+                          placeholder="0"
+                        />
+                        {returnItemErrors?.quantity && (
+                          <p className="text-red-500 text-xs mt-1">{returnItemErrors.quantity.message}</p>
+                        )}
+                      </div>
+
+                      <div className="form-group">
+                        <label className="block text-sm font-bold text-gray-900 mb-2">
+                          Purchase Price (Rs.) <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          {...register(`returnItems.${index}.purchasePrice`, { 
+                            required: 'Purchase price is required',
+                            min: { value: 0, message: 'Price must be positive' },
+                            onChange: () => setTimeout(() => calculateTotal(), 100)
+                          })}
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className={`input-field bg-white text-gray-900 border-2 ${
+                            returnItemErrors?.purchasePrice ? 'border-red-300' : ''
+                          }`}
+                          placeholder="0.00"
+                        />
+                        {returnItemErrors?.purchasePrice && (
+                          <p className="text-red-500 text-xs mt-1">{returnItemErrors.purchasePrice.message}</p>
+                        )}
+                      </div>
+
+                      <div className="form-group">
+                        <label className="block text-sm font-bold text-gray-900 mb-2">
+                          SKU
+                        </label>
+                        <input
+                          {...register(`returnItems.${index}.sku`)}
+                          className="input-field bg-white text-gray-900 border-2"
+                          placeholder="Enter SKU (optional)"
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label className="block text-sm font-bold text-gray-900 mb-2">
+                          Category
+                        </label>
+                        <select
+                          {...register(`returnItems.${index}.category`)}
+                          className="input-field bg-white text-gray-900 border-2"
+                        >
+                          <option value="">Select category</option>
+                          {categories.map((cat) => (
+                            <option key={cat} value={cat}>
+                              {cat}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="form-group">
+                        <label className="block text-sm font-bold text-gray-900 mb-2">
+                          Return Total (Rs.)
+                        </label>
+                        <input
+                          type="text"
+                          value={returnItemTotal.toFixed(2)}
+                          className="input-field bg-gray-100 text-gray-900 border-2"
+                          readOnly
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-group mt-4">
+                      <label className="block text-sm font-bold text-gray-900 mb-2">
+                        Description
+                      </label>
+                      <textarea
+                        {...register(`returnItems.${index}.description`)}
+                        className="input-field bg-white text-gray-900 border-2"
+                        rows={2}
+                        placeholder="Enter return description (optional)"
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+              {returnFields.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No return items added. Click "Add Return Item" to add returns.</p>
+                </div>
+              )}
             </div>
           </div>
 

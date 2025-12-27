@@ -6,7 +6,7 @@ const InventoryService = require('../services/inventoryService');
 const profitService = require('../services/profitService');
 const accountingService = require('../services/accountingService');
 const balanceService = require('../services/balanceService');
-const { generateInvoiceNumber } = require('../utils/invoiceNumberGenerator');
+const { generateInvoiceNumber, generateReturnNumber } = require('../utils/invoiceNumberGenerator');
 
 const router = express.Router();
 
@@ -47,11 +47,18 @@ router.get('/test-auth', authenticateToken, requireRole(['BUSINESS_OWNER']), (re
 router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER']), [
   body('invoiceNumber').optional().trim(),
   body('invoiceDate').isISO8601(),
-  body('totalAmount').isFloat({ min: 0 }),
-  body('products').isArray({ min: 1 }),
-  body('products.*.name').trim().notEmpty(),
-  body('products.*.purchasePrice').isFloat({ min: 0 }),
-  body('products.*.quantity').isInt({ min: 1 }),
+  body('totalAmount').isFloat(), // Allow negative for return-only invoices (netAmount is recalculated anyway)
+  body('products').optional().isArray(),
+  body('products.*.name').optional().trim().notEmpty(),
+  body('products.*.purchasePrice').optional().isFloat({ min: 0 }),
+  body('products.*.quantity').optional().isInt({ min: 1 }),
+  body('returnItems').optional().isArray(),
+  body('returnItems.*.name').optional().trim().notEmpty(),
+  body('returnItems.*.productName').optional().trim().notEmpty(),
+  body('returnItems.*.purchasePrice').optional().isFloat({ min: 0 }),
+  body('returnItems.*.quantity').optional().isInt({ min: 1 }),
+  body('returnHandlingMethod').optional().isIn(['REDUCE_AP', 'REFUND']),
+  body('returnRefundAccountId').optional().trim(),
   body('supplierName').optional().trim(),
   body('notes').optional().trim()
 ], async (req, res) => {
@@ -70,7 +77,71 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    let { invoiceNumber, invoiceDate, totalAmount, products, supplierName, supplierId, paymentAmount, paymentAccountId, notes, useAdvanceBalance, advanceAmountUsed } = req.body;
+    let { invoiceNumber, invoiceDate, totalAmount, products, returnItems, returnHandlingMethod, returnRefundAccountId, supplierName, supplierId, paymentAmount, paymentAccountId, notes, useAdvanceBalance, advanceAmountUsed } = req.body;
+    
+    // Normalize returnItems - handle both 'name' and 'productName' fields
+    const normalizedReturnItems = (returnItems || []).map(item => ({
+      ...item,
+      productName: item.productName || item.name,
+      name: item.name || item.productName
+    }));
+    
+    // Calculate purchase total and return total
+    const purchaseTotal = (products || []).reduce((sum, p) => sum + (parseFloat(p.purchasePrice || 0) * parseInt(p.quantity || 0)), 0);
+    const returnTotal = normalizedReturnItems.reduce((sum, r) => sum + (parseFloat(r.purchasePrice || 0) * parseInt(r.quantity || 0)), 0);
+    const netAmount = purchaseTotal - returnTotal;
+    
+    // Validate: Must have at least products OR returnItems
+    if ((!products || products.length === 0) && normalizedReturnItems.length === 0) {
+      return res.status(400).json({ 
+        error: 'At least one product (purchase or return) is required' 
+      });
+    }
+    
+    // Validate net amount is not negative only if there are purchase items
+    // If only return items exist, netAmount can be negative (pure return transaction)
+    if ((products || []).length > 0 && netAmount < 0) {
+      return res.status(400).json({ 
+        error: `Return total (Rs. ${returnTotal.toFixed(2)}) cannot exceed purchase total (Rs. ${purchaseTotal.toFixed(2)})` 
+      });
+    }
+    
+    // Validate return handling method if return items exist
+    if (normalizedReturnItems.length > 0) {
+      if (!returnHandlingMethod || !['REDUCE_AP', 'REFUND'].includes(returnHandlingMethod)) {
+        return res.status(400).json({ 
+          error: 'Return handling method is required when return items are present. Must be either "REDUCE_AP" or "REFUND".' 
+        });
+      }
+      
+      if (returnHandlingMethod === 'REFUND' && !returnRefundAccountId) {
+        return res.status(400).json({ 
+          error: 'Return refund account is required when return handling method is "REFUND".' 
+        });
+      }
+      
+      // Validate return refund account exists and is Cash/Bank type
+      if (returnHandlingMethod === 'REFUND') {
+        const refundAccount = await prisma.account.findFirst({
+          where: {
+            id: returnRefundAccountId,
+            tenantId: tenant.id,
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
+        });
+        
+        if (!refundAccount) {
+          return res.status(400).json({
+            error: 'Invalid return refund account. Account must be a Cash or Bank account.'
+          });
+        }
+      }
+    }
+    
+    // Use net amount as totalAmount (purchases - returns)
+    // For pure return transactions (only return items), use absolute value
+    totalAmount = Math.abs(netAmount);
     
     // Validate payment amount if provided
     let paidAmount = paymentAmount ? parseFloat(paymentAmount) : 0;
@@ -129,16 +200,28 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       }
     }
     
-    // Validate total payment (advance + cash/bank) doesn't exceed total amount
-    const totalPayment = paidAmount + actualAdvanceUsed;
-    if (totalPayment > totalAmount) {
-      return res.status(400).json({ 
-        error: `Total payment (Rs. ${totalPayment.toFixed(2)}) exceeds invoice total (Rs. ${totalAmount.toFixed(2)})` 
-      });
-    }
-    
-    if (paidAmount < 0 || paidAmount > totalAmount) {
-      return res.status(400).json({ error: 'Payment amount must be between 0 and total amount' });
+    // For return-only invoices (netAmount < 0), payment should be 0
+    // Returns are handled via returnHandlingMethod (REDUCE_AP or REFUND)
+    if (netAmount < 0) {
+      // This is a return-only invoice - no payment should be made
+      if (paidAmount > 0 || actualAdvanceUsed > 0) {
+        return res.status(400).json({ 
+          error: 'Payment cannot be made for return-only invoices. Returns are handled via the return handling method.' 
+        });
+      }
+    } else {
+      // Regular purchase invoice - validate payment against positive total amount
+      // Validate total payment (advance + cash/bank) doesn't exceed total amount
+      const totalPayment = paidAmount + actualAdvanceUsed;
+      if (totalPayment > totalAmount) {
+        return res.status(400).json({ 
+          error: `Total payment (Rs. ${totalPayment.toFixed(2)}) exceeds invoice total (Rs. ${totalAmount.toFixed(2)})` 
+        });
+      }
+      
+      if (paidAmount < 0 || paidAmount > totalAmount) {
+        return res.status(400).json({ error: 'Payment amount must be between 0 and total amount' });
+      }
     }
 
     // Auto-generate invoice number if not provided
@@ -159,7 +242,7 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       return res.status(400).json({ error: 'Invoice number already exists' });
     }
 
-    // Create purchase invoice with products in a transaction
+    // Create purchase invoice with products and returns in a transaction
     const result = await prisma.$transaction(async (tx) => {
       // Create the purchase invoice
       const purchaseInvoice = await tx.purchaseInvoice.create({
@@ -168,7 +251,7 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
           supplierName: supplierName || null,
           supplierId: finalSupplierId,
           invoiceDate: new Date(invoiceDate),
-          totalAmount: totalAmount,
+          totalAmount: totalAmount, // Net amount (purchases - returns)
           paymentAmount: paidAmount > 0 ? paidAmount : null,
           paymentMethod: paidAmount > 0 ? (paymentAccountId ? await getPaymentMethodFromAccount(paymentAccountId, tenant.id) : null) : null,
           notes: notes || null,
@@ -176,32 +259,78 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
         }
       });
 
-      // Create purchase items using createMany for better performance
-      const purchaseItemsData = products.map((product) => ({
-        name: product.name,
-        description: product.description || null,
-        purchasePrice: product.purchasePrice,
-        quantity: product.quantity,
-        category: product.category || null,
-        sku: product.sku || null,
-        image: product.image || null,
-        imageData: product.imageData || null,
-        imageType: product.imageType || null,
-        tenantId: tenant.id,
-        purchaseInvoiceId: purchaseInvoice.id
-      }));
+      // Create purchase items using createMany for better performance (only if products exist)
+      let purchaseItems = [];
+      if (products && products.length > 0) {
+        const purchaseItemsData = products.map((product) => ({
+          name: product.name,
+          description: product.description || null,
+          purchasePrice: product.purchasePrice,
+          quantity: product.quantity,
+          category: product.category || null,
+          sku: product.sku || null,
+          image: product.image || null,
+          imageData: product.imageData || null,
+          imageType: product.imageType || null,
+          tenantId: tenant.id,
+          purchaseInvoiceId: purchaseInvoice.id
+        }));
 
-      // Use createMany instead of individual creates
-      await tx.purchaseItem.createMany({
-        data: purchaseItemsData
-      });
+        // Use createMany instead of individual creates
+        await tx.purchaseItem.createMany({
+          data: purchaseItemsData
+        });
 
-      // Get the created purchase items
-      const purchaseItems = await tx.purchaseItem.findMany({
-        where: { purchaseInvoiceId: purchaseInvoice.id }
-      });
+        // Get the created purchase items
+        purchaseItems = await tx.purchaseItem.findMany({
+          where: { purchaseInvoiceId: purchaseInvoice.id }
+        });
+      }
 
-      return { purchaseInvoice, purchaseItems };
+      // Create return records if return items exist
+      let returnRecord = null;
+      let createdReturnItems = [];
+      
+      if (normalizedReturnItems.length > 0) {
+        // Generate return number
+        const returnNumber = await generateReturnNumber(tenant.id);
+        
+        // Create Return record
+        returnRecord = await tx.return.create({
+          data: {
+            returnNumber: returnNumber,
+            reason: 'Purchase invoice return',
+            returnDate: new Date(invoiceDate),
+            totalAmount: returnTotal,
+            returnType: 'SUPPLIER',
+            notes: `Return processed from purchase invoice ${invoiceNumber}`,
+            tenantId: tenant.id,
+            purchaseInvoiceId: purchaseInvoice.id
+          }
+        });
+
+        // Create return items
+        const returnItemsData = normalizedReturnItems.map((item) => ({
+          productName: item.productName || item.name,
+          description: item.description || null,
+          purchasePrice: item.purchasePrice,
+          quantity: item.quantity,
+          reason: item.reason || 'Purchase invoice return',
+          sku: item.sku || null,
+          returnId: returnRecord.id
+        }));
+
+        await tx.returnItem.createMany({
+          data: returnItemsData
+        });
+
+        // Get the created return items
+        createdReturnItems = await tx.returnItem.findMany({
+          where: { returnId: returnRecord.id }
+        });
+      }
+
+      return { purchaseInvoice, purchaseItems, returnRecord, returnItems: createdReturnItems };
     }, {
       timeout: 30000, // 30 seconds timeout
       maxWait: 10000  // 10 seconds max wait
@@ -221,17 +350,31 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
         });
       }
 
-      // Calculate amounts: totalAmount = paidAmount (cash/bank) + actualAdvanceUsed + unpaidAmount
-      const unpaidAmount = totalAmount - paidAmount - actualAdvanceUsed;
+      // Calculate amounts: totalAmount (net) = purchaseTotal - returnTotal
+      // For purchases: unpaidAmount = purchaseTotal - paidAmount - actualAdvanceUsed
+      // Note: totalAmount is net (purchases - returns), but payment is only for purchases
+      // For pure return transactions (no purchases), unpaidAmount should be 0
+      const unpaidAmount = Math.max(0, purchaseTotal - paidAmount - actualAdvanceUsed);
       const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
       const transactionLines = [];
 
-      // Always debit Inventory
-      transactionLines.push({
-        accountId: inventoryAccount.id,
-        debitAmount: totalAmount,
-        creditAmount: 0
-      });
+      // Debit Inventory for purchases (only if there are purchases)
+      if (purchaseTotal > 0) {
+        transactionLines.push({
+          accountId: inventoryAccount.id,
+          debitAmount: purchaseTotal,
+          creditAmount: 0
+        });
+      }
+      
+      // Credit Inventory for returns (new logic)
+      if (returnTotal > 0) {
+        transactionLines.push({
+          accountId: inventoryAccount.id,
+          debitAmount: 0,
+          creditAmount: returnTotal
+        });
+      }
 
       // If advance balance is used, credit Advance to Suppliers (reducing the asset - we're using the advance we paid them)
       if (actualAdvanceUsed > 0) {
@@ -305,13 +448,58 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
         });
       }
 
+      // Handle return accounting entries (new logic)
+      if (returnTotal > 0) {
+        if (returnHandlingMethod === 'REDUCE_AP') {
+          // Credit Inventory (already added above), Debit AP
+          let apAccount = await accountingService.getAccountByCode('2000', tenant.id);
+          if (!apAccount) {
+            apAccount = await accountingService.getOrCreateAccount({
+              code: '2000',
+              name: 'Accounts Payable',
+              type: 'LIABILITY',
+              tenantId: tenant.id,
+              balance: 0
+            });
+          }
+          
+          transactionLines.push({
+            accountId: apAccount.id,
+            debitAmount: returnTotal,
+            creditAmount: 0
+          });
+        } else if (returnHandlingMethod === 'REFUND') {
+          // Credit Inventory (already added above), Debit Cash/Bank
+          const refundAccount = await prisma.account.findFirst({
+            where: {
+              id: returnRefundAccountId,
+              tenantId: tenant.id
+            }
+          });
+          
+          if (refundAccount) {
+            transactionLines.push({
+              accountId: refundAccount.id,
+              debitAmount: returnTotal,
+              creditAmount: 0
+            });
+          }
+        }
+      }
+
       // Create transaction
       let description = `Purchase Invoice: ${invoiceNumber}${supplierName ? ` - ${supplierName}` : ''}`;
+      if (purchaseTotal > 0) {
+        description += ` (Purchases: Rs. ${purchaseTotal.toFixed(2)})`;
+      }
+      if (returnTotal > 0) {
+        description += ` (Returns: Rs. ${returnTotal.toFixed(2)})`;
+      }
       if (paidAmount > 0) {
-        description += ` (Paid: Rs. ${paidAmount})`;
+        description += ` (Paid: Rs. ${paidAmount.toFixed(2)})`;
       }
       if (actualAdvanceUsed > 0) {
-        description += ` (Advance Used: Rs. ${actualAdvanceUsed})`;
+        description += ` (Advance Used: Rs. ${actualAdvanceUsed.toFixed(2)})`;
       }
       
       await accountingService.createTransaction(
@@ -410,17 +598,31 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
     }
 
     // Update inventory using the inventory service (outside transaction)
-    await InventoryService.updateInventoryFromPurchase(
-      tenant.id,
-      result.purchaseItems,
-      result.purchaseInvoice.id,
-      invoiceNumber
-    );
+    // Update inventory for purchases (only if there are purchase items)
+    if (result.purchaseItems && result.purchaseItems.length > 0) {
+      await InventoryService.updateInventoryFromPurchase(
+        tenant.id,
+        result.purchaseItems,
+        result.purchaseInvoice.id,
+        invoiceNumber
+      );
+    }
+
+    // Update inventory for returns (new logic)
+    if (result.returnItems && result.returnItems.length > 0) {
+      await InventoryService.decreaseInventoryFromReturn(
+        tenant.id,
+        result.returnItems,
+        result.purchaseInvoice.id,
+        invoiceNumber
+      );
+    }
 
     res.status(201).json({
       message: 'Purchase invoice created successfully',
       invoice: result.purchaseInvoice,
-      items: result.purchaseItems
+      items: result.purchaseItems,
+      returnItems: result.returnItems || []
     });
 
   } catch (error) {
@@ -575,6 +777,28 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
             productId: true
           }
         },
+        returns: {
+          where: {
+            returnType: 'SUPPLIER'
+          },
+          include: {
+            returnItems: {
+              select: {
+                id: true,
+                productName: true,
+                description: true,
+                purchasePrice: true,
+                quantity: true,
+                reason: true,
+                sku: true,
+                createdAt: true
+              }
+            }
+          },
+          orderBy: {
+            createdAt: 'desc'
+          }
+        },
         supplier: {
           include: {
             payments: {
@@ -609,7 +833,14 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
             date: true,
             amount: true,
             paymentMethod: true,
-            supplierId: true
+            supplierId: true,
+            accountId: true,
+            account: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
           }
         },
         _count: {
@@ -633,9 +864,63 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
       // Don't fail the request if profit calculation fails
     }
 
+    // Determine return handling method from accounting entries
+    // This is a best-effort approach - we check the transaction lines to see if returns were handled via AP or Cash/Bank
+    let returnHandlingMethod = null;
+    let returnRefundAccountId = null;
+    
+    if (purchaseInvoice.returns && purchaseInvoice.returns.length > 0) {
+      try {
+        // Get transactions for this invoice
+        const transactions = await prisma.transaction.findMany({
+          where: {
+            purchaseInvoiceId: id,
+            tenantId: tenant.id
+          },
+          include: {
+            transactionLines: {
+              include: {
+                account: true
+              }
+            }
+          }
+        });
+        
+        // Look for return-related entries (Credit Inventory, Debit AP or Cash/Bank)
+        for (const txn of transactions) {
+          const inventoryCredits = txn.transactionLines.filter(line => 
+            line.account.code === '1300' && line.creditAmount > 0
+          );
+          const apDebits = txn.transactionLines.filter(line => 
+            line.account.code === '2000' && line.debitAmount > 0
+          );
+          const cashBankDebits = txn.transactionLines.filter(line => 
+            (line.account.accountSubType === 'CASH' || line.account.accountSubType === 'BANK') && 
+            line.debitAmount > 0
+          );
+          
+          if (inventoryCredits.length > 0) {
+            // Returns exist - determine method
+            if (apDebits.length > 0 && apDebits[0].debitAmount === inventoryCredits[0].creditAmount) {
+              returnHandlingMethod = 'REDUCE_AP';
+            } else if (cashBankDebits.length > 0 && cashBankDebits[0].debitAmount === inventoryCredits[0].creditAmount) {
+              returnHandlingMethod = 'REFUND';
+              returnRefundAccountId = cashBankDebits[0].account.id;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error determining return handling method:', error);
+        // Default to REDUCE_AP if we can't determine
+        returnHandlingMethod = 'REDUCE_AP';
+      }
+    }
+
     res.json({ 
       purchaseInvoice,
-      profit: profitData
+      profit: profitData,
+      returnHandlingMethod: returnHandlingMethod,
+      returnRefundAccountId: returnRefundAccountId
     });
   } catch (error) {
     console.error('Get purchase invoice error:', error);
@@ -1060,7 +1345,14 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
   body('products').optional().isArray(),
   body('products.*.name').optional().trim().notEmpty(),
   body('products.*.purchasePrice').optional().isFloat({ min: 0 }),
-  body('products.*.quantity').optional().isInt({ min: 1 })
+  body('products.*.quantity').optional().isInt({ min: 1 }),
+  body('returnItems').optional().isArray(),
+  body('returnItems.*.name').optional().trim().notEmpty(),
+  body('returnItems.*.productName').optional().trim().notEmpty(),
+  body('returnItems.*.purchasePrice').optional().isFloat({ min: 0 }),
+  body('returnItems.*.quantity').optional().isInt({ min: 1 }),
+  body('returnHandlingMethod').optional().isIn(['REDUCE_AP', 'REFUND']),
+  body('returnRefundAccountId').optional().trim()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -1072,7 +1364,59 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
     }
 
     const { id } = req.params;
-    const { invoiceNumber, invoiceDate, totalAmount, supplierName, notes, products } = req.body;
+    const { invoiceNumber, invoiceDate, totalAmount, supplierName, notes, products, returnItems, returnHandlingMethod, returnRefundAccountId } = req.body;
+    
+    // Normalize returnItems - handle both 'name' and 'productName' fields
+    const normalizedReturnItems = (returnItems || []).map(item => ({
+      ...item,
+      productName: item.productName || item.name,
+      name: item.name || item.productName
+    }));
+    
+    // Calculate purchase total and return total
+    const purchaseTotal = (products || []).reduce((sum, p) => sum + (parseFloat(p.purchasePrice || 0) * parseInt(p.quantity || 0)), 0);
+    const returnTotal = normalizedReturnItems.reduce((sum, r) => sum + (parseFloat(r.purchasePrice || 0) * parseInt(r.quantity || 0)), 0);
+    const netAmount = purchaseTotal - returnTotal;
+    
+    // Validate net amount is not negative
+    if (netAmount < 0) {
+      return res.status(400).json({ 
+        error: `Return total (Rs. ${returnTotal.toFixed(2)}) cannot exceed purchase total (Rs. ${purchaseTotal.toFixed(2)})` 
+      });
+    }
+    
+    // Validate return handling method if return items exist
+    if (normalizedReturnItems.length > 0) {
+      if (!returnHandlingMethod || !['REDUCE_AP', 'REFUND'].includes(returnHandlingMethod)) {
+        return res.status(400).json({ 
+          error: 'Return handling method is required when return items are present. Must be either "REDUCE_AP" or "REFUND".' 
+        });
+      }
+      
+      if (returnHandlingMethod === 'REFUND' && !returnRefundAccountId) {
+        return res.status(400).json({ 
+          error: 'Return refund account is required when return handling method is "REFUND".' 
+        });
+      }
+      
+      // Validate return refund account exists and is Cash/Bank type
+      if (returnHandlingMethod === 'REFUND') {
+        const refundAccount = await prisma.account.findFirst({
+          where: {
+            id: returnRefundAccountId,
+            tenantId: tenant.id,
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
+        });
+        
+        if (!refundAccount) {
+          return res.status(400).json({
+            error: 'Invalid return refund account. Account must be a Cash or Bank account.'
+          });
+        }
+      }
+    }
 
     // Get tenant for the business owner
     const tenant = await prisma.tenant.findUnique({
@@ -1092,6 +1436,14 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
       include: {
         purchaseItems: {
           where: { isDeleted: false }
+        },
+        returns: {
+          where: {
+            returnType: 'SUPPLIER'
+          },
+          include: {
+            returnItems: true
+          }
         }
       }
     });
@@ -1102,9 +1454,49 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
 
     // Store old values for comparison
     const oldPurchaseItems = JSON.parse(JSON.stringify(existingInvoice.purchaseItems));
-    const oldTotalAmount = existingInvoice.totalAmount;
-    const newTotalAmount = totalAmount ? parseFloat(totalAmount) : oldTotalAmount;
-    const amountDifference = newTotalAmount - oldTotalAmount;
+    const oldReturnItems = existingInvoice.returns && existingInvoice.returns.length > 0
+      ? existingInvoice.returns.flatMap(r => r.returnItems.map(ri => ({ ...ri, returnId: r.id })))
+      : [];
+    const oldPurchaseTotal = oldPurchaseItems.reduce((sum, p) => sum + (parseFloat(p.purchasePrice || 0) * parseInt(p.quantity || 0)), 0);
+    const oldReturnTotal = oldReturnItems.reduce((sum, r) => sum + (parseFloat(r.purchasePrice || 0) * parseInt(r.quantity || 0)), 0);
+    const oldNetAmount = oldPurchaseTotal - oldReturnTotal;
+    const newPurchaseTotal = purchaseTotal;
+    const newReturnTotal = returnTotal;
+    const newNetAmount = netAmount;
+    const netAmountDifference = newNetAmount - oldNetAmount;
+    
+    // Use net amount as totalAmount if not provided
+    const finalTotalAmount = totalAmount !== undefined ? parseFloat(totalAmount) : newNetAmount;
+
+    // Create or find supplier if supplierName is provided
+    let finalSupplierId = existingInvoice.supplierId || null;
+    if (supplierName !== undefined && supplierName && supplierName.trim()) {
+      // Try to find existing supplier by name
+      let supplier = await prisma.supplier.findFirst({
+        where: {
+          tenantId: tenant.id,
+          name: {
+            equals: supplierName.trim(),
+            mode: 'insensitive'
+          }
+        }
+      });
+
+      // If not found, create new supplier
+      if (!supplier) {
+        supplier = await prisma.supplier.create({
+          data: {
+            name: supplierName.trim(),
+            tenantId: tenant.id,
+            balance: 0
+          }
+        });
+      }
+      finalSupplierId = supplier.id;
+    } else if (supplierName !== undefined && (!supplierName || !supplierName.trim())) {
+      // Clear supplier if supplierName is empty
+      finalSupplierId = null;
+    }
 
     // Update invoice and products in a transaction
     const result = await prisma.$transaction(async (tx) => {
@@ -1114,8 +1506,9 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
         data: {
           ...(invoiceNumber && { invoiceNumber }),
           ...(invoiceDate && { invoiceDate: new Date(invoiceDate) }),
-          ...(totalAmount && { totalAmount: parseFloat(totalAmount) }),
-          ...(supplierName !== undefined && { supplierName: supplierName || null }),
+          ...(totalAmount !== undefined && { totalAmount: finalTotalAmount }),
+          ...(supplierName !== undefined && { supplierName: supplierName ? supplierName.trim() : null }),
+          ...(finalSupplierId !== undefined && { supplierId: finalSupplierId }),
           ...(notes !== undefined && { notes: notes || null })
         }
       });
@@ -1201,17 +1594,172 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
           where: { purchaseInvoiceId: id, isDeleted: false }
         });
 
-        return { purchaseInvoice: updatedInvoice, purchaseItems: allPurchaseItems };
+        // Handle return items if provided
+        let allReturnItems = [];
+        if (returnItems !== undefined) {
+          // Get existing return records for this invoice
+          const existingReturns = await tx.return.findMany({
+            where: {
+              purchaseInvoiceId: id,
+              returnType: 'SUPPLIER'
+            },
+            include: {
+              returnItems: true
+            }
+          });
+
+          // Create a map of existing return items by id
+          const existingReturnItemsMap = new Map();
+          existingReturns.forEach(ret => {
+            ret.returnItems.forEach(item => {
+              existingReturnItemsMap.set(item.id, { ...item, returnId: ret.id });
+            });
+          });
+
+          // Process return items
+          const returnItemsToCreate = [];
+          const returnItemsToUpdate = [];
+          const returnItemsToDelete = [];
+
+          for (const returnItem of normalizedReturnItems) {
+            if (returnItem.id && existingReturnItemsMap.has(returnItem.id)) {
+              // Update existing return item
+              returnItemsToUpdate.push({
+                id: returnItem.id,
+                data: {
+                  productName: returnItem.productName || returnItem.name,
+                  description: returnItem.description || null,
+                  purchasePrice: parseFloat(returnItem.purchasePrice),
+                  quantity: parseInt(returnItem.quantity),
+                  reason: returnItem.reason || 'Purchase invoice return',
+                  sku: returnItem.sku || null
+                }
+              });
+              existingReturnItemsMap.delete(returnItem.id);
+            } else {
+              // New return item to create
+              // Find or create return record
+              let returnRecord = existingReturns[0];
+              if (!returnRecord) {
+                const returnNumber = await generateReturnNumber(tenant.id);
+                returnRecord = await tx.return.create({
+                  data: {
+                    returnNumber: returnNumber,
+                    reason: 'Purchase invoice return',
+                    returnDate: new Date(invoiceDate || existingInvoice.invoiceDate),
+                    totalAmount: returnTotal,
+                    returnType: 'SUPPLIER',
+                    notes: `Return processed from purchase invoice ${invoiceNumber || existingInvoice.invoiceNumber}`,
+                    tenantId: tenant.id,
+                    purchaseInvoiceId: id
+                  }
+                });
+              } else if (returnTotal > 0) {
+                // Update existing return record total
+                await tx.return.update({
+                  where: { id: returnRecord.id },
+                  data: {
+                    totalAmount: returnTotal,
+                    returnDate: invoiceDate ? new Date(invoiceDate) : undefined
+                  }
+                });
+              }
+
+              returnItemsToCreate.push({
+                productName: returnItem.productName || returnItem.name,
+                description: returnItem.description || null,
+                purchasePrice: parseFloat(returnItem.purchasePrice),
+                quantity: parseInt(returnItem.quantity),
+                reason: returnItem.reason || 'Purchase invoice return',
+                sku: returnItem.sku || null,
+                returnId: returnRecord.id
+              });
+            }
+          }
+
+          // Delete return items that exist but weren't in the update list
+          existingReturnItemsMap.forEach((item) => {
+            returnItemsToDelete.push(item.id);
+          });
+
+          // Delete return items
+          if (returnItemsToDelete.length > 0) {
+            await tx.returnItem.deleteMany({
+              where: { id: { in: returnItemsToDelete } }
+            });
+          }
+
+          // Update return items
+          for (const itemUpdate of returnItemsToUpdate) {
+            await tx.returnItem.update({
+              where: { id: itemUpdate.id },
+              data: itemUpdate.data
+            });
+          }
+
+          // Create new return items
+          if (returnItemsToCreate.length > 0) {
+            await tx.returnItem.createMany({
+              data: returnItemsToCreate
+            });
+          }
+
+          // Delete return records if no return items remain
+          if (normalizedReturnItems.length === 0 && existingReturns.length > 0) {
+            for (const ret of existingReturns) {
+              await tx.returnItem.deleteMany({
+                where: { returnId: ret.id }
+              });
+              await tx.return.delete({
+                where: { id: ret.id }
+              });
+            }
+          }
+
+          // Get all return items (including new ones)
+          const allReturns = await tx.return.findMany({
+            where: {
+              purchaseInvoiceId: id,
+              returnType: 'SUPPLIER'
+            },
+            include: {
+              returnItems: true
+            }
+          });
+          allReturnItems = allReturns.flatMap(r => r.returnItems);
+        } else {
+          // Return items not provided - keep existing
+          allReturnItems = oldReturnItems;
+        }
+
+        return { purchaseInvoice: updatedInvoice, purchaseItems: allPurchaseItems, returnItems: allReturnItems };
       }
 
-      return { purchaseInvoice: updatedInvoice, purchaseItems: existingInvoice.purchaseItems };
+      // If products not provided, get existing return items
+      let allReturnItems = oldReturnItems;
+      if (returnItems !== undefined) {
+        // Handle return items even if products not provided
+        const existingReturns = await tx.return.findMany({
+          where: {
+            purchaseInvoiceId: id,
+            returnType: 'SUPPLIER'
+          },
+          include: {
+            returnItems: true
+          }
+        });
+        allReturnItems = existingReturns.flatMap(r => r.returnItems);
+      }
+
+      return { purchaseInvoice: updatedInvoice, purchaseItems: existingInvoice.purchaseItems, returnItems: allReturnItems };
     }, {
       timeout: 30000,
       maxWait: 10000
     });
 
-    // Create accounting adjustment entries if total amount changed
-    if (Math.abs(amountDifference) > 0.01) {
+    // Create accounting adjustment entries for purchase items (existing logic - PRESERVED)
+    const purchaseAmountDifference = newPurchaseTotal - oldPurchaseTotal;
+    if (Math.abs(purchaseAmountDifference) > 0.01) {
       try {
         // Get or create accounts
         const inventoryAccount = await accountingService.getAccountByCode('1300', tenant.id) ||
@@ -1234,18 +1782,18 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
 
         const invoiceNum = result.purchaseInvoice.invoiceNumber || existingInvoice.invoiceNumber;
 
-        // 1. Create purchase invoice amount adjustment
-        const transactionNumber = `TXN-ADJ-${new Date().getFullYear()}-${Date.now()}`;
-        const description = `Purchase Invoice Adjustment: ${invoiceNum} (${amountDifference > 0 ? 'Increase' : 'Decrease'}: Rs. ${Math.abs(amountDifference).toFixed(2)})`;
+        // Create purchase invoice amount adjustment (existing logic)
+        const transactionNumber = `TXN-ADJ-PURCHASE-${new Date().getFullYear()}-${Date.now()}`;
+        const description = `Purchase Invoice Adjustment (Purchases): ${invoiceNum} (${purchaseAmountDifference > 0 ? 'Increase' : 'Decrease'}: Rs. ${Math.abs(purchaseAmountDifference).toFixed(2)})`;
 
         const transactionLines = [];
 
         // Adjust Inventory
-        if (amountDifference > 0) {
+        if (purchaseAmountDifference > 0) {
           // Increase: Debit Inventory
           transactionLines.push({
             accountId: inventoryAccount.id,
-            debitAmount: amountDifference,
+            debitAmount: purchaseAmountDifference,
             creditAmount: 0
           });
         } else {
@@ -1253,23 +1801,23 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
           transactionLines.push({
             accountId: inventoryAccount.id,
             debitAmount: 0,
-            creditAmount: Math.abs(amountDifference)
+            creditAmount: Math.abs(purchaseAmountDifference)
           });
         }
 
         // Adjust Accounts Payable (opposite of inventory)
-        if (amountDifference > 0) {
+        if (purchaseAmountDifference > 0) {
           // Increase: Credit AP (we owe more)
           transactionLines.push({
             accountId: apAccount.id,
             debitAmount: 0,
-            creditAmount: amountDifference
+            creditAmount: purchaseAmountDifference
           });
         } else {
           // Decrease: Debit AP (we owe less)
           transactionLines.push({
             accountId: apAccount.id,
-            debitAmount: Math.abs(amountDifference),
+            debitAmount: Math.abs(purchaseAmountDifference),
             creditAmount: 0
           });
         }
@@ -1286,14 +1834,190 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
           transactionLines
         );
 
-        console.log(`✅ Accounting adjustment entry created for purchase invoice ${invoiceNum}: Rs. ${amountDifference > 0 ? '+' : ''}${amountDifference.toFixed(2)}`);
+        console.log(`✅ Purchase accounting adjustment entry created for purchase invoice ${invoiceNum}: Rs. ${purchaseAmountDifference > 0 ? '+' : ''}${purchaseAmountDifference.toFixed(2)}`);
       } catch (accountingError) {
-        console.error('❌ Error creating accounting adjustment entry:', accountingError);
+        console.error('❌ Error creating purchase accounting adjustment entry:', accountingError);
         // Don't fail the update if accounting adjustment fails, but log it
       }
     }
 
-    // Update inventory if products were modified
+    // Create accounting adjustment entries for return items (new logic)
+    const returnAmountDifference = newReturnTotal - oldReturnTotal;
+    if (Math.abs(returnAmountDifference) > 0.01 || (returnItems !== undefined && returnHandlingMethod)) {
+      try {
+        // Get or create accounts
+        const inventoryAccount = await accountingService.getAccountByCode('1300', tenant.id) ||
+          await accountingService.getOrCreateAccount({
+            code: '1300',
+            name: 'Inventory',
+            type: 'ASSET',
+            tenantId: tenant.id,
+            balance: 0
+          });
+
+        const apAccount = await accountingService.getAccountByCode('2000', tenant.id) ||
+          await accountingService.getOrCreateAccount({
+            code: '2000',
+            name: 'Accounts Payable',
+            type: 'LIABILITY',
+            tenantId: tenant.id,
+            balance: 0
+          });
+
+        const invoiceNum = result.purchaseInvoice.invoiceNumber || existingInvoice.invoiceNumber;
+
+        // Determine old return handling method from existing transactions
+        let oldReturnHandlingMethod = 'REDUCE_AP'; // Default
+        let oldReturnRefundAccountId = null;
+        
+        if (oldReturnTotal > 0) {
+          try {
+            const oldTransactions = await prisma.transaction.findMany({
+              where: {
+                purchaseInvoiceId: id,
+                tenantId: tenant.id
+              },
+              include: {
+                transactionLines: {
+                  include: {
+                    account: true
+                  }
+                }
+              }
+            });
+
+            for (const txn of oldTransactions) {
+              const inventoryCredits = txn.transactionLines.filter(line => 
+                line.account.code === '1300' && line.creditAmount > 0
+              );
+              const apDebits = txn.transactionLines.filter(line => 
+                line.account.code === '2000' && line.debitAmount > 0
+              );
+              const cashBankDebits = txn.transactionLines.filter(line => 
+                (line.account.accountSubType === 'CASH' || line.account.accountSubType === 'BANK') && 
+                line.debitAmount > 0
+              );
+              
+              if (inventoryCredits.length > 0) {
+                if (apDebits.length > 0 && Math.abs(apDebits[0].debitAmount - inventoryCredits[0].creditAmount) < 0.01) {
+                  oldReturnHandlingMethod = 'REDUCE_AP';
+                } else if (cashBankDebits.length > 0 && Math.abs(cashBankDebits[0].debitAmount - inventoryCredits[0].creditAmount) < 0.01) {
+                  oldReturnHandlingMethod = 'REFUND';
+                  oldReturnRefundAccountId = cashBankDebits[0].account.id;
+                }
+                break;
+              }
+            }
+          } catch (error) {
+            console.error('Error determining old return handling method:', error);
+          }
+        }
+
+        // Check if return handling method changed
+        const methodChanged = returnHandlingMethod && returnHandlingMethod !== oldReturnHandlingMethod;
+        const returnTotalChanged = Math.abs(returnAmountDifference) > 0.01;
+
+        if (returnTotalChanged || methodChanged) {
+          // Reverse old return accounting (if returns existed)
+          if (oldReturnTotal > 0) {
+            const reverseTransactionNumber = `TXN-ADJ-RETURN-REVERSE-${new Date().getFullYear()}-${Date.now()}`;
+            const reverseDescription = `Purchase Invoice Return Adjustment (Reverse): ${invoiceNum} (Rs. ${oldReturnTotal.toFixed(2)})`;
+            const reverseTransactionLines = [];
+
+            // Reverse: Debit Inventory (opposite of original Credit)
+            reverseTransactionLines.push({
+              accountId: inventoryAccount.id,
+              debitAmount: oldReturnTotal,
+              creditAmount: 0
+            });
+
+            // Reverse the old method
+            if (oldReturnHandlingMethod === 'REDUCE_AP') {
+              // Reverse: Credit AP (opposite of original Debit)
+              reverseTransactionLines.push({
+                accountId: apAccount.id,
+                debitAmount: 0,
+                creditAmount: oldReturnTotal
+              });
+            } else if (oldReturnHandlingMethod === 'REFUND' && oldReturnRefundAccountId) {
+              // Reverse: Credit Cash/Bank (opposite of original Debit)
+              reverseTransactionLines.push({
+                accountId: oldReturnRefundAccountId,
+                debitAmount: 0,
+                creditAmount: oldReturnTotal
+              });
+            }
+
+            await accountingService.createTransaction(
+              {
+                transactionNumber: reverseTransactionNumber,
+                date: new Date(),
+                description: reverseDescription,
+                tenantId: tenant.id,
+                purchaseInvoiceId: id
+              },
+              reverseTransactionLines
+            );
+          }
+
+          // Create new return accounting (if returns exist now)
+          if (newReturnTotal > 0) {
+            const newTransactionNumber = `TXN-ADJ-RETURN-${new Date().getFullYear()}-${Date.now()}`;
+            const newDescription = `Purchase Invoice Return Adjustment: ${invoiceNum} (Rs. ${newReturnTotal.toFixed(2)}, Method: ${returnHandlingMethod})`;
+            const newTransactionLines = [];
+
+            // Credit Inventory
+            newTransactionLines.push({
+              accountId: inventoryAccount.id,
+              debitAmount: 0,
+              creditAmount: newReturnTotal
+            });
+
+            // Debit based on new method
+            if (returnHandlingMethod === 'REDUCE_AP') {
+              newTransactionLines.push({
+                accountId: apAccount.id,
+                debitAmount: newReturnTotal,
+                creditAmount: 0
+              });
+            } else if (returnHandlingMethod === 'REFUND' && returnRefundAccountId) {
+              const refundAccount = await prisma.account.findFirst({
+                where: {
+                  id: returnRefundAccountId,
+                  tenantId: tenant.id
+                }
+              });
+              
+              if (refundAccount) {
+                newTransactionLines.push({
+                  accountId: refundAccount.id,
+                  debitAmount: newReturnTotal,
+                  creditAmount: 0
+                });
+              }
+            }
+
+            await accountingService.createTransaction(
+              {
+                transactionNumber: newTransactionNumber,
+                date: new Date(),
+                description: newDescription,
+                tenantId: tenant.id,
+                purchaseInvoiceId: id
+              },
+              newTransactionLines
+            );
+          }
+
+          console.log(`✅ Return accounting adjustment entry created for purchase invoice ${invoiceNum}: Old: Rs. ${oldReturnTotal.toFixed(2)} (${oldReturnHandlingMethod}), New: Rs. ${newReturnTotal.toFixed(2)} (${returnHandlingMethod || 'N/A'})`);
+        }
+      } catch (accountingError) {
+        console.error('❌ Error creating return accounting adjustment entry:', accountingError);
+        // Don't fail the update if accounting adjustment fails, but log it
+      }
+    }
+
+    // Update inventory if products were modified (existing logic - PRESERVED)
     if (products && Array.isArray(products)) {
       try {
         console.log('🔄 Calling updateInventoryFromPurchaseEdit with:');
@@ -1320,11 +2044,39 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
       }
     }
 
+    // Update inventory if return items were modified (new logic)
+    if (returnItems !== undefined) {
+      try {
+        console.log('🔄 Calling updateInventoryFromReturnEdit with:');
+        console.log('  - Old return items:', oldReturnItems.map(i => ({ id: i.id, productName: i.productName, quantity: i.quantity })));
+        console.log('  - New return items:', result.returnItems.map(i => ({ id: i.id, productName: i.productName, quantity: i.quantity })));
+        
+        const inventoryResult = await InventoryService.updateInventoryFromReturnEdit(
+          tenant.id,
+          oldReturnItems,
+          result.returnItems,
+          id,
+          result.purchaseInvoice.invoiceNumber || existingInvoice.invoiceNumber
+        );
+        
+        console.log('✅ Return inventory update result:', inventoryResult);
+      } catch (inventoryError) {
+        console.error('❌ Error updating inventory after return edit:', inventoryError);
+        console.error('Error stack:', inventoryError.stack);
+        // Return error to user so they know inventory update failed
+        return res.status(500).json({ 
+          error: 'Purchase invoice updated but return inventory update failed',
+          details: inventoryError.message 
+        });
+      }
+    }
+
     res.json({
       success: true,
       message: 'Purchase invoice updated successfully',
       purchaseInvoice: result.purchaseInvoice,
-      items: result.purchaseItems
+      items: result.purchaseItems,
+      returnItems: result.returnItems || []
     });
 
   } catch (error) {

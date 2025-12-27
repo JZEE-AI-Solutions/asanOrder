@@ -46,6 +46,7 @@ export const LazyPaymentsPage = lazy(() => import('../pages/accounting/PaymentsP
 export const LazyAccountingReturnsPage = lazy(() => import('../pages/accounting/ReturnsPage'))
 export const LazyAccountingSettingsPage = lazy(() => import('../pages/accounting/SettingsPage'))
 export const LazyAccountLedgerPage = lazy(() => import('../pages/accounting/AccountLedgerPage'))
+export const LazySupplierLedgerPage = lazy(() => import('../pages/SupplierLedgerPage'))
 export const LazyEnhancedProductModal = lazy(() => import('./EnhancedProductModal'))
 export const LazyInvoiceUploadModal = lazy(() => import('./InvoiceUploadModal'))
 export const LazyProductHistoryModal = lazy(() => import('./ProductHistoryModal'))

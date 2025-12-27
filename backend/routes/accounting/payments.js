@@ -210,7 +210,7 @@ router.post('/', authenticateToken, async (req, res) => {
         where: {
           id: paymentAccountId,
           tenantId,
-          type: 'ASSET',
+        type: 'ASSET',
           accountSubType: { in: ['CASH', 'BANK'] }
         }
       });
@@ -368,26 +368,26 @@ router.post('/', authenticateToken, async (req, res) => {
       let payment = null;
       if (cashPaymentAmount > 0) {
         payment = await tx.payment.create({
-          data: {
-            paymentNumber,
-            date: new Date(date),
-            type,
+        data: {
+          paymentNumber,
+          date: new Date(date),
+          type,
             amount: cashPaymentAmount, // Only cash/bank payment amount
             paymentMethod: paymentMethod || 'Cash',
-            tenantId,
-            customerId,
-            supplierId,
-            orderId,
-            orderReturnId,
-            purchaseInvoiceId: purchaseInvoiceId || null,
-            transactionId: transaction.id
-          },
-          include: {
-            customer: true,
-            supplier: true,
-            order: true
-          }
-        });
+          tenantId,
+          customerId,
+          supplierId,
+          orderId,
+          orderReturnId,
+          purchaseInvoiceId: purchaseInvoiceId || null,
+          transactionId: transaction.id
+        },
+        include: {
+          customer: true,
+          supplier: true,
+          order: true
+        }
+      });
       }
 
       // Update order payment amount if customer payment

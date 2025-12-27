@@ -1,6 +1,7 @@
 const { describe, test, expect, beforeAll, afterAll, beforeEach } = require('@jest/globals');
 const request = require('supertest');
 const prisma = require('../lib/db');
+const accountingService = require('../services/accountingService');
 const {
   createTestTenant,
   generateTestToken,
@@ -8,20 +9,14 @@ const {
   verifyAccountBalance,
   getSupplierBalance,
   getProductQuantity,
-  createTestApp
+  getPaymentAccount,
+  getAccountByCode,
+  createTestApp,
+  setTestAuth
 } = require('./helpers/testHelpers');
 
 // Create test app with mock auth
 const app = createTestApp();
-
-// Middleware to inject test user/tenant into requests
-const injectTestAuth = (user, tenant) => {
-  return (req, res, next) => {
-    req.testUser = user;
-    req.testTenant = tenant;
-    next();
-  };
-};
 
 // Test data
 let testUser;
@@ -39,6 +34,9 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     testTenant = tenant;
     authToken = generateTestToken(user, tenant);
     
+    // Set test user/tenant for app
+    setTestAuth(user, tenant);
+    
     console.log(`✅ Test tenant created: ${tenant.id}`);
   });
 
@@ -54,7 +52,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     test('should create supplier with Rs. 10,000 advance and verify accounting', async () => {
       const response = await request(app)
         .post('/accounting/suppliers')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           name: 'Supplier A - Advance',
           balanceType: 'they_owe',
@@ -80,7 +77,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     test('should create supplier with Rs. 15,000 pending and verify accounting', async () => {
       const response = await request(app)
         .post('/accounting/suppliers')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           name: 'Supplier B - Pending',
           balanceType: 'we_owe',
@@ -106,7 +102,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     test('should edit supplier A from advance to pending and verify accounting adjustment', async () => {
       const response = await request(app)
         .put(`/accounting/suppliers/${supplierAId}`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           name: 'Supplier A - Advance',
           balanceType: 'we_owe',
@@ -133,7 +128,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       // First, recreate supplier A with advance
       await request(app)
         .put(`/accounting/suppliers/${supplierAId}`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           name: 'Supplier A - Advance',
           balanceType: 'they_owe',
@@ -142,7 +136,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
 
       const response = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierAId,
           invoiceNumber: 'PI-001',
@@ -189,7 +182,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     test('should create purchase invoice with partial advance and cash payment', async () => {
       const response = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierAId,
           invoiceNumber: 'PI-002',
@@ -235,7 +227,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     test('should create purchase invoice with full cash payment', async () => {
       const response = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierBId,
           invoiceNumber: 'PI-003',
@@ -270,7 +261,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
     test('should create unpaid purchase invoice', async () => {
       const response = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierBId,
           invoiceNumber: 'PI-004',
@@ -315,7 +305,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
 
       const response = await request(app)
         .post('/accounting/payments')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           type: 'SUPPLIER_PAYMENT',
           supplierId: supplierBId,
@@ -344,7 +333,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
 
       const response = await request(app)
         .put(`/purchase-invoice/${invoice.id}/with-products`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           invoiceNumber: 'PI-001',
           invoiceDate: new Date().toISOString(),
@@ -378,7 +366,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
 
       const response = await request(app)
         .put(`/purchase-invoice/${invoice.id}/with-products`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           invoiceNumber: 'PI-002',
           invoiceDate: new Date().toISOString(),
@@ -417,7 +404,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       
       const response = await request(app)
         .put(`/accounting/payments/${cashPayment.id}`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           date: new Date().toISOString(),
           amount: 4000,
@@ -448,7 +434,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       
       const response = await request(app)
         .put(`/accounting/payments/${payment.id}`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           date: new Date().toISOString(),
           amount: 10000,
@@ -479,7 +464,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       
       const response = await request(app)
         .put(`/accounting/payments/${payment.id}`)
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           date: new Date().toISOString(),
           amount: 10000,
@@ -500,7 +484,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       // Create supplier C with advance
       const supplierResponse = await request(app)
         .post('/accounting/suppliers')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           name: 'Supplier C - Complex',
           balanceType: 'they_owe',
@@ -512,7 +495,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       // Purchase 1: Rs. 15,000 (full advance)
       const purchase1 = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierCId,
           invoiceNumber: 'PI-005',
@@ -527,7 +509,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       // Purchase 2: Rs. 8,000 (Rs. 5,000 advance + Rs. 3,000 cash)
       const purchase2 = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierCId,
           invoiceNumber: 'PI-006',
@@ -559,7 +540,6 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       // Create new purchase with existing product
       const response = await request(app)
         .post('/purchase-invoice/with-products')
-        .use(injectTestAuth(testUser, testTenant))
         .send({
           supplierId: supplierBId,
           invoiceNumber: 'PI-007',
@@ -580,6 +560,348 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       // Verify product balance increased
       const newQty = await getProductQuantity('Product X', testTenant.id);
       expect(newQty).toBe(initialQty + 5);
+    });
+  });
+
+  describe('Test Case 21: Purchase Invoice with Returns - Reduce AP Method', () => {
+    test('should create purchase invoice with returns using Reduce AP method', async () => {
+      // First create a product to return
+      await request(app)
+        .post('/purchase-invoice/with-products')
+        .send({
+          supplierId: supplierBId,
+          invoiceNumber: 'PI-PREP-001',
+          invoiceDate: new Date().toISOString(),
+          totalAmount: 10000,
+          products: [
+            {
+              name: 'Product Return A',
+              quantity: 10,
+              purchasePrice: 1000,
+              total: 10000
+            }
+          ]
+        });
+
+      // Now create purchase with returns
+      const response = await request(app)
+        .post('/purchase-invoice/with-products')
+        .send({
+          supplierId: supplierBId,
+          invoiceNumber: 'PI-008',
+          invoiceDate: new Date().toISOString(),
+          totalAmount: 10500, // Net amount (12500 - 2000)
+          products: [
+            {
+              name: 'Product A',
+              quantity: 10,
+              purchasePrice: 1000,
+              total: 10000
+            },
+            {
+              name: 'Product B',
+              quantity: 5,
+              purchasePrice: 500,
+              total: 2500
+            }
+          ],
+          returnItems: [
+            {
+              name: 'Product Return A',
+              productName: 'Product Return A',
+              quantity: 2,
+              purchasePrice: 1000,
+              reason: 'Purchase invoice return'
+            }
+          ],
+          returnHandlingMethod: 'REDUCE_AP'
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.returnItems).toBeDefined();
+      expect(response.body.returnItems.length).toBe(1);
+
+      // Verify return record created
+      const returnRecord = await prisma.return.findFirst({
+        where: {
+          purchaseInvoiceId: response.body.invoice.id,
+          returnType: 'SUPPLIER',
+          tenantId: testTenant.id
+        },
+        include: {
+          returnItems: true
+        }
+      });
+
+      expect(returnRecord).toBeDefined();
+      expect(returnRecord.returnItems.length).toBe(1);
+      expect(returnRecord.totalAmount).toBe(2000);
+
+      // Verify accounting impact
+      // Purchase: +12,500, Return: -2,000, Net: +10,500
+      await verifyAccountBalance('1300', testTenant.id, 66000); // Inventory (56k + 10.5k)
+      await verifyAccountBalance('2000', testTenant.id, 37500); // Accounts Payable (27k + 10.5k)
+
+      // Verify product quantities
+      const productAQty = await getProductQuantity('Product A', testTenant.id);
+      expect(productAQty).toBe(10);
+
+      const productBQty = await getProductQuantity('Product B', testTenant.id);
+      expect(productBQty).toBe(5);
+
+      const returnProductQty = await getProductQuantity('Product Return A', testTenant.id);
+      expect(returnProductQty).toBe(8); // 10 - 2
+
+      // Verify product logs
+      const returnProduct = await prisma.product.findFirst({
+        where: {
+          name: 'Product Return A',
+          tenantId: testTenant.id
+        },
+        include: {
+          productLogs: {
+            where: {
+              reason: { contains: 'Purchase return' }
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 1
+          }
+        }
+      });
+
+      expect(returnProduct).toBeDefined();
+      expect(returnProduct.productLogs.length).toBeGreaterThan(0);
+      expect(returnProduct.productLogs[0].action).toBe('DECREASE');
+    });
+  });
+
+  describe('Test Case 22: Purchase Invoice with Returns - Refund Method', () => {
+    test('should create purchase invoice with returns using Refund method', async () => {
+      // Get a cash account for refund
+      let cashAccount = await getPaymentAccount('CASH', testTenant.id);
+      
+      // Set initial balance if needed
+      if (cashAccount.balance === 0) {
+        await prisma.account.update({
+          where: { id: cashAccount.id },
+          data: { balance: 10000 }
+        });
+        cashAccount = await prisma.account.findUnique({ where: { id: cashAccount.id } });
+      }
+
+      const initialCashBalance = cashAccount.balance;
+
+      // Create purchase with returns using refund method
+      const response = await request(app)
+        .post('/purchase-invoice/with-products')
+        .send({
+          supplierId: supplierBId,
+          invoiceNumber: 'PI-009',
+          invoiceDate: new Date().toISOString(),
+          totalAmount: 5600, // Net amount (6400 - 800)
+          products: [
+            {
+              name: 'Product C',
+              quantity: 8,
+              purchasePrice: 800,
+              total: 6400
+            }
+          ],
+          returnItems: [
+            {
+              name: 'Product C',
+              productName: 'Product C',
+              quantity: 1,
+              purchasePrice: 800,
+              reason: 'Purchase invoice return'
+            }
+          ],
+          returnHandlingMethod: 'REFUND',
+          returnRefundAccountId: cashAccount.id
+        });
+
+      expect(response.status).toBe(201);
+
+      // Verify return record created
+      const returnRecord = await prisma.return.findFirst({
+        where: {
+          purchaseInvoiceId: response.body.invoice.id,
+          returnType: 'SUPPLIER',
+          tenantId: testTenant.id
+        }
+      });
+
+      expect(returnRecord).toBeDefined();
+      expect(returnRecord.totalAmount).toBe(800);
+
+      // Verify accounting impact
+      // Purchase: +6,400, Return: -800, Net: +5,600
+      await verifyAccountBalance('1300', testTenant.id, 71600); // Inventory (66k + 5.6k)
+      await verifyAccountBalance('2000', testTenant.id, 43100); // Accounts Payable (37.5k + 5.6k)
+
+      // Verify cash account decreased (refund)
+      const updatedCashAccount = await prisma.account.findUnique({
+        where: { id: cashAccount.id }
+      });
+      expect(updatedCashAccount.balance).toBe(initialCashBalance - 800);
+
+      // Verify product quantity
+      const productCQty = await getProductQuantity('Product C', testTenant.id);
+      expect(productCQty).toBe(7); // 8 - 1
+    });
+  });
+
+  describe('Test Case 25: Edit Purchase Invoice - Add Returns', () => {
+    test('should edit purchase invoice to add return items', async () => {
+      // Get existing invoice from Test Case 21
+      const invoice = await prisma.purchaseInvoice.findFirst({
+        where: {
+          invoiceNumber: 'PI-008',
+          tenantId: testTenant.id
+        },
+        include: {
+          purchaseItems: true,
+          returns: {
+            include: {
+              returnItems: true
+            }
+          }
+        }
+      });
+
+      expect(invoice).toBeDefined();
+
+      // Get initial balances for reference
+      await verifyAccountBalance('1300', testTenant.id, 66000);
+      await verifyAccountBalance('2000', testTenant.id, 37500);
+
+      // Edit invoice to add return item
+      const response = await request(app)
+        .put(`/purchase-invoice/${invoice.id}/with-products`)
+        .send({
+          invoiceNumber: 'PI-008',
+          products: invoice.purchaseItems.map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            purchasePrice: item.purchasePrice,
+            sku: item.sku || null,
+            category: item.category || null,
+            description: item.description || null
+          })),
+          returnItems: [
+            ...invoice.returns[0].returnItems.map(ri => ({
+              id: ri.id,
+              name: ri.productName,
+              productName: ri.productName,
+              quantity: ri.quantity,
+              purchasePrice: ri.purchasePrice,
+              reason: ri.reason || 'Purchase invoice return'
+            })),
+            {
+              name: 'Product B',
+              productName: 'Product B',
+              quantity: 1,
+              purchasePrice: 500,
+              reason: 'Additional return'
+            }
+          ],
+          returnHandlingMethod: 'REDUCE_AP'
+        });
+
+      expect(response.status).toBe(200);
+
+      // Verify accounting adjustment
+      // Additional return: -500
+      await verifyAccountBalance('1300', testTenant.id, 65500); // Inventory (66k - 500)
+      await verifyAccountBalance('2000', testTenant.id, 37000); // Accounts Payable (37.5k - 500)
+
+      // Verify product quantity
+      const productBQty = await getProductQuantity('Product B', testTenant.id);
+      expect(productBQty).toBe(4); // 5 - 1
+    });
+  });
+
+  describe('Test Case 27: Edit Purchase Invoice - Change Return Handling Method', () => {
+    test('should edit purchase invoice to change return handling method', async () => {
+      // Get a cash account for refund
+      let cashAccount = await getPaymentAccount('CASH', testTenant.id);
+      
+      // Set initial balance if needed
+      if (cashAccount.balance === 0) {
+        await prisma.account.update({
+          where: { id: cashAccount.id },
+          data: { balance: 10000 }
+        });
+        cashAccount = await prisma.account.findUnique({ where: { id: cashAccount.id } });
+      }
+
+      const initialCashBalance = cashAccount.balance;
+
+      // Get invoice with returns
+      const invoice = await prisma.purchaseInvoice.findFirst({
+        where: {
+          invoiceNumber: 'PI-008',
+          tenantId: testTenant.id
+        },
+        include: {
+          purchaseItems: true,
+          returns: {
+            include: {
+              returnItems: true
+            }
+          }
+        }
+      });
+
+      expect(invoice).toBeDefined();
+      expect(invoice.returns.length).toBeGreaterThan(0);
+
+      const returnTotal = invoice.returns[0].returnItems.reduce((sum, ri) => 
+        sum + (ri.quantity * ri.purchasePrice), 0
+      );
+
+      // Change return handling method from REDUCE_AP to REFUND
+      const response = await request(app)
+        .put(`/purchase-invoice/${invoice.id}/with-products`)
+        .send({
+          invoiceNumber: 'PI-008',
+          products: invoice.purchaseItems.map(item => ({
+            id: item.id,
+            name: item.name,
+            quantity: item.quantity,
+            purchasePrice: item.purchasePrice,
+            sku: item.sku || null,
+            category: item.category || null,
+            description: item.description || null
+          })),
+          returnItems: invoice.returns[0].returnItems.map(ri => ({
+            id: ri.id,
+            name: ri.productName,
+            productName: ri.productName,
+            quantity: ri.quantity,
+            purchasePrice: ri.purchasePrice,
+            reason: ri.reason || 'Purchase invoice return'
+          })),
+          returnHandlingMethod: 'REFUND',
+          returnRefundAccountId: cashAccount ? cashAccount.id : null
+        });
+
+      expect(response.status).toBe(200);
+
+      // Verify accounting adjustment
+      // Old method reversed: AP increased by return total
+      // New method applied: Cash decreased by return total
+      if (cashAccount) {
+        const updatedCashAccount = await prisma.account.findUnique({
+          where: { id: cashAccount.id }
+        });
+        // Cash should decrease by return total (refund)
+        expect(updatedCashAccount.balance).toBeLessThan(initialCashBalance);
+      }
+
+      // AP should increase (no longer reduced by returns)
+      await verifyAccountBalance('2000', testTenant.id, 37500); // AP should be back to original + return total
     });
   });
 });

@@ -69,6 +69,18 @@ function generateTestToken(user, tenant) {
   );
 }
 
+// Global test user/tenant for app
+let globalTestUser = null;
+let globalTestTenant = null;
+
+/**
+ * Set global test user/tenant for app
+ */
+function setTestAuth(user, tenant) {
+  globalTestUser = user;
+  globalTestTenant = tenant;
+}
+
 /**
  * Create a test app with routes and mock auth
  */
@@ -78,15 +90,28 @@ function createTestApp() {
   app.use(express.json());
 
   // Mock authentication middleware for tests
+  // This function checks globals dynamically on each request (not captured in closure)
   const mockAuth = (req, res, next) => {
-    // This will be set by individual tests
-    if (req.testUser && req.testTenant) {
+    // Always check current global values (not captured)
+    const currentUser = globalTestUser;
+    const currentTenant = globalTestTenant;
+    
+    if (currentUser && currentTenant) {
       req.user = {
-        ...req.testUser,
-        tenant: req.testTenant
+        id: currentUser.id,
+        email: currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role,
+        tenant: currentTenant
       };
       return next();
     }
+    console.error('Test auth failed:', {
+      hasUser: !!currentUser,
+      hasTenant: !!currentTenant,
+      userId: currentUser?.id,
+      tenantId: currentTenant?.id
+    });
     return res.status(401).json({ error: 'Test authentication required' });
   };
 
@@ -112,9 +137,12 @@ async function cleanupTestData(tenantId) {
     await prisma.transactionLine.deleteMany({ where: { transaction: { tenantId } } });
     await prisma.transaction.deleteMany({ where: { tenantId } });
     await prisma.payment.deleteMany({ where: { tenantId } });
+    await prisma.returnItem.deleteMany({ where: { return: { tenantId } } });
+    await prisma.return.deleteMany({ where: { tenantId } });
     await prisma.purchaseItem.deleteMany({ where: { tenantId } });
     await prisma.purchaseInvoice.deleteMany({ where: { tenantId } });
     await prisma.supplier.deleteMany({ where: { tenantId } });
+    await prisma.productLog.deleteMany({ where: { tenantId } });
     await prisma.product.deleteMany({ where: { tenantId } });
     await prisma.account.deleteMany({ where: { tenantId } });
     await prisma.tenant.delete({ where: { id: tenantId } });
@@ -169,6 +197,35 @@ async function getProductQuantity(productName, tenantId) {
   return product ? product.currentQuantity : 0;
 }
 
+/**
+ * Get payment account (Cash or Bank)
+ */
+async function getPaymentAccount(subType = 'CASH', tenantId) {
+  let account = await prisma.account.findFirst({
+    where: {
+      tenantId,
+      type: 'ASSET',
+      accountSubType: subType
+    }
+  });
+
+  if (!account) {
+    // Create default account if not exists
+    const code = subType === 'CASH' ? '1000' : '1100';
+    const name = subType === 'CASH' ? 'Cash' : 'Bank Account';
+    account = await accountingService.getOrCreateAccount({
+      code,
+      name,
+      type: 'ASSET',
+      accountSubType: subType,
+      tenantId,
+      balance: 0
+    });
+  }
+
+  return account;
+}
+
 module.exports = {
   createTestTenant,
   generateTestToken,
@@ -177,6 +234,8 @@ module.exports = {
   verifyAccountBalance,
   getSupplierBalance,
   getProductQuantity,
-  createTestApp
+  getPaymentAccount,
+  createTestApp,
+  setTestAuth
 };
 

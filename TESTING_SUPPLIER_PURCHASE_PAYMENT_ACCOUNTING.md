@@ -676,6 +676,433 @@ Verify accounting impact when payment method changes.
 
 ---
 
+## Test Case 21: Purchase Invoice with Returns - Reduce AP Method
+
+### Scenario
+Create a purchase invoice with both purchases and returns, using "Reduce Accounts Payable" method for returns.
+
+### Steps
+1. Navigate to Purchases → Add Purchase
+2. Enter:
+   - Supplier: "Supplier B - Pending"
+   - Invoice Number: "PI-005"
+   - Date: Today
+3. **Add Purchase Items:**
+   - Product: "Product A", Quantity: 10, Unit Price: 1,000, Total: 10,000
+   - Product: "Product B", Quantity: 5, Unit Price: 500, Total: 2,500
+   - Purchase Total: Rs. 12,500
+4. **Add Return Items:**
+   - Click "Add Return Item"
+   - Product: "Product A", Quantity: 2, Unit Price: 1,000, Total: 2,000
+   - Return Total: Rs. 2,000
+5. **Return Handling Method:**
+   - Select: "Reduce Accounts Payable"
+6. Verify:
+   - Purchase Total: Rs. 12,500
+   - Return Total: Rs. 2,000
+   - Net Amount: Rs. 10,500
+7. Set Payment Status: "Unpaid"
+8. Save
+
+### Expected Accounting Impact
+**Transaction - Purchase Invoice (Combined):**
+- Debit: Inventory (1300) - Rs. 12,500 (purchases)
+- Credit: Inventory (1300) - Rs. 2,000 (returns)
+- Debit: Accounts Payable (2000) - Rs. 2,000 (returns reduce AP)
+- Credit: Accounts Payable (2000) - Rs. 12,500 (purchases)
+
+**Net Effect:**
+- Inventory: +Rs. 10,500 (12,500 - 2,000)
+- Accounts Payable: +Rs. 10,500 (12,500 - 2,000)
+
+### Verification Points
+- [ ] Purchase invoice created successfully
+- [ ] Return record created with returnType: 'SUPPLIER'
+- [ ] Return items linked to purchase invoice
+- [ ] Inventory increased by net amount (Rs. 10,500)
+- [ ] Accounts Payable increased by net amount (Rs. 10,500)
+- [ ] Product A quantity: +8 units (10 - 2)
+- [ ] Product B quantity: +5 units
+- [ ] Product logs created for both purchases and returns
+- [ ] Journal entry shows combined transaction
+- [ ] Net amount displayed correctly in invoice
+
+---
+
+## Test Case 22: Purchase Invoice with Returns - Refund Method
+
+### Scenario
+Create a purchase invoice with returns, using "Refund to Account" method.
+
+### Steps
+1. Navigate to Purchases → Add Purchase
+2. Enter:
+   - Supplier: "Supplier B - Pending"
+   - Invoice Number: "PI-006"
+   - Date: Today
+3. **Add Purchase Items:**
+   - Product: "Product C", Quantity: 8, Unit Price: 800, Total: 6,400
+4. **Add Return Items:**
+   - Product: "Product C", Quantity: 1, Unit Price: 800, Total: 800
+5. **Return Handling Method:**
+   - Select: "Refund to Account"
+   - Payment Account: Select a Cash account (e.g., "Main Cash")
+6. Verify:
+   - Purchase Total: Rs. 6,400
+   - Return Total: Rs. 800
+   - Net Amount: Rs. 5,600
+7. Set Payment Status: "Unpaid"
+8. Save
+
+### Expected Accounting Impact
+**Transaction - Purchase Invoice (Combined):**
+- Debit: Inventory (1300) - Rs. 6,400 (purchases)
+- Credit: Inventory (1300) - Rs. 800 (returns)
+- Debit: Selected Cash Account - Rs. 800 (refund)
+- Credit: Accounts Payable (2000) - Rs. 6,400 (purchases)
+
+**Net Effect:**
+- Inventory: +Rs. 5,600 (6,400 - 800)
+- Accounts Payable: +Rs. 5,600 (6,400 - 0, refund doesn't affect AP)
+- Selected Cash Account: -Rs. 800 (money refunded)
+
+### Verification Points
+- [ ] Purchase invoice created successfully
+- [ ] Return record created
+- [ ] Inventory increased by net amount (Rs. 5,600)
+- [ ] Accounts Payable increased by Rs. 5,600 (not affected by refund)
+- [ ] Selected Cash Account decreased by Rs. 800
+- [ ] Product C quantity: +7 units (8 - 1)
+- [ ] Product logs show DECREASE action for return
+- [ ] Journal entry shows refund transaction
+- [ ] Return handling method stored correctly
+
+---
+
+## Test Case 23: Purchase Invoice - Returns Only (No Purchases)
+
+### Scenario
+Create a purchase invoice with only return items (no new purchases).
+
+### Steps
+1. Navigate to Purchases → Add Purchase
+2. Enter:
+   - Supplier: "Supplier B - Pending"
+   - Invoice Number: "PI-007"
+   - Date: Today
+3. **Skip Purchase Items** (or leave empty - but system requires at least one)
+   - Note: System may require at least one purchase item. If so, add minimal item.
+4. **Add Return Items:**
+   - Product: "Product A", Quantity: 3, Unit Price: 1,000, Total: 3,000
+   - Product: "Product B", Quantity: 2, Unit Price: 500, Total: 1,000
+   - Return Total: Rs. 4,000
+5. **Return Handling Method:**
+   - Select: "Reduce Accounts Payable"
+6. Verify:
+   - Net Amount: Rs. 0 (if purchase total = return total) or negative
+   - System should validate: return total cannot exceed purchase total
+7. Save (if validation allows)
+
+### Expected Accounting Impact
+**If Allowed:**
+- Credit: Inventory (1300) - Rs. 4,000 (returns)
+- Debit: Accounts Payable (2000) - Rs. 4,000 (reduces AP)
+
+### Verification Points
+- [ ] System validates return total ≤ purchase total
+- [ ] If validation fails, appropriate error shown
+- [ ] If allowed, accounting entries created correctly
+- [ ] Inventory decreased by return amount
+- [ ] Accounts Payable decreased by return amount
+- [ ] Product quantities decreased correctly
+- [ ] Product logs created for returns
+
+---
+
+## Test Case 24: Scan Invoice Integration - Purchase and Returns
+
+### Scenario
+Use scan invoice functionality in Add Purchase page to extract both purchase and return items.
+
+### Prerequisites
+- Have an invoice image or text ready for scanning
+- Invoice should contain both positive quantities (purchases) and negative quantities (returns)
+
+### Steps
+1. Navigate to Purchases → Add Purchase
+2. Click "Scan Invoice" button (top right, with camera icon)
+3. Upload invoice image or use camera
+4. Wait for AI processing
+5. Verify extracted data:
+   - Purchase items populated in "Products" section
+   - Return items populated in "Return Items" section
+   - Invoice details (number, date) pre-filled if available
+6. Review and edit extracted items if needed
+7. Select return handling method (if returns exist)
+8. Complete form and save
+
+### Expected Behavior
+- Scan modal opens from Add Purchase page
+- AI extracts products (positive quantities) and returns (negative quantities)
+- Both sections populated automatically
+- User can edit before saving
+- Form submission includes both purchase and return items
+
+### Verification Points
+- [ ] Scan button visible in Add Purchase page header
+- [ ] Scan modal opens correctly
+- [ ] Purchase items extracted and populated
+- [ ] Return items extracted and populated
+- [ ] Invoice details pre-filled (if available)
+- [ ] User can edit extracted data
+- [ ] Form saves with both purchases and returns
+- [ ] Accounting entries created correctly
+- [ ] Inventory updated correctly
+
+---
+
+## Test Case 25: Edit Purchase Invoice - Add Returns
+
+### Scenario
+Edit an existing purchase invoice to add return items.
+
+### Steps
+1. Navigate to Purchases → Find "PI-005" (from Test Case 21)
+2. Click "Edit"
+3. **Add Return Items:**
+   - Click "Add Return Item"
+   - Product: "Product B", Quantity: 1, Unit Price: 500, Total: 500
+4. **Return Handling Method:**
+   - Select: "Reduce Accounts Payable" (if not already selected)
+5. Verify:
+   - Old Return Total: Rs. 2,000
+   - New Return Total: Rs. 2,500
+   - Net Amount updated accordingly
+6. Save
+
+### Expected Accounting Impact
+**Adjustment Transaction:**
+- Credit: Inventory (1300) - Rs. 500 (additional return)
+- Debit: Accounts Payable (2000) - Rs. 500 (reduce AP further)
+
+### Verification Points
+- [ ] Purchase invoice updated
+- [ ] Return items added successfully
+- [ ] Adjustment transaction created
+- [ ] Inventory decreased by additional Rs. 500
+- [ ] Accounts Payable decreased by additional Rs. 500
+- [ ] Product B quantity decreased by 1 unit
+- [ ] Product log created for return
+- [ ] Net amount recalculated correctly
+
+---
+
+## Test Case 26: Edit Purchase Invoice - Remove Returns
+
+### Scenario
+Edit a purchase invoice to remove return items.
+
+### Steps
+1. Navigate to Purchases → Find "PI-005"
+2. Click "Edit"
+3. **Remove Return Items:**
+   - Delete one or all return items
+4. Verify:
+   - Return Total: Rs. 0 (or reduced)
+   - Net Amount updated
+5. Save
+
+### Expected Accounting Impact
+**Adjustment Transaction (Reversing Return):**
+- Debit: Inventory (1300) - Rs. 2,500 (reverse returns)
+- Credit: Accounts Payable (2000) - Rs. 2,500 (reverse AP reduction)
+
+### Verification Points
+- [ ] Return items removed successfully
+- [ ] Adjustment transaction created (reversing returns)
+- [ ] Inventory increased (returns reversed)
+- [ ] Accounts Payable increased (returns reversed)
+- [ ] Product quantities increased (returns reversed)
+- [ ] Product logs show INCREASE action (reversing return)
+- [ ] Net amount recalculated correctly
+
+---
+
+## Test Case 27: Edit Purchase Invoice - Change Return Handling Method
+
+### Scenario
+Edit a purchase invoice to change return handling method from "Reduce AP" to "Refund".
+
+### Steps
+1. Navigate to Purchases → Find "PI-005"
+2. Click "Edit"
+3. **Change Return Handling Method:**
+   - From: "Reduce Accounts Payable"
+   - To: "Refund to Account"
+   - Select Payment Account: Choose a Cash account
+4. Verify return items still present
+5. Save
+
+### Expected Accounting Impact
+**Step 1 - Reverse Old Method:**
+- Debit: Inventory (1300) - Rs. 2,500 (reverse return)
+- Credit: Accounts Payable (2000) - Rs. 2,500 (reverse AP reduction)
+
+**Step 2 - Apply New Method:**
+- Credit: Inventory (1300) - Rs. 2,500 (return)
+- Debit: Selected Cash Account - Rs. 2,500 (refund)
+
+**Net Effect:**
+- Accounts Payable: +Rs. 2,500 (AP no longer reduced)
+- Selected Cash Account: -Rs. 2,500 (money refunded)
+
+### Verification Points
+- [ ] Return handling method changed successfully
+- [ ] Old method transaction reversed
+- [ ] New method transaction created
+- [ ] Accounts Payable adjusted correctly
+- [ ] Cash account decreased (refund)
+- [ ] Inventory unchanged (return still processed)
+- [ ] Journal shows both reversal and new transaction
+
+---
+
+## Test Case 28: Edit Purchase Invoice - Update Return Item Quantity
+
+### Scenario
+Edit a purchase invoice to change return item quantity.
+
+### Steps
+1. Navigate to Purchases → Find "PI-005"
+2. Click "Edit"
+3. **Update Return Item:**
+   - Find return item: "Product A", Quantity: 2
+   - Change Quantity: 2 → 3
+   - Return Total: Rs. 2,000 → Rs. 3,000
+4. Save
+
+### Expected Accounting Impact
+**Adjustment Transaction:**
+- Credit: Inventory (1300) - Rs. 1,000 (additional return)
+- Debit: Accounts Payable (2000) - Rs. 1,000 (further reduce AP)
+
+### Verification Points
+- [ ] Return item quantity updated
+- [ ] Adjustment transaction created
+- [ ] Inventory decreased by additional Rs. 1,000
+- [ ] Accounts Payable decreased by additional Rs. 1,000
+- [ ] Product A quantity decreased by additional 1 unit
+- [ ] Product log shows quantity change
+- [ ] Net amount recalculated correctly
+
+---
+
+## Test Case 29: Scan Invoice - Returns Only Detection
+
+### Scenario
+Scan an invoice that contains only return items (negative quantities).
+
+### Steps
+1. Navigate to Purchases → Add Purchase
+2. Click "Scan Invoice"
+3. Upload invoice with only return items (negative quantities)
+4. Verify:
+   - Return items extracted
+   - Purchase items section may be empty or minimal
+5. Add at least one purchase item (if system requires)
+6. Complete form and save
+
+### Expected Behavior
+- AI correctly identifies negative quantities as returns
+- Return items populated in Return Items section
+- System validates return total ≤ purchase total
+
+### Verification Points
+- [ ] Returns correctly identified from scan
+- [ ] Return items populated correctly
+- [ ] Validation works correctly
+- [ ] Form can be saved with proper data
+
+---
+
+## Test Case 30: Inventory Validation for Returns
+
+### Scenario
+Test inventory validation when returning products that don't exist or have insufficient stock.
+
+### Steps
+1. Create purchase invoice with Product X, Quantity: 5
+2. Verify Product X quantity: 5
+3. Edit purchase invoice
+4. Add return item: Product X, Quantity: 10 (exceeds available)
+5. Try to save
+
+### Expected Behavior
+- System should warn about insufficient stock
+- May allow or prevent saving based on business logic
+- If allowed, inventory goes negative (or to 0)
+
+### Verification Points
+- [ ] System validates sufficient inventory for returns
+- [ ] Warning shown if insufficient stock
+- [ ] Product log created even if inventory goes negative
+- [ ] Accounting entries created correctly regardless
+
+---
+
+## Test Case 31: Complex Scenario - Purchase with Returns and Multiple Payments
+
+### Scenario
+Create purchase with returns, then make payments, then edit returns.
+
+### Steps
+1. Create Purchase Invoice:
+   - Purchase: Rs. 20,000
+   - Returns: Rs. 3,000 (Reduce AP method)
+   - Net: Rs. 17,000
+   - Payment: Unpaid
+2. Make Payment: Rs. 10,000 (Bank)
+3. Edit Invoice:
+   - Add Return: Rs. 2,000 more
+   - Change Return Method: To "Refund" (Cash)
+4. Make Another Payment: Rs. 5,000 (Cash)
+
+### Expected Final State
+- Inventory: Rs. 15,000 (20,000 - 3,000 - 2,000)
+- Accounts Payable: Rs. 2,000 (17,000 - 10,000 - 5,000)
+- Bank Account: -Rs. 10,000
+- Cash Account: -Rs. 7,000 (2,000 refund + 5,000 payment)
+
+### Verification Points
+- [ ] All transactions created correctly
+- [ ] Return method change handled correctly
+- [ ] Payments applied correctly
+- [ ] Accounts balanced
+- [ ] Journal shows all transactions
+
+---
+
+## Test Case 32: Scan Invoice Not Available in Edit Mode
+
+### Scenario
+Verify scan invoice button is NOT available in Edit Purchase page.
+
+### Steps
+1. Navigate to Purchases → Find any invoice
+2. Click "Edit"
+3. Verify UI
+
+### Expected Behavior
+- No "Scan Invoice" button visible in Edit Purchase page
+- Only manual entry available
+
+### Verification Points
+- [ ] Scan button NOT visible in Edit Purchase page
+- [ ] Only manual entry available
+- [ ] Existing return items can be edited manually
+
+---
+
 ## Test Checklist Summary
 
 ### Supplier Operations
@@ -690,9 +1117,16 @@ Verify accounting impact when payment method changes.
 - [ ] Create purchase with partial advance + cash
 - [ ] Create purchase with no advance, full cash
 - [ ] Create purchase unpaid
+- [ ] Create purchase with returns (Reduce AP method)
+- [ ] Create purchase with returns (Refund method)
+- [ ] Create purchase with returns only (if allowed)
 - [ ] Edit purchase (increase amount)
 - [ ] Edit purchase (decrease amount)
 - [ ] Edit purchase (change products)
+- [ ] Edit purchase (add returns)
+- [ ] Edit purchase (remove returns)
+- [ ] Edit purchase (update return quantities)
+- [ ] Edit purchase (change return handling method)
 
 ### Payment Operations
 - [ ] Make payment from purchase card (select cash account)
@@ -715,7 +1149,29 @@ Verify accounting impact when payment method changes.
 ### Product Balance
 - [ ] Product balance updates on purchase
 - [ ] Product balance updates on purchase edit
+- [ ] Product balance decreases on returns
+- [ ] Product balance updates on return edit
 - [ ] Product balance accurate
+
+### Purchase Returns
+- [ ] Return items can be added to purchase invoice
+- [ ] Return handling method selection works (Reduce AP / Refund)
+- [ ] Return items decrease inventory correctly
+- [ ] Return items create correct accounting entries
+- [ ] Return items can be edited
+- [ ] Return items can be removed
+- [ ] Return handling method can be changed
+- [ ] Product logs created for returns
+- [ ] Net amount calculation correct (purchases - returns)
+
+### Scan Invoice Integration
+- [ ] Scan button visible in Add Purchase page
+- [ ] Scan button NOT visible in Edit Purchase page
+- [ ] Scan extracts purchase items correctly
+- [ ] Scan extracts return items correctly
+- [ ] Extracted data can be edited before saving
+- [ ] Invoice details pre-filled from scan
+- [ ] Scan modal works correctly
 
 ---
 
@@ -730,4 +1186,9 @@ Verify accounting impact when payment method changes.
 - **Quick Add Account**: New accounts can be created on-the-fly from purchase and payment forms
 - **Account Names**: Payment records show actual account names (e.g., "Main Cash", "Primary Bank Account") instead of generic types
 - **Account Changes**: When payment account changes, a transfer transaction is created between old and new accounts
+- **Purchase Returns**: Purchase invoices can include return items that decrease inventory and adjust accounting entries
+- **Return Handling Methods**: Returns can be handled via "Reduce Accounts Payable" (reduces what we owe) or "Refund to Account" (supplier refunds money)
+- **Net Amount Calculation**: Purchase invoices show net amount (purchases - returns) for accurate accounting
+- **Scan Invoice Integration**: Scan invoice functionality is available in Add Purchase page only (not in Edit mode)
+- **Return Items in Edit Mode**: Return items can be added, removed, or updated in edit mode with proper accounting adjustments
 

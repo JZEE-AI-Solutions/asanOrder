@@ -160,7 +160,23 @@ class BalanceService {
             invoiceNumber: true,
             invoiceDate: true,
             totalAmount: true,
-            paymentAmount: true  // Include initial payment amount for backward compatibility
+            paymentAmount: true,  // Include initial payment amount for backward compatibility
+            purchaseItems: {
+              select: {
+                purchasePrice: true,
+                quantity: true
+              }
+            },
+            returns: {
+              where: {
+                returnType: 'SUPPLIER'
+              },
+              select: {
+                id: true,
+                totalAmount: true,
+                refundMethod: true
+              }
+            }
           }
         },
         payments: {
@@ -184,7 +200,24 @@ class BalanceService {
     // Get opening balance (positive means we owe supplier, negative means supplier owes us)
     const openingBalance = supplier.balance || 0;
 
-    const invoiceTotal = supplier.purchaseInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0);
+    // Calculate invoice total: Use totalAmount which is already net (purchases - returns)
+    // The totalAmount field is correctly set to net amount when invoice is created/updated
+    // However, for return-only invoices, totalAmount is positive (the return amount)
+    // but we need to subtract it from the balance
+    const invoiceTotal = supplier.purchaseInvoices.reduce((sum, inv) => {
+      // Check if this is a return-only invoice (has returns but no purchase items)
+      const hasReturns = inv.returns && inv.returns.length > 0;
+      const hasPurchaseItems = inv.purchaseItems && inv.purchaseItems.length > 0;
+      
+      if (hasReturns && !hasPurchaseItems) {
+        // Pure return transaction: totalAmount is positive return amount, but we need to subtract it
+        // because returns reduce what we owe the supplier
+        return sum - inv.totalAmount;
+      } else {
+        // Regular purchase or purchase with returns: totalAmount is already net (purchases - returns)
+        return sum + inv.totalAmount;
+      }
+    }, 0);
 
     // Calculate total paid from Payment records
     // Group payments by purchaseInvoiceId to avoid double counting

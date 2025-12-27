@@ -4,7 +4,6 @@ import { useAuth } from '../../contexts/AuthContext'
 import api, { getImageUrl } from '../../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../LoadingSpinner'
-import InvoiceUploadModal from '../InvoiceUploadModal'
 import ProductImageUpload from '../ProductImageUpload'
 import {
     PlusIcon,
@@ -30,7 +29,6 @@ const PurchasesManagement = () => {
     const [displayMode, setDisplayMode] = useState('card')
 
     // Modals state
-    const [showInvoiceUpload, setShowInvoiceUpload] = useState(false)
     const [selectedInvoice, setSelectedInvoice] = useState(null)
 
     // Purchase Items View state
@@ -223,11 +221,6 @@ const PurchasesManagement = () => {
         }
     }
 
-    const handleInvoiceProcessed = () => {
-        setShowInvoiceUpload(false)
-        toast.success('Invoice imported successfully!')
-        fetchInvoices()
-    }
 
     const handleImageUpload = (item) => {
         setSelectedPurchaseItem(item)
@@ -437,22 +430,13 @@ const PurchasesManagement = () => {
         <div className="space-y-6">
             {/* Header Actions */}
             <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => navigate('/business/purchases/add')}
-                        className="btn-primary flex items-center justify-center"
-                    >
-                        <PlusIcon className="h-5 w-5 mr-2" />
-                        Add Purchase
-                    </button>
-                    <button
-                        onClick={() => setShowInvoiceUpload(true)}
-                        className="btn-secondary flex items-center justify-center"
-                    >
-                        <CameraIcon className="h-5 w-5 mr-2" />
-                        Scan Invoice
-                    </button>
-                </div>
+                <button
+                    onClick={() => navigate('/business/purchases/add')}
+                    className="btn-primary flex items-center justify-center"
+                >
+                    <PlusIcon className="h-5 w-5 mr-2" />
+                    Add Purchase
+                </button>
 
                 <button
                     onClick={fetchInvoices}
@@ -663,14 +647,6 @@ const PurchasesManagement = () => {
                         </div>
                     ))}
                 </div>
-            )}
-
-            {/* Modals */}
-            {showInvoiceUpload && (
-                <InvoiceUploadModal
-                    onClose={() => setShowInvoiceUpload(false)}
-                    onProductsExtracted={handleInvoiceProcessed}
-                />
             )}
 
             {/* Payment Modal */}
