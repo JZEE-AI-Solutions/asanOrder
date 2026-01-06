@@ -65,17 +65,10 @@ const CustomerDetailsPage = () => {
       if (balanceRes.data) {
         setCustomerBalance(balanceRes.data)
       }
-    } catch (error) {
-      console.error('Failed to fetch customer details:', error)
-      toast.error('Failed to fetch customer details')
-      navigate('/business/customers')
-    } finally {
-      setLoading(false)
-    }
-    
-    // Fetch payments and returns after orders are loaded
-    fetchPayments()
-    fetchReturns()
+
+      // Fetch payments and returns after orders are loaded
+      fetchPayments()
+      fetchReturns()
     } catch (error) {
       console.error('Failed to fetch customer details:', error)
       toast.error('Failed to fetch customer details')
