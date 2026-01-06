@@ -5,6 +5,7 @@ import api from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ConfirmationModal from '../components/ConfirmationModal'
+import CreateFormModal from '../components/CreateFormModal'
 import {
   ArrowLeftIcon,
   PlusIcon,
@@ -14,7 +15,8 @@ import {
   PencilIcon,
   TrashIcon,
   EyeSlashIcon,
-  ShoppingBagIcon
+  ShoppingBagIcon,
+  ExclamationTriangleIcon
 } from '@heroicons/react/24/outline'
 
 const TenantDetails = () => {
@@ -25,6 +27,7 @@ const TenantDetails = () => {
   const [forms, setForms] = useState([])
   const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(true)
+  const [showCreateForm, setShowCreateForm] = useState(false)
   const [confirmationModal, setConfirmationModal] = useState({
     isOpen: false,
     title: '',
@@ -207,12 +210,47 @@ const TenantDetails = () => {
                 <p className="text-gray-600">{tenant.contactPerson} • {tenant.whatsappNumber}</p>
               </div>
             </div>
-            <button
-              onClick={logout}
-              className="btn-outline-gray"
-            >
-              Logout
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={async () => {
+                  const confirmed = await showConfirmation(
+                    'Clear All Data',
+                    `⚠️ WARNING: This will permanently delete ALL data for "${tenant.businessName}" including:\n\n• All Orders\n• All Products\n• All Purchase Invoices\n• All Forms\n• All Customers\n• All Returns\n• All Product Logs\n• All Accounting Transactions (including opening balance transactions)\n• All Expenses, Payments, Suppliers, Investors, etc.\n• All Logistics Companies and COD Fee Configurations\n• All User-Created Cash/Bank Accounts (default system accounts preserved)\n• All Payment Verification Records\n\nSystem accounts will be preserved but reset to balance 0.\nTenant settings (including COD fee payment preference) will be reset to defaults.\n\nThis action CANNOT be undone! Are you absolutely sure?`,
+                    'danger',
+                    'Yes, Clear All Data',
+                    'Cancel'
+                  )
+                  
+                  if (!confirmed) return
+
+                  try {
+                    const response = await api.delete(`/tenant/${tenant.id}/clear-all-data`)
+                    toast.success(`All data cleared successfully for ${tenant.businessName}!`)
+                    if (response.data.stats) {
+                      console.log('Cleared data stats:', response.data.stats)
+                    }
+                    fetchTenantData()
+                  } catch (error) {
+                    const errorMsg = typeof error.response?.data?.error === 'string'
+                      ? error.response?.data?.error
+                      : error.response?.data?.error?.message || 'Failed to clear tenant data'
+                    toast.error(errorMsg)
+                    console.error('Clear data error:', error)
+                  }
+                }}
+                className="btn-danger flex items-center"
+                title="Clear all tenant data"
+              >
+                <ExclamationTriangleIcon className="h-5 w-5 mr-2" />
+                Clear All Data
+              </button>
+              <button
+                onClick={logout}
+                className="btn-outline-gray"
+              >
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </header>

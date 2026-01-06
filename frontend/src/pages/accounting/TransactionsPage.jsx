@@ -31,6 +31,8 @@ function TransactionsPage() {
       const params = new URLSearchParams({
         page: pagination.page,
         limit: pagination.limit,
+        sort: 'date',
+        order: 'desc',
         ...filters
       })
 
@@ -87,7 +89,7 @@ function TransactionsPage() {
         {/* Filters */}
         <Card>
           <CardContent className="p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   From Date
@@ -111,7 +113,25 @@ function TransactionsPage() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
                 />
               </div>
+
+              <div className="flex items-end">
+                <button
+                  onClick={() => {
+                    setFilters({ fromDate: '', toDate: '' })
+                    setPagination(prev => ({ ...prev, page: 1 }))
+                  }}
+                  className="w-full btn-secondary px-4 py-2 min-h-[44px]"
+                  disabled={!filters.fromDate && !filters.toDate}
+                >
+                  Clear Filters
+                </button>
+              </div>
             </div>
+            {(filters.fromDate || filters.toDate) && (
+              <div className="mt-3 text-sm text-gray-600">
+                <p>💡 <strong>Note:</strong> Date filters are active. Clear filters to see all transactions including recent returns.</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

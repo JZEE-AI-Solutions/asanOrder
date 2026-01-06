@@ -30,13 +30,8 @@ async function createTestTenant() {
     }
   });
 
-  // Update user to link tenant (if needed by schema)
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { tenantId: tenant.id }
-  }).catch(() => {
-    // If tenantId doesn't exist in User model, that's fine
-  });
+  // Note: User model doesn't have tenantId field - tenant references user via ownerId
+  // This is fine, the relationship is already established
 
   // Initialize chart of accounts
   await accountingService.initializeChartOfAccounts(tenant.id);
@@ -82,6 +77,20 @@ function setTestAuth(user, tenant) {
 }
 
 /**
+ * Get global test user
+ */
+function getTestUser() {
+  return globalTestUser;
+}
+
+/**
+ * Get global test tenant
+ */
+function getTestTenant() {
+  return globalTestTenant;
+}
+
+/**
  * Create a test app with routes and mock auth
  */
 function createTestApp() {
@@ -115,15 +124,43 @@ function createTestApp() {
     return res.status(401).json({ error: 'Test authentication required' });
   };
 
-  // Import routes
+  // Mock requireRole middleware
+  const mockRequireRole = (roles) => {
+    return (req, res, next) => {
+      if (req.user && req.user.role === 'BUSINESS_OWNER') {
+        return next();
+      }
+      return res.status(403).json({ error: 'Forbidden' });
+    };
+  };
+
+  // Temporarily replace middleware before requiring routes
+  const authModule = require('../../middleware/auth');
+  const originalAuth = authModule.authenticateToken;
+  const originalRole = authModule.requireRole;
+  
+  authModule.authenticateToken = mockAuth;
+  authModule.requireRole = mockRequireRole;
+
+  // Import routes (they will use mocked middleware)
   const supplierRoutes = require('../../routes/accounting/suppliers');
   const purchaseInvoiceRoutes = require('../../routes/purchaseInvoice');
   const paymentRoutes = require('../../routes/accounting/payments');
+  const customerRoutes = require('../../routes/customer');
+  const returnRoutes = require('../../routes/accounting/returns');
+  const standaloneReturnRoutes = require('../../routes/return');
+
+  // Restore original middleware
+  authModule.authenticateToken = originalAuth;
+  authModule.requireRole = originalRole;
 
   // Mount routes with mock auth
-  app.use('/accounting/suppliers', mockAuth, supplierRoutes);
+  app.use('/accounting/suppliers', mockAuth, mockRequireRole(['BUSINESS_OWNER']), supplierRoutes);
   app.use('/purchase-invoice', mockAuth, purchaseInvoiceRoutes);
   app.use('/accounting/payments', mockAuth, paymentRoutes);
+  app.use('/customer', mockAuth, mockRequireRole(['BUSINESS_OWNER']), customerRoutes);
+  app.use('/accounting/returns', mockAuth, returnRoutes);
+  app.use('/return', mockAuth, mockRequireRole(['BUSINESS_OWNER']), standaloneReturnRoutes);
 
   return app;
 }
@@ -139,13 +176,24 @@ async function cleanupTestData(tenantId) {
     await prisma.payment.deleteMany({ where: { tenantId } });
     await prisma.returnItem.deleteMany({ where: { return: { tenantId } } });
     await prisma.return.deleteMany({ where: { tenantId } });
+    await prisma.order.deleteMany({ where: { tenantId } });
+    await prisma.formField.deleteMany({ where: { form: { tenantId } } });
+    await prisma.form.deleteMany({ where: { tenantId } });
+    await prisma.customerLog.deleteMany({ where: { customer: { tenantId } } });
+    await prisma.customer.deleteMany({ where: { tenantId } });
+    await prisma.logisticsCompany.deleteMany({ where: { tenantId } });
     await prisma.purchaseItem.deleteMany({ where: { tenantId } });
     await prisma.purchaseInvoice.deleteMany({ where: { tenantId } });
     await prisma.supplier.deleteMany({ where: { tenantId } });
     await prisma.productLog.deleteMany({ where: { tenantId } });
     await prisma.product.deleteMany({ where: { tenantId } });
     await prisma.account.deleteMany({ where: { tenantId } });
-    await prisma.tenant.delete({ where: { id: tenantId } });
+    // Delete user after tenant (tenant references user)
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (tenant) {
+      await prisma.tenant.delete({ where: { id: tenantId } });
+      await prisma.user.delete({ where: { id: tenant.ownerId } }).catch(() => {});
+    }
   } catch (error) {
     console.error('Error cleaning up test data:', error);
   }
@@ -236,6 +284,8 @@ module.exports = {
   getProductQuantity,
   getPaymentAccount,
   createTestApp,
-  setTestAuth
+  setTestAuth,
+  getTestUser,
+  getTestTenant
 };
 

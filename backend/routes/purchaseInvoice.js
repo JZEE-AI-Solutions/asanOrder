@@ -473,17 +473,21 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
           const refundAccount = await prisma.account.findFirst({
             where: {
               id: returnRefundAccountId,
-              tenantId: tenant.id
+              tenantId: tenant.id,
+              type: 'ASSET',
+              accountSubType: { in: ['CASH', 'BANK'] }
             }
           });
           
-          if (refundAccount) {
-            transactionLines.push({
-              accountId: refundAccount.id,
-              debitAmount: returnTotal,
-              creditAmount: 0
-            });
+          if (!refundAccount) {
+            throw new Error(`Invalid return refund account. Account must be a Cash or Bank account.`);
           }
+          
+          transactionLines.push({
+            accountId: refundAccount.id,
+            debitAmount: returnTotal,
+            creditAmount: 0
+          });
         }
       }
 
@@ -632,6 +636,152 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       error: errorMessage,
       details: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
+  }
+});
+
+// Search purchase invoices by product name (for return creation)
+router.get('/search', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    if (!req.user.tenant?.id) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const { productName, supplierId, limit = 50 } = req.query;
+    const limitNum = Math.max(1, Math.min(100, parseInt(limit) || 50));
+
+    const whereClause = {
+      tenantId: req.user.tenant.id,
+      isDeleted: false
+    };
+
+    if (supplierId) {
+      whereClause.supplierId = supplierId;
+    }
+
+    // Find invoices that have products matching the product name
+    let purchaseInvoices = [];
+    
+    if (productName) {
+      // Search for purchase items with matching product name
+      const purchaseItems = await prisma.purchaseItem.findMany({
+        where: {
+          tenantId: req.user.tenant.id,
+          isDeleted: false,
+          name: {
+            contains: productName,
+            mode: 'insensitive'
+          }
+        },
+        select: {
+          purchaseInvoiceId: true
+        },
+        distinct: ['purchaseInvoiceId']
+      });
+
+      const invoiceIds = purchaseItems.map(item => item.purchaseInvoiceId).filter(Boolean);
+      
+      if (invoiceIds.length > 0) {
+        whereClause.id = { in: invoiceIds };
+      } else {
+        // No matching products found
+        return res.json({
+          success: true,
+          purchaseInvoices: [],
+          pagination: {
+            page: 1,
+            limit: limitNum,
+            total: 0,
+            pages: 0
+          }
+        });
+      }
+    }
+
+    purchaseInvoices = await prisma.purchaseInvoice.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        invoiceNumber: true,
+        supplierName: true,
+        supplierId: true,
+        invoiceDate: true,
+        totalAmount: true,
+        supplier: {
+          select: {
+            id: true,
+            name: true
+          }
+        },
+        purchaseItems: {
+          where: {
+            isDeleted: false,
+            ...(productName ? {
+              name: {
+                contains: productName,
+                mode: 'insensitive'
+              }
+            } : {})
+          },
+          select: {
+            id: true,
+            name: true,
+            purchasePrice: true,
+            quantity: true,
+            sku: true
+          }
+        },
+        returns: {
+          where: {
+            returnType: 'SUPPLIER',
+            status: { not: 'REJECTED' }
+          },
+          include: {
+            returnItems: {
+              select: {
+                productName: true,
+                quantity: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        invoiceDate: 'desc'
+      },
+      take: limitNum
+    });
+
+    // Calculate available quantities for each product in each invoice
+    const invoicesWithAvailability = purchaseInvoices.map(invoice => {
+      const productAvailability = {};
+      
+      invoice.purchaseItems.forEach(item => {
+        const existingReturns = invoice.returns.flatMap(r => 
+          r.returnItems.filter(ri => ri.productName === item.name)
+        );
+        const returnedQty = existingReturns.reduce((sum, ri) => sum + ri.quantity, 0);
+        productAvailability[item.name] = item.quantity - returnedQty;
+      });
+
+      return {
+        ...invoice,
+        productAvailability
+      };
+    });
+
+    res.json({
+      success: true,
+      purchaseInvoices: invoicesWithAvailability,
+      pagination: {
+        page: 1,
+        limit: limitNum,
+        total: invoicesWithAvailability.length,
+        pages: Math.ceil(invoicesWithAvailability.length / limitNum)
+      }
+    });
+  } catch (error) {
+    console.error('Search purchase invoices error:', error);
+    res.status(500).json({ error: 'Failed to search purchase invoices' });
   }
 });
 
@@ -1454,8 +1604,29 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
 
     // Store old values for comparison
     const oldPurchaseItems = JSON.parse(JSON.stringify(existingInvoice.purchaseItems));
+    
+    // Identify standalone returns (those with their own accounting transactions via orderReturnId)
+    // These should NOT be included in adjustment calculations since they have their own accounting
+    const standaloneReturnIds = new Set();
+    if (existingInvoice.returns && existingInvoice.returns.length > 0) {
+      for (const returnRecord of existingInvoice.returns) {
+        const hasStandaloneTransaction = await prisma.transaction.findFirst({
+          where: {
+            orderReturnId: returnRecord.id,
+            tenantId: tenant.id
+          }
+        });
+        if (hasStandaloneTransaction) {
+          standaloneReturnIds.add(returnRecord.id);
+        }
+      }
+    }
+    
+    // Calculate oldReturnItems excluding standalone returns (they have their own accounting)
     const oldReturnItems = existingInvoice.returns && existingInvoice.returns.length > 0
-      ? existingInvoice.returns.flatMap(r => r.returnItems.map(ri => ({ ...ri, returnId: r.id })))
+      ? existingInvoice.returns
+          .filter(r => !standaloneReturnIds.has(r.id)) // Exclude standalone returns
+          .flatMap(r => r.returnItems.map(ri => ({ ...ri, returnId: r.id })))
       : [];
     const oldPurchaseTotal = oldPurchaseItems.reduce((sum, p) => sum + (parseFloat(p.purchasePrice || 0) * parseInt(p.quantity || 0)), 0);
     const oldReturnTotal = oldReturnItems.reduce((sum, r) => sum + (parseFloat(r.purchasePrice || 0) * parseInt(r.quantity || 0)), 0);
@@ -1913,6 +2084,39 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
           }
         }
 
+        // Validate return handling method if returns exist
+        if (normalizedReturnItems.length > 0) {
+          if (!returnHandlingMethod || !['REDUCE_AP', 'REFUND'].includes(returnHandlingMethod)) {
+            return res.status(400).json({ 
+              error: 'Return handling method is required when return items are present. Must be either "REDUCE_AP" or "REFUND".' 
+            });
+          }
+          
+          if (returnHandlingMethod === 'REFUND' && !returnRefundAccountId) {
+            return res.status(400).json({ 
+              error: 'Return refund account is required when return handling method is "REFUND".' 
+            });
+          }
+          
+          // Validate return refund account exists and is Cash/Bank type
+          if (returnHandlingMethod === 'REFUND') {
+            const refundAccount = await prisma.account.findFirst({
+              where: {
+                id: returnRefundAccountId,
+                tenantId: tenant.id,
+                type: 'ASSET',
+                accountSubType: { in: ['CASH', 'BANK'] }
+              }
+            });
+            
+            if (!refundAccount) {
+              return res.status(400).json({
+                error: 'Invalid return refund account. Account must be a Cash or Bank account.'
+              });
+            }
+          }
+        }
+
         // Check if return handling method changed
         const methodChanged = returnHandlingMethod && returnHandlingMethod !== oldReturnHandlingMethod;
         const returnTotalChanged = Math.abs(returnAmountDifference) > 0.01;
@@ -1920,101 +2124,167 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
         if (returnTotalChanged || methodChanged) {
           // Reverse old return accounting (if returns existed)
           if (oldReturnTotal > 0) {
-            const reverseTransactionNumber = `TXN-ADJ-RETURN-REVERSE-${new Date().getFullYear()}-${Date.now()}`;
-            const reverseDescription = `Purchase Invoice Return Adjustment (Reverse): ${invoiceNum} (Rs. ${oldReturnTotal.toFixed(2)})`;
-            const reverseTransactionLines = [];
+            try {
+              const reverseTransactionNumber = `TXN-ADJ-RETURN-REVERSE-${new Date().getFullYear()}-${Date.now()}`;
+              const reverseDescription = `Purchase Invoice Return Adjustment (Reverse): ${invoiceNum} (Rs. ${oldReturnTotal.toFixed(2)}, Method: ${oldReturnHandlingMethod || 'N/A'})`;
+              const reverseTransactionLines = [];
 
-            // Reverse: Debit Inventory (opposite of original Credit)
-            reverseTransactionLines.push({
-              accountId: inventoryAccount.id,
-              debitAmount: oldReturnTotal,
-              creditAmount: 0
-            });
-
-            // Reverse the old method
-            if (oldReturnHandlingMethod === 'REDUCE_AP') {
-              // Reverse: Credit AP (opposite of original Debit)
+              // Reverse: Debit Inventory (opposite of original Credit)
               reverseTransactionLines.push({
-                accountId: apAccount.id,
-                debitAmount: 0,
-                creditAmount: oldReturnTotal
+                accountId: inventoryAccount.id,
+                debitAmount: oldReturnTotal,
+                creditAmount: 0
               });
-            } else if (oldReturnHandlingMethod === 'REFUND' && oldReturnRefundAccountId) {
-              // Reverse: Credit Cash/Bank (opposite of original Debit)
-              reverseTransactionLines.push({
-                accountId: oldReturnRefundAccountId,
-                debitAmount: 0,
-                creditAmount: oldReturnTotal
+
+              // Reverse the old method
+              if (oldReturnHandlingMethod === 'REDUCE_AP') {
+                // Reverse: Credit AP (opposite of original Debit)
+                reverseTransactionLines.push({
+                  accountId: apAccount.id,
+                  debitAmount: 0,
+                  creditAmount: oldReturnTotal
+                });
+              } else if (oldReturnHandlingMethod === 'REFUND' && oldReturnRefundAccountId) {
+                // Reverse: Credit Cash/Bank (opposite of original Debit)
+                const oldRefundAccount = await prisma.account.findFirst({
+                  where: {
+                    id: oldReturnRefundAccountId,
+                    tenantId: tenant.id
+                  }
+                });
+                
+                if (oldRefundAccount) {
+                  reverseTransactionLines.push({
+                    accountId: oldRefundAccount.id,
+                    debitAmount: 0,
+                    creditAmount: oldReturnTotal
+                  });
+                } else {
+                  console.warn(`⚠️ Old refund account ${oldReturnRefundAccountId} not found, skipping reversal`);
+                  // Still need to balance the transaction - use AP as fallback
+                  reverseTransactionLines.push({
+                    accountId: apAccount.id,
+                    debitAmount: 0,
+                    creditAmount: oldReturnTotal
+                  });
+                }
+              }
+
+              // Validate transaction balance before creating
+              const totalDebits = reverseTransactionLines.reduce((sum, line) => sum + (line.debitAmount || 0), 0);
+              const totalCredits = reverseTransactionLines.reduce((sum, line) => sum + (line.creditAmount || 0), 0);
+              
+              if (Math.abs(totalDebits - totalCredits) > 0.01) {
+                throw new Error(`Reversal transaction is not balanced. Debits: ${totalDebits}, Credits: ${totalCredits}`);
+              }
+
+              await accountingService.createTransaction(
+                {
+                  transactionNumber: reverseTransactionNumber,
+                  date: new Date(),
+                  description: reverseDescription,
+                  tenantId: tenant.id,
+                  purchaseInvoiceId: id
+                },
+                reverseTransactionLines
+              );
+              
+              console.log(`✅ Reversed old return accounting: Rs. ${oldReturnTotal.toFixed(2)} (${oldReturnHandlingMethod || 'N/A'})`);
+            } catch (reversalError) {
+              console.error('❌ Error reversing old return accounting:', reversalError);
+              // Fail the entire update if reversal fails - this is critical
+              return res.status(500).json({ 
+                error: 'Failed to reverse old return accounting entries',
+                details: reversalError.message 
               });
             }
-
-            await accountingService.createTransaction(
-              {
-                transactionNumber: reverseTransactionNumber,
-                date: new Date(),
-                description: reverseDescription,
-                tenantId: tenant.id,
-                purchaseInvoiceId: id
-              },
-              reverseTransactionLines
-            );
           }
 
           // Create new return accounting (if returns exist now)
           if (newReturnTotal > 0) {
-            const newTransactionNumber = `TXN-ADJ-RETURN-${new Date().getFullYear()}-${Date.now()}`;
-            const newDescription = `Purchase Invoice Return Adjustment: ${invoiceNum} (Rs. ${newReturnTotal.toFixed(2)}, Method: ${returnHandlingMethod})`;
-            const newTransactionLines = [];
+            try {
+              const newTransactionNumber = `TXN-ADJ-RETURN-${new Date().getFullYear()}-${Date.now()}`;
+              const newDescription = `Purchase Invoice Return Adjustment: ${invoiceNum} (Rs. ${newReturnTotal.toFixed(2)}, Method: ${returnHandlingMethod})`;
+              const newTransactionLines = [];
 
-            // Credit Inventory
-            newTransactionLines.push({
-              accountId: inventoryAccount.id,
-              debitAmount: 0,
-              creditAmount: newReturnTotal
-            });
-
-            // Debit based on new method
-            if (returnHandlingMethod === 'REDUCE_AP') {
+              // Credit Inventory
               newTransactionLines.push({
-                accountId: apAccount.id,
-                debitAmount: newReturnTotal,
-                creditAmount: 0
+                accountId: inventoryAccount.id,
+                debitAmount: 0,
+                creditAmount: newReturnTotal
               });
-            } else if (returnHandlingMethod === 'REFUND' && returnRefundAccountId) {
-              const refundAccount = await prisma.account.findFirst({
-                where: {
-                  id: returnRefundAccountId,
-                  tenantId: tenant.id
+
+              // Debit based on new method
+              if (returnHandlingMethod === 'REDUCE_AP') {
+                newTransactionLines.push({
+                  accountId: apAccount.id,
+                  debitAmount: newReturnTotal,
+                  creditAmount: 0
+                });
+              } else if (returnHandlingMethod === 'REFUND' && returnRefundAccountId) {
+                const refundAccount = await prisma.account.findFirst({
+                  where: {
+                    id: returnRefundAccountId,
+                    tenantId: tenant.id
+                  }
+                });
+                
+                if (!refundAccount) {
+                  throw new Error(`Refund account ${returnRefundAccountId} not found`);
                 }
-              });
-              
-              if (refundAccount) {
+                
                 newTransactionLines.push({
                   accountId: refundAccount.id,
                   debitAmount: newReturnTotal,
                   creditAmount: 0
                 });
+              } else {
+                throw new Error('Invalid return handling method or missing refund account');
               }
-            }
 
-            await accountingService.createTransaction(
-              {
-                transactionNumber: newTransactionNumber,
-                date: new Date(),
-                description: newDescription,
-                tenantId: tenant.id,
-                purchaseInvoiceId: id
-              },
-              newTransactionLines
-            );
+              // Validate transaction balance
+              const totalDebits = newTransactionLines.reduce((sum, line) => sum + (line.debitAmount || 0), 0);
+              const totalCredits = newTransactionLines.reduce((sum, line) => sum + (line.creditAmount || 0), 0);
+              
+              if (Math.abs(totalDebits - totalCredits) > 0.01) {
+                throw new Error(`New return transaction is not balanced. Debits: ${totalDebits}, Credits: ${totalCredits}`);
+              }
+
+              await accountingService.createTransaction(
+                {
+                  transactionNumber: newTransactionNumber,
+                  date: new Date(),
+                  description: newDescription,
+                  tenantId: tenant.id,
+                  purchaseInvoiceId: id
+                },
+                newTransactionLines
+              );
+              
+              console.log(`✅ Created new return accounting: Rs. ${newReturnTotal.toFixed(2)} (${returnHandlingMethod})`);
+            } catch (newTransactionError) {
+              console.error('❌ Error creating new return accounting:', newTransactionError);
+              // Fail the entire update if new transaction creation fails
+              return res.status(500).json({ 
+                error: 'Failed to create new return accounting entries',
+                details: newTransactionError.message 
+              });
+            }
+          } else {
+            // All returns deleted - log for audit
+            console.log(`ℹ️ All returns deleted for invoice ${invoiceNum}`);
           }
 
-          console.log(`✅ Return accounting adjustment entry created for purchase invoice ${invoiceNum}: Old: Rs. ${oldReturnTotal.toFixed(2)} (${oldReturnHandlingMethod}), New: Rs. ${newReturnTotal.toFixed(2)} (${returnHandlingMethod || 'N/A'})`);
+          console.log(`✅ Return accounting adjustment completed for purchase invoice ${invoiceNum}: Old: Rs. ${oldReturnTotal.toFixed(2)} (${oldReturnHandlingMethod || 'N/A'}), New: Rs. ${newReturnTotal.toFixed(2)} (${returnHandlingMethod || 'N/A'})`);
         }
-      } catch (accountingError) {
-        console.error('❌ Error creating return accounting adjustment entry:', accountingError);
-        // Don't fail the update if accounting adjustment fails, but log it
-      }
+        } catch (accountingError) {
+          console.error('❌ Error creating return accounting adjustment entry:', accountingError);
+          // Fail the entire update if accounting adjustment fails - this is critical
+          return res.status(500).json({ 
+            error: 'Failed to process return accounting entries',
+            details: accountingError.message 
+          });
+        }
     }
 
     // Update inventory if products were modified (existing logic - PRESERVED)

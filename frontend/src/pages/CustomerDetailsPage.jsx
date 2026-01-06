@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon, PhoneIcon, EnvelopeIcon, MapPinIcon, CalendarIcon, CurrencyDollarIcon, ShoppingBagIcon, ClockIcon, PencilIcon, CheckIcon, EyeIcon, XCircleIcon, CheckCircleIcon, TruckIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, PhoneIcon, EnvelopeIcon, MapPinIcon, CalendarIcon, CurrencyDollarIcon, ShoppingBagIcon, ClockIcon, PencilIcon, CheckIcon, EyeIcon, XCircleIcon, CheckCircleIcon, TruckIcon, DocumentTextIcon, ArrowPathIcon, PlusIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
 import ModernLayout from '../components/ModernLayout'
+import PaymentAccountSelector from '../components/accounting/PaymentAccountSelector'
 
 const CustomerDetailsPage = () => {
   const { customerId } = useParams()
@@ -12,11 +13,35 @@ const CustomerDetailsPage = () => {
   const [customerDetails, setCustomerDetails] = useState(null)
   const [customerOrders, setCustomerOrders] = useState([])
   const [customerLogs, setCustomerLogs] = useState([])
+  const [customerBalance, setCustomerBalance] = useState(null)
+  const [customerPayments, setCustomerPayments] = useState([])
+  const [customerReturns, setCustomerReturns] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
   const [editForm, setEditForm] = useState({})
   const [saving, setSaving] = useState(false)
+  
+  // Balance management
+  const [showBalanceModal, setShowBalanceModal] = useState(false)
+  const [balanceAmount, setBalanceAmount] = useState('')
+  const [balanceDate, setBalanceDate] = useState('')
+  const [updatingBalance, setUpdatingBalance] = useState(false)
+  
+  // Payment recording
+  const [showPaymentModal, setShowPaymentModal] = useState(false)
+  const [paymentAmount, setPaymentAmount] = useState('')
+  const [paymentAccountId, setPaymentAccountId] = useState(null)
+  const [paymentOrderId, setPaymentOrderId] = useState(null)
+  const [paymentIsVerified, setPaymentIsVerified] = useState(false)
+  const [useAdvanceBalance, setUseAdvanceBalance] = useState(false)
+  const [advanceAmountUsed, setAdvanceAmountUsed] = useState('')
+  const [recordingPayment, setRecordingPayment] = useState(false)
+  
+  // Payment verification
+  const [verifyingPaymentId, setVerifyingPaymentId] = useState(null)
+  const [verifyPaymentAccountId, setVerifyPaymentAccountId] = useState(null)
+  const [verifyingPayment, setVerifyingPayment] = useState(false)
 
   useEffect(() => {
     if (customerId) {
@@ -27,15 +52,30 @@ const CustomerDetailsPage = () => {
   const fetchCustomerDetails = async () => {
     try {
       setLoading(true)
-      const [detailsRes, ordersRes, logsRes] = await Promise.all([
+      const [detailsRes, ordersRes, logsRes, balanceRes] = await Promise.all([
         api.get(`/customer/${customerId}`),
         api.get(`/customer/${customerId}/orders`),
-        api.get(`/customer/${customerId}/logs`)
+        api.get(`/customer/${customerId}/logs`),
+        api.get(`/accounting/balances/customer/${customerId}`).catch(() => ({ data: null }))
       ])
 
       setCustomerDetails(detailsRes.data.customer)
       setCustomerOrders(ordersRes.data.orders)
       setCustomerLogs(logsRes.data.logs)
+      if (balanceRes.data) {
+        setCustomerBalance(balanceRes.data)
+      }
+    } catch (error) {
+      console.error('Failed to fetch customer details:', error)
+      toast.error('Failed to fetch customer details')
+      navigate('/business/customers')
+    } finally {
+      setLoading(false)
+    }
+    
+    // Fetch payments and returns after orders are loaded
+    fetchPayments()
+    fetchReturns()
     } catch (error) {
       console.error('Failed to fetch customer details:', error)
       toast.error('Failed to fetch customer details')
@@ -44,6 +84,41 @@ const CustomerDetailsPage = () => {
       setLoading(false)
     }
   }
+  
+  const fetchPayments = async () => {
+    try {
+      const response = await api.get('/accounting/payments', {
+        params: { customerId, type: 'CUSTOMER_PAYMENT' }
+      })
+      setCustomerPayments(response.data.payments || [])
+    } catch (error) {
+      console.error('Failed to fetch payments:', error)
+    }
+  }
+  
+  const fetchReturns = async () => {
+    try {
+      const response = await api.get('/accounting/returns', {
+        params: { 
+          returnType: 'CUSTOMER_FULL,CUSTOMER_PARTIAL'
+        }
+      })
+      // Filter returns for this customer's orders
+      const orderIds = customerOrders.map(o => o.id)
+      const filteredReturns = (response.data.data || []).filter(r => 
+        r.orderId && orderIds.includes(r.orderId)
+      )
+      setCustomerReturns(filteredReturns)
+    } catch (error) {
+      console.error('Failed to fetch returns:', error)
+    }
+  }
+  
+  useEffect(() => {
+    if (customerOrders.length > 0) {
+      fetchReturns()
+    }
+  }, [customerOrders.length])
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -87,16 +162,23 @@ const CustomerDetailsPage = () => {
 
   const getPaymentStatus = (order) => {
     const total = calculateOrderTotal(order)
-    const paid = order.paymentAmount || 0
+    // Use verified payment amount if payment is verified, otherwise use claimed amount (but don't count unverified)
+    const claimed = order.paymentAmount || 0
+    const verified = order.paymentVerified ? (order.verifiedPaymentAmount || 0) : 0
+    // For balance calculation, only count verified payments
+    const paid = order.paymentVerified ? verified : 0
     const remaining = total - paid
     
     return {
       total,
       paid,
       remaining,
+      claimed,
+      verified,
       isFullyPaid: paid >= total,
       isPartiallyPaid: paid > 0 && paid < total,
-      isUnpaid: paid === 0
+      isUnpaid: paid === 0,
+      isVerified: order.paymentVerified || false
     }
   }
 
@@ -259,6 +341,26 @@ const CustomerDetailsPage = () => {
               Orders ({customerOrders.length})
             </button>
             <button
+              onClick={() => setActiveTab('payments')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'payments'
+                  ? 'border-pink-500 text-pink-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Payments ({customerPayments.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('returns')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'returns'
+                  ? 'border-pink-500 text-pink-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Returns ({customerReturns.length})
+            </button>
+            <button
               onClick={() => setActiveTab('logs')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'logs'
@@ -267,6 +369,13 @@ const CustomerDetailsPage = () => {
               }`}
             >
               Activity Logs
+            </button>
+            <button
+              onClick={() => navigate(`/business/customers/${customerId}/ledger`)}
+              className={`py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300`}
+            >
+              <DocumentTextIcon className="h-4 w-4 inline mr-1" />
+              Ledger
             </button>
           </nav>
         </div>
@@ -384,7 +493,11 @@ const CustomerDetailsPage = () => {
                   {(() => {
                     // Only include CONFIRMED orders for pending payment calculation
                     const confirmedOrders = customerOrders.filter(order => order.status === 'CONFIRMED')
-                    const totalPaid = customerOrders.reduce((sum, order) => sum + (order.paymentAmount || 0), 0)
+                    // Use verified payment amounts for total paid calculation
+                    const totalPaid = customerOrders.reduce((sum, order) => {
+                      const verified = order.paymentVerified ? (order.verifiedPaymentAmount || 0) : 0
+                      return sum + verified
+                    }, 0)
                     const totalPending = confirmedOrders.reduce((sum, order) => {
                       const status = getPaymentStatus(order)
                       return sum + status.remaining
@@ -656,6 +769,158 @@ const CustomerDetailsPage = () => {
             </div>
           )}
 
+          {/* Payments Tab */}
+          {activeTab === 'payments' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-900">Payment History</h2>
+                <button
+                  onClick={() => {
+                    setPaymentAmount('')
+                    setPaymentAccountId(null)
+                    setPaymentOrderId(null)
+                    setPaymentIsVerified(false)
+                    setUseAdvanceBalance(false)
+                    setAdvanceAmountUsed('')
+                    setShowPaymentModal(true)
+                  }}
+                  className="btn-primary flex items-center px-4 py-2"
+                >
+                  <PlusIcon className="h-4 w-4 mr-2" />
+                  Record Payment
+                </button>
+              </div>
+              
+              {customerPayments.length === 0 ? (
+                <div className="text-center py-12 card">
+                  <CurrencyDollarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">No payments found</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {customerPayments.map((payment) => (
+                    <div key={payment.id} className="card p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-gray-900">{payment.paymentNumber}</span>
+                            {!payment.transactionId && (
+                              <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded-full">
+                                Unverified
+                              </span>
+                            )}
+                            {payment.transactionId && (
+                              <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
+                                Verified
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1">
+                            Amount: <span className="font-semibold">Rs. {payment.amount.toFixed(2)}</span>
+                            {payment.account && (
+                              <span className="ml-2">• {payment.account.name}</span>
+                            )}
+                            {payment.orderId && (
+                              <span className="ml-2">• Order: {payment.order?.orderNumber || payment.orderId}</span>
+                            )}
+                            {!payment.orderId && (
+                              <span className="ml-2 text-blue-600">• Direct Payment</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatDate(payment.date)}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          {!payment.transactionId && (
+                            <button
+                              onClick={() => {
+                                setVerifyingPaymentId(payment.id)
+                                setVerifyPaymentAccountId(payment.accountId || null)
+                              }}
+                              className="btn-secondary text-sm px-3 py-1.5"
+                            >
+                              Verify
+                            </button>
+                          )}
+                          <button
+                            onClick={() => navigate(`/business/orders/${payment.orderId}`)}
+                            className="btn-secondary text-sm px-3 py-1.5"
+                            disabled={!payment.orderId}
+                          >
+                            View Order
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Returns Tab */}
+          {activeTab === 'returns' && (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-gray-900">Return Orders</h2>
+                <button
+                  onClick={() => navigate(`/business/returns/new?customerId=${customerId}`)}
+                  className="btn-primary flex items-center px-4 py-2"
+                >
+                  <PlusIcon className="h-4 w-4 mr-2" />
+                  Create Return
+                </button>
+              </div>
+              
+              {customerReturns.length === 0 ? (
+                <div className="text-center py-12 card">
+                  <ArrowPathIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">No returns found</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {customerReturns.map((returnRecord) => (
+                    <div key={returnRecord.id} className="card p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3">
+                            <span className="font-semibold text-gray-900">{returnRecord.returnNumber}</span>
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              returnRecord.status === 'REFUNDED' ? 'bg-green-100 text-green-800' :
+                              returnRecord.status === 'APPROVED' ? 'bg-blue-100 text-blue-800' :
+                              returnRecord.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                              'bg-yellow-100 text-yellow-800'
+                            }`}>
+                              {returnRecord.status}
+                            </span>
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1">
+                            Amount: <span className="font-semibold">Rs. {returnRecord.totalAmount.toFixed(2)}</span>
+                            {returnRecord.orderId && (
+                              <span className="ml-2">• Order: {returnRecord.order?.orderNumber || returnRecord.orderId}</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {formatDate(returnRecord.returnDate)}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => navigate(`/business/returns/${returnRecord.id}`)}
+                            className="btn-secondary text-sm px-3 py-1.5"
+                          >
+                            View Details
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Logs Tab */}
           {activeTab === 'logs' && (
             <div className="space-y-4">
@@ -692,6 +957,322 @@ const CustomerDetailsPage = () => {
             </div>
           )}
         </div>
+        
+        {/* Balance Update Modal */}
+        {showBalanceModal && (
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+              <div className="p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Update Customer Balance</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Balance Amount (Rs.) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={balanceAmount}
+                      onChange={(e) => setBalanceAmount(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      placeholder="0.00"
+                      autoFocus
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Positive = Customer owes us (AR), Negative = Customer advance (they paid us)
+                    </p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Balance Date
+                    </label>
+                    <input
+                      type="date"
+                      value={balanceDate}
+                      onChange={(e) => setBalanceDate(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      onClick={() => {
+                        setShowBalanceModal(false)
+                        setBalanceAmount('')
+                        setBalanceDate('')
+                      }}
+                      className="flex-1 btn-secondary px-6 py-3"
+                      disabled={updatingBalance}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!balanceAmount) {
+                          toast.error('Please enter balance amount')
+                          return
+                        }
+                        setUpdatingBalance(true)
+                        try {
+                          await api.put(`/customer/${customerId}/balance`, {
+                            balance: parseFloat(balanceAmount),
+                            openingBalanceDate: balanceDate || undefined
+                          })
+                          toast.success('Customer balance updated successfully!')
+                          setShowBalanceModal(false)
+                          setBalanceAmount('')
+                          setBalanceDate('')
+                          fetchCustomerDetails()
+                        } catch (error) {
+                          console.error('Failed to update balance:', error)
+                          toast.error(error.response?.data?.error || 'Failed to update balance')
+                        } finally {
+                          setUpdatingBalance(false)
+                        }
+                      }}
+                      className="flex-1 btn-primary px-6 py-3"
+                      disabled={updatingBalance || !balanceAmount}
+                    >
+                      {updatingBalance ? 'Updating...' : 'Update Balance'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Payment Recording Modal */}
+        {showPaymentModal && (
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Record Payment</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Amount (Rs.) <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      placeholder="0.00"
+                      autoFocus
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Order (Optional)
+                    </label>
+                    <select
+                      value={paymentOrderId || ''}
+                      onChange={(e) => setPaymentOrderId(e.target.value || null)}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                    >
+                      <option value="">Direct Payment (No Order)</option>
+                      {customerOrders.map(order => (
+                        <option key={order.id} value={order.id}>
+                          {order.orderNumber} - Rs. {calculateOrderTotal(order).toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {customerBalance && customerBalance.availableAdvance > 0 && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useAdvanceBalance}
+                          onChange={(e) => setUseAdvanceBalance(e.target.checked)}
+                          className="mr-2 h-4 w-4 text-blue-600"
+                        />
+                        <span className="text-sm font-medium text-gray-900">
+                          Use Advance Balance (Available: Rs. {customerBalance.availableAdvance.toFixed(2)})
+                        </span>
+                      </label>
+                      {useAdvanceBalance && (
+                        <div className="mt-2">
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            max={Math.min(customerBalance.availableAdvance, parseFloat(paymentAmount) || 0)}
+                            value={advanceAmountUsed}
+                            onChange={(e) => setAdvanceAmountUsed(e.target.value)}
+                            className="w-full px-3 py-2 border border-blue-300 rounded-lg text-sm"
+                            placeholder={`Max: Rs. ${Math.min(customerBalance.availableAdvance, parseFloat(paymentAmount) || 0).toFixed(2)}`}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Payment Account {paymentIsVerified && <span className="text-red-500">*</span>}
+                    </label>
+                    <PaymentAccountSelector
+                      value={paymentAccountId}
+                      onChange={setPaymentAccountId}
+                      showQuickAdd={true}
+                      required={paymentIsVerified}
+                      className="w-full"
+                    />
+                  </div>
+                  
+                  {!paymentOrderId && (
+                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <label className="flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paymentIsVerified}
+                          onChange={(e) => setPaymentIsVerified(e.target.checked)}
+                          className="mr-2 h-4 w-4 text-yellow-600"
+                        />
+                        <span className="text-sm font-medium text-gray-900">
+                          Mark as Verified (will create accounting entries immediately)
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      onClick={() => {
+                        setShowPaymentModal(false)
+                        setPaymentAmount('')
+                        setPaymentAccountId(null)
+                        setPaymentOrderId(null)
+                        setPaymentIsVerified(false)
+                        setUseAdvanceBalance(false)
+                        setAdvanceAmountUsed('')
+                      }}
+                      className="flex-1 btn-secondary px-6 py-3"
+                      disabled={recordingPayment}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+                          toast.error('Please enter a valid payment amount')
+                          return
+                        }
+                        if (paymentIsVerified && !paymentAccountId) {
+                          toast.error('Please select a payment account for verified payments')
+                          return
+                        }
+                        setRecordingPayment(true)
+                        try {
+                          await api.post('/accounting/payments', {
+                            date: new Date().toISOString(),
+                            type: 'CUSTOMER_PAYMENT',
+                            amount: parseFloat(paymentAmount),
+                            paymentAccountId: paymentAccountId || null,
+                            customerId,
+                            orderId: paymentOrderId || null,
+                            isVerified: paymentIsVerified || (paymentOrderId !== null),
+                            useAdvanceBalance,
+                            advanceAmountUsed: useAdvanceBalance ? parseFloat(advanceAmountUsed) : undefined
+                          })
+                          toast.success('Payment recorded successfully!')
+                          setShowPaymentModal(false)
+                          setPaymentAmount('')
+                          setPaymentAccountId(null)
+                          setPaymentOrderId(null)
+                          setPaymentIsVerified(false)
+                          setUseAdvanceBalance(false)
+                          setAdvanceAmountUsed('')
+                          fetchCustomerDetails()
+                          fetchPayments()
+                        } catch (error) {
+                          console.error('Failed to record payment:', error)
+                          toast.error(error.response?.data?.error?.message || 'Failed to record payment')
+                        } finally {
+                          setRecordingPayment(false)
+                        }
+                      }}
+                      className="flex-1 btn-primary px-6 py-3"
+                      disabled={recordingPayment || !paymentAmount || parseFloat(paymentAmount) <= 0}
+                    >
+                      {recordingPayment ? 'Recording...' : 'Record Payment'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Payment Verification Modal */}
+        {verifyingPaymentId && (
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+              <div className="p-6">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Verify Payment</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Payment Account <span className="text-red-500">*</span>
+                    </label>
+                    <PaymentAccountSelector
+                      value={verifyPaymentAccountId}
+                      onChange={setVerifyPaymentAccountId}
+                      showQuickAdd={true}
+                      required={true}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="flex gap-3 pt-4">
+                    <button
+                      onClick={() => {
+                        setVerifyingPaymentId(null)
+                        setVerifyPaymentAccountId(null)
+                      }}
+                      className="flex-1 btn-secondary px-6 py-3"
+                      disabled={verifyingPayment}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        if (!verifyPaymentAccountId) {
+                          toast.error('Please select a payment account')
+                          return
+                        }
+                        setVerifyingPayment(true)
+                        try {
+                          await api.post(`/accounting/payments/${verifyingPaymentId}/verify`, {
+                            paymentAccountId: verifyPaymentAccountId
+                          })
+                          toast.success('Payment verified successfully!')
+                          setVerifyingPaymentId(null)
+                          setVerifyPaymentAccountId(null)
+                          fetchCustomerDetails()
+                          fetchPayments()
+                        } catch (error) {
+                          console.error('Failed to verify payment:', error)
+                          toast.error(error.response?.data?.error?.message || 'Failed to verify payment')
+                        } finally {
+                          setVerifyingPayment(false)
+                        }
+                      }}
+                      className="flex-1 btn-primary px-6 py-3"
+                      disabled={verifyingPayment || !verifyPaymentAccountId}
+                    >
+                      {verifyingPayment ? 'Verifying...' : 'Verify Payment'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ModernLayout>
   )

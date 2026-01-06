@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, PlusIcon } from '@heroicons/react/24/outline'
 import api from '../../services/api'
 import { useTenant } from '../../hooks/useTenant'
 import { toast } from 'react-hot-toast'
@@ -86,17 +86,26 @@ function ReturnsPage() {
     <ModernLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/business/accounting')}
-            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <ArrowLeftIcon className="h-6 w-6" />
-          </button>
-          <div>
-            <h1 className="text-3xl font-bold text-brand-600">Order Returns</h1>
-            <p className="text-gray-500 mt-1">Manage and approve order returns and refunds.</p>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/business/accounting')}
+              className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <ArrowLeftIcon className="h-6 w-6" />
+            </button>
+            <div>
+              <h1 className="text-3xl font-bold text-brand-600">Order Returns</h1>
+              <p className="text-gray-500 mt-1">Manage and approve order returns and refunds.</p>
+            </div>
           </div>
+          <button
+            onClick={() => navigate('/business/returns/new')}
+            className="btn-primary flex items-center px-4 py-2"
+          >
+            <PlusIcon className="h-4 w-4 mr-2" />
+            Create Return
+          </button>
         </div>
 
         {/* Filters */}

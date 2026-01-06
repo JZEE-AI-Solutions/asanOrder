@@ -31,6 +31,7 @@ model Tenant {
   businessCode           String               @unique
   shippingCityCharges    String?              @db.Text
   shippingQuantityRules  String?              @db.Text
+  defaultCodFeePaidBy     String?              @default("BUSINESS_OWNER") // BUSINESS_OWNER or CUSTOMER
   totalInvestedCapital   Float?               @default(0)
   totalProfitDistributed Float?               @default(0)
   ownerWithdrawals       Float?               @default(0)
@@ -101,7 +102,13 @@ model Order {
   images                String?
   imagesData            Bytes?
   imagesType            String?
-  paymentAmount         Float?
+  paymentAmount         Float?    // Claimed amount (from customer - unverified)
+  verifiedPaymentAmount Float?    // Verified amount (by business owner)
+  paymentVerified       Boolean   @default(false) // Whether payment is verified
+  paymentVerifiedAt      DateTime? // When payment was verified
+  paymentVerifiedBy      String?   // User ID who verified the payment
+  paymentAccountId      String?
+  paymentMethod         String? // CASH, BANK_TRANSFER, etc.
   shippingCharges       Float?
   paymentReceipt        String?
   paymentReceiptData    Bytes?
@@ -116,6 +123,7 @@ model Order {
   codFee                Float?
   codAmount             Float?
   codFeeCalculationType String?
+  codFeePaidBy          String? // "BUSINESS_OWNER" or "CUSTOMER"
   logisticsCompanyId    String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
@@ -131,6 +139,7 @@ model Order {
   form                  Form              @relation(fields: [formId], references: [id], onUpdate: NoAction)
   tenant                Tenant            @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
   logisticsCompany      LogisticsCompany? @relation(fields: [logisticsCompanyId], references: [id], onUpdate: NoAction)
+  paymentAccount        Account?          @relation("OrderPaymentAccount", fields: [paymentAccountId], references: [id], onUpdate: NoAction)
   transactions          Transaction[]
   payments              Payment[]
   orderReturns          Return[]
@@ -363,6 +372,7 @@ model Account {
   transactionLines TransactionLine[]
   Expense          Expense[]
   payments         Payment[]
+  orderPayments    Order[]            @relation("OrderPaymentAccount")
 
   @@unique([code, tenantId])
   @@index([tenantId])

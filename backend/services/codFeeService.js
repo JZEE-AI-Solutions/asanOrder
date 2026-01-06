@@ -40,9 +40,18 @@ class CODFeeService {
         const sortedRules = rules.sort((a, b) => a.min - b.min);
         
         // Find matching range
-        const matchingRule = sortedRules.find(rule => 
-          codAmount >= rule.min && codAmount <= rule.max
-        );
+        // For boundary values, use the range where min <= amount < max (except for last range which includes max)
+        // This ensures that boundary values like 10000 go to the higher range (10000-20000), not the lower (0-10000)
+        const matchingRule = sortedRules.find((rule, index) => {
+          const isLastRange = index === sortedRules.length - 1;
+          if (isLastRange) {
+            // Last range includes the max value
+            return codAmount >= rule.min && codAmount <= rule.max;
+          } else {
+            // Other ranges: min <= amount < max (exclusive on max, so 10000 goes to next range)
+            return codAmount >= rule.min && codAmount < rule.max;
+          }
+        });
         
         if (!matchingRule) {
           // Use highest range if amount exceeds all ranges

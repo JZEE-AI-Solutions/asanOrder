@@ -48,14 +48,19 @@ class AccountingService {
           // Calculate balance change based on account type
           // For ASSET and EXPENSE: Debit increases, Credit decreases
           // For LIABILITY, EQUITY, INCOME: Credit increases, Debit decreases
+          // NOTE: In this system, EQUITY accounts store negative balances (credits make balance negative)
           const isDebitIncrease = account.type === 'ASSET' || account.type === 'EXPENSE';
           let balanceChange;
           
           if (isDebitIncrease) {
             // Asset/Expense: Debit increases, Credit decreases
             balanceChange = (line.debitAmount || 0) - (line.creditAmount || 0);
+          } else if (account.type === 'EQUITY') {
+            // EQUITY: In this system, credits make balance negative (opposite of standard)
+            // Credit decreases balance (makes it more negative), Debit increases balance (makes it less negative)
+            balanceChange = (line.debitAmount || 0) - (line.creditAmount || 0);
           } else {
-            // Liability/Equity/Income: Credit increases, Debit decreases
+            // Liability/Income: Credit increases, Debit decreases (standard)
             balanceChange = (line.creditAmount || 0) - (line.debitAmount || 0);
           }
           
@@ -239,9 +244,14 @@ class AccountingService {
             }
           }
         },
-        orderBy: {
-          [sort]: order
-        },
+        orderBy: [
+          {
+            [sort]: order
+          },
+          {
+            createdAt: 'desc' // Secondary sort by creation time for same-date transactions
+          }
+        ],
         skip,
         take: limit
       }),

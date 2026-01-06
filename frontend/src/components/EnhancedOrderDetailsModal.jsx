@@ -27,6 +27,7 @@ import { Badge } from './ui/Badge'
 import { Input, Textarea, Select } from './ui/Input'
 import ProductSelector from './ProductSelector'
 import OrderProductSelector from './OrderProductSelector'
+import PaymentAccountSelector from './accounting/PaymentAccountSelector'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 
@@ -40,6 +41,8 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
   const [selectedProducts, setSelectedProducts] = useState([])
   const [productQuantities, setProductQuantities] = useState({})
   const [productPrices, setProductPrices] = useState({})
+  const [selectedPaymentAccountId, setSelectedPaymentAccountId] = useState(null)
+  const [codFeePaidBy, setCodFeePaidBy] = useState('BUSINESS_OWNER')
 
   const {
     register,
@@ -94,6 +97,23 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
     if (order.productPrices) {
       const productPrices = JSON.parse(order.productPrices)
       setProductPrices(productPrices)
+    }
+
+    // Initialize COD fee payment preference
+    if (order.codFeePaidBy) {
+      setCodFeePaidBy(order.codFeePaidBy)
+    } else {
+      setCodFeePaidBy('BUSINESS_OWNER')
+    }
+    
+    // Initialize payment account
+    if (order.paymentAccountId) {
+      setSelectedPaymentAccountId(order.paymentAccountId)
+    }
+
+    // Initialize payment account
+    if (order.paymentAccountId) {
+      setSelectedPaymentAccountId(order.paymentAccountId)
     }
 
     // Initialize selected products
@@ -199,7 +219,8 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
         productQuantities: JSON.stringify(productQuantities),
         productPrices: JSON.stringify(productPrices),
         selectedProducts: JSON.stringify(selectedProducts),
-        paymentAmount: data['Payment Amount'] || paymentAmount
+        paymentAmount: data['Payment Amount'] || paymentAmount,
+        paymentAccountId: selectedPaymentAccountId || undefined
       }
 
       await api.put(`/order/${order.id}`, updatedOrder)
@@ -221,12 +242,48 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
   const handleConfirmOrder = async () => {
     try {
       setLoading(true)
-      await onConfirm(order.id)
+      
+      // Calculate COD amount to determine if COD fee is applicable
+      let orderTotal = 0
+      if (order.selectedProducts) {
+        const products = JSON.parse(order.selectedProducts)
+        const quantities = order.productQuantities ? JSON.parse(order.productQuantities) : {}
+        const prices = order.productPrices ? JSON.parse(order.productPrices) : {}
+        products.forEach(product => {
+          const qty = quantities[product.id] || product.quantity || 1
+          const price = prices[product.id] || product.price || 0
+          orderTotal += price * qty
+        })
+      }
+      orderTotal += (order.shippingCharges || 0)
+      const codAmount = orderTotal - paymentAmount
+      
+      // Make API call with paymentAccountId and COD fee preference if applicable
+      const payload = {
+        paymentAccountId: selectedPaymentAccountId || undefined
+      }
+      
+      // If COD order, include COD fee payment preference
+      if (codAmount > 0 && order.codFee) {
+        payload.codFeePaidBy = codFeePaidBy
+        if (order.logisticsCompanyId) {
+          payload.logisticsCompanyId = order.logisticsCompanyId
+        }
+      }
+      
+      const response = await api.post(`/order/${order.id}/confirm`, payload)
+      
       toast.success('Order confirmed successfully!')
+      
+      // Call onConfirm callback for any parent-side effects (like refreshing order list)
+      if (onConfirm) {
+        await onConfirm(order.id)
+      }
+      
       onClose()
     } catch (error) {
       console.error('Failed to confirm order:', error)
-      toast.error('Failed to confirm order')
+      toast.error(error.response?.data?.error || 'Failed to confirm order')
     } finally {
       setLoading(false)
     }
@@ -596,6 +653,23 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
                       {errors['Payment Amount'] && (
                         <p className="text-red-500 text-sm">{errors['Payment Amount'].message}</p>
                       )}
+                      {isEditing && watch('Payment Amount') > 0 && (
+                        <div className="mt-4 space-y-2">
+                          <label className="block text-sm font-medium text-gray-700">
+                            Payment Account <span className="text-gray-500 text-xs">(where payment was received)</span>
+                          </label>
+                          <PaymentAccountSelector
+                            value={selectedPaymentAccountId}
+                            onChange={setSelectedPaymentAccountId}
+                            showQuickAdd={true}
+                            required={false}
+                            className="w-full"
+                          />
+                          <p className="text-xs text-gray-500">
+                            Select the account where the customer's payment was received.
+                          </p>
+                        </div>
+                      )}
                     </div>
                     
                     {isEditing && (
@@ -697,6 +771,100 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2 sm:space-y-3">
+                    {order.status === 'PENDING' && paymentAmount > 0 && (
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700">
+                          Payment Account <span className="text-gray-500 text-xs">(for prepayment)</span>
+                        </label>
+                        <PaymentAccountSelector
+                          value={selectedPaymentAccountId}
+                          onChange={setSelectedPaymentAccountId}
+                          showQuickAdd={true}
+                          required={false}
+                        />
+                        <p className="text-xs text-gray-500">
+                          Select the account where the customer's payment was received. If not selected, will default to Cash account.
+                        </p>
+                      </div>
+                    )}
+                    
+                    {/* COD Fee Payment Preference */}
+                    {(() => {
+                      let orderTotal = 0
+                      if (order.selectedProducts) {
+                        const products = JSON.parse(order.selectedProducts)
+                        const quantities = order.productQuantities ? JSON.parse(order.productQuantities) : {}
+                        const prices = order.productPrices ? JSON.parse(order.productPrices) : {}
+                        products.forEach(product => {
+                          const qty = quantities[product.id] || product.quantity || 1
+                          const price = prices[product.id] || product.price || 0
+                          orderTotal += price * qty
+                        })
+                      }
+                      orderTotal += (order.shippingCharges || 0)
+                      const codAmount = orderTotal - paymentAmount
+                      const hasCodFee = order.codFee && order.codFee > 0
+                      
+                      if (codAmount > 0 && hasCodFee && order.status === 'PENDING') {
+                        return (
+                          <div className="p-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg">
+                            <label className="block text-sm font-semibold text-gray-900 mb-3">
+                              COD Fee Payment Preference
+                            </label>
+                            <div className="space-y-2">
+                              <label className="flex items-center cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="codFeePaidByModal"
+                                  value="BUSINESS_OWNER"
+                                  checked={codFeePaidBy === 'BUSINESS_OWNER'}
+                                  onChange={(e) => setCodFeePaidBy(e.target.value)}
+                                  className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500"
+                                />
+                                <div className="flex-1">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    Business Owner Pays
+                                  </span>
+                                  <p className="text-xs text-gray-600">
+                                    COD Fee: Rs. {order.codFee.toFixed(2)} (Expense)
+                                  </p>
+                                </div>
+                              </label>
+                              <label className="flex items-center cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="codFeePaidByModal"
+                                  value="CUSTOMER"
+                                  checked={codFeePaidBy === 'CUSTOMER'}
+                                  onChange={(e) => setCodFeePaidBy(e.target.value)}
+                                  className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500"
+                                />
+                                <div className="flex-1">
+                                  <span className="text-sm font-medium text-gray-900">
+                                    Customer Pays
+                                  </span>
+                                  <p className="text-xs text-gray-600">
+                                    COD Fee: Rs. {order.codFee.toFixed(2)} (Added to Order Total)
+                                  </p>
+                                </div>
+                              </label>
+                            </div>
+                            {codFeePaidBy === 'CUSTOMER' && (
+                              <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                                <p className="text-xs text-blue-800">
+                                  <strong>New Order Total:</strong> Rs. {(orderTotal + order.codFee).toFixed(2)}
+                                </p>
+                                <p className="text-xs text-blue-700 mt-1">
+                                  Customer will pay Rs. {order.codFee.toFixed(2)} as COD fee
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      }
+                      return null
+                    })()}
+                    
                     {order.status === 'PENDING' && (
                       <Button
                         onClick={handleConfirmOrder}

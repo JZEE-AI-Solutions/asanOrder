@@ -472,6 +472,183 @@ class ProfitService {
       }
     };
   }
+
+  /**
+   * Get profit statistics for orders
+   * @param {string} tenantId - Tenant ID
+   * @param {Object} filters - Filter options (startDate, endDate, status)
+   * @returns {Object} Profit statistics with order details
+   */
+  async getProfitStatistics(tenantId, filters = {}) {
+    const { startDate, endDate, status } = filters;
+
+    // Build where clause
+    const whereClause = {
+      tenantId,
+      status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] }
+    };
+
+    if (status) {
+      whereClause.status = status.toUpperCase();
+    }
+
+    const dateFilter = {};
+    if (startDate) dateFilter.gte = new Date(startDate);
+    if (endDate) dateFilter.lte = new Date(endDate);
+    if (Object.keys(dateFilter).length > 0) {
+      whereClause.createdAt = dateFilter;
+    }
+
+    // Get orders
+    const orders = await prisma.order.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        orderNumber: true,
+        createdAt: true,
+        status: true,
+        selectedProducts: true,
+        productQuantities: true,
+        productPrices: true,
+        shippingCharges: true,
+        shippingVariance: true,
+        actualShippingCost: true,
+        codFee: true,
+        codFeePaidBy: true
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    let totalRevenue = 0;
+    let totalCost = 0;
+    const orderProfits = [];
+
+    // Calculate profit for each order
+    for (const order of orders) {
+      try {
+        // Parse order data
+        let selectedProducts = [];
+        let productQuantities = {};
+        let productPrices = {};
+
+        selectedProducts = typeof order.selectedProducts === 'string' 
+          ? JSON.parse(order.selectedProducts) 
+          : (order.selectedProducts || []);
+        productQuantities = typeof order.productQuantities === 'string'
+          ? JSON.parse(order.productQuantities)
+          : (order.productQuantities || {});
+        productPrices = typeof order.productPrices === 'string'
+          ? JSON.parse(order.productPrices)
+          : (order.productPrices || {});
+
+        // Calculate revenue (products + shipping)
+        let orderRevenue = 0;
+        if (Array.isArray(selectedProducts)) {
+          selectedProducts.forEach(product => {
+            const quantity = productQuantities[product.id] || product.quantity || 1;
+            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+            orderRevenue += price * quantity;
+          });
+        }
+        orderRevenue += (order.shippingCharges || 0);
+        
+        // Add COD fee revenue if customer pays
+        if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+          orderRevenue += order.codFee;
+        }
+
+        // Calculate cost (COGS + actual shipping cost)
+        let orderCost = 0;
+        if (Array.isArray(selectedProducts)) {
+          for (const product of selectedProducts) {
+            const quantity = productQuantities[product.id] || product.quantity || 1;
+            // Try to get purchase price from product data first
+            let purchasePrice = product.purchasePrice || product.currentPurchasePrice || product.lastPurchasePrice || 0;
+            
+            // If not found, fetch from database
+            if (!purchasePrice && product.id) {
+              try {
+                const dbProduct = await prisma.product.findUnique({
+                  where: { id: product.id },
+                  select: { lastPurchasePrice: true }
+                });
+                purchasePrice = dbProduct?.lastPurchasePrice || 0;
+              } catch (e) {
+                // If product not found, use 0
+                purchasePrice = 0;
+              }
+            }
+            orderCost += purchasePrice * quantity;
+          }
+        }
+        
+        // Add actual shipping cost to order cost
+        // If actualShippingCost is not set, use shippingCharges as fallback
+        const actualShippingCost = order.actualShippingCost !== null && order.actualShippingCost !== undefined
+          ? order.actualShippingCost
+          : (order.shippingCharges || 0);
+        orderCost += actualShippingCost;
+
+        // Add COD fee expense (business always pays logistics company, regardless of who pays customer)
+        if (order.codFee && order.codFee > 0) {
+          orderCost += order.codFee;
+        }
+
+        const orderProfit = orderRevenue - orderCost;
+        const profitMargin = orderRevenue > 0 ? (orderProfit / orderRevenue) * 100 : 0;
+
+        totalRevenue += orderRevenue;
+        totalCost += orderCost;
+
+        orderProfits.push({
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          createdAt: order.createdAt,
+          status: order.status,
+          totalRevenue: orderRevenue,
+          totalCost: orderCost,
+          profit: orderProfit,
+          profitMargin: profitMargin
+        });
+      } catch (error) {
+        console.error(`Error calculating profit for order ${order.orderNumber}:`, error);
+        // Continue with next order
+      }
+    }
+
+    // Calculate shipping variance totals
+    const ordersWithVariance = orders.filter(o => o.shippingVariance !== null && o.shippingVariance !== undefined);
+    const shippingVarianceExpense = ordersWithVariance
+      .filter(o => o.shippingVariance < 0)
+      .reduce((sum, o) => sum + Math.abs(o.shippingVariance), 0);
+    const shippingVarianceIncome = ordersWithVariance
+      .filter(o => o.shippingVariance > 0)
+      .reduce((sum, o) => sum + o.shippingVariance, 0);
+    const shippingVarianceNet = shippingVarianceIncome - shippingVarianceExpense;
+
+    // Calculate total profit
+    // Note: Shipping variance is already accounted for in the cost calculation
+    // (we use actualShippingCost in cost, not shippingCharges)
+    // So variance = shippingCharges - actualShippingCost is automatically included
+    const totalProfit = totalRevenue - totalCost;
+    const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
+
+    return {
+      totalRevenue,
+      totalCost,
+      totalProfit,
+      profitMargin,
+      orderCount: orders.length,
+      orders: orderProfits,
+      shippingVariance: {
+        expense: shippingVarianceExpense,
+        income: shippingVarianceIncome,
+        net: shippingVarianceNet
+      }
+    };
+  }
 }
 
 module.exports = new ProfitService();

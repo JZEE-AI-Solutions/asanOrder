@@ -19,6 +19,10 @@ import {
   LazyProductsPage,
   LazyPurchasesPage,
   LazyReturnsPage,
+  LazySupplierReturnsPage,
+  LazyCreateReturnPage,
+  LazyCreateSupplierReturnPage,
+  LazyCreateStandaloneSupplierReturnPage,
   LazyVendorsPage,
   LazyOrderDetailsPage,
   LazyStockKeeperDashboard,
@@ -46,7 +50,8 @@ import {
   LazyAccountingReturnsPage,
   LazyAccountingSettingsPage,
   LazyAccountLedgerPage,
-  LazySupplierLedgerPage
+  LazySupplierLedgerPage,
+  LazyCustomerLedgerPage
 } from './components/LazyComponents'
 
 // Synchronous components
@@ -134,6 +139,14 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyCustomerDetailsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/customers/:customerId/ledger" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyCustomerLedgerPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />
@@ -276,7 +289,31 @@ function App() {
               <Route path="/business/returns" element={
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
-                    <LazyReturnsPage />
+                    <LazySupplierReturnsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/returns/new" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyCreateReturnPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/returns/supplier/new" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyCreateSupplierReturnPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/returns/standalone/new" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyCreateStandaloneSupplierReturnPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

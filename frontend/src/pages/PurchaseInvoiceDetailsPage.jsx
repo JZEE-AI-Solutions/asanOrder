@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeftIcon, CurrencyDollarIcon, PencilIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, CurrencyDollarIcon, PencilIcon, ArrowLeftOnRectangleIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
@@ -149,21 +149,27 @@ const PurchaseInvoiceDetailsPage = () => {
         console.log('🔍 Invoice Number:', invoice?.invoiceNumber)
         
         // Filter transactions related to this purchase invoice
+        // Only show transactions that are actually linked to this purchase invoice
+        // Exclude transactions linked to orders (orderId should be null or not set)
         const invoiceTransactions = (response.data.data || []).filter(txn => {
+          // Only match by purchaseInvoiceId - don't use description matching as it's too broad
+          // Description matching can incorrectly include order transactions with matching numbers
           const matchesById = txn.purchaseInvoiceId === invoiceId
-          const matchesByDescription = txn.description && invoice?.invoiceNumber && 
-            txn.description.includes(invoice.invoiceNumber)
           
-          if (matchesById || matchesByDescription) {
+          // Exclude transactions that are linked to orders (these are customer order transactions, not purchase invoice transactions)
+          const isOrderTransaction = txn.orderId !== null && txn.orderId !== undefined
+          
+          if (matchesById && !isOrderTransaction) {
             console.log('✅ Matching transaction:', {
               id: txn.id,
               transactionNumber: txn.transactionNumber,
               purchaseInvoiceId: txn.purchaseInvoiceId,
+              orderId: txn.orderId,
               description: txn.description
             })
           }
           
-          return matchesById || matchesByDescription
+          return matchesById && !isOrderTransaction
         })
         
         console.log('🔍 Filtered transactions:', invoiceTransactions.length)
@@ -296,13 +302,29 @@ const PurchaseInvoiceDetailsPage = () => {
               <h1 className="text-3xl font-bold text-gray-900">Purchase Invoice Details</h1>
               <p className="text-gray-600 mt-2">Invoice #{invoice.invoiceNumber}</p>
             </div>
-            <button
-              onClick={() => navigate(`/business/purchases/${invoiceId}/edit`)}
-              className="btn-primary flex items-center min-h-[44px]"
-            >
-              <PencilIcon className="h-5 w-5 mr-2" />
-              Edit Invoice
-            </button>
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => navigate(`/business/returns/supplier/new?purchaseInvoiceId=${invoiceId}`)}
+                className="btn-primary flex items-center px-6 py-2.5 bg-purple-600 hover:bg-purple-700 min-h-[44px]"
+              >
+                <ArrowLeftOnRectangleIcon className="h-5 w-5 mr-2" />
+                Create Return
+              </button>
+              <button
+                onClick={() => navigate(`/business/returns/standalone/new?purchaseInvoiceId=${invoiceId}`)}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+              >
+                <ArrowLeftOnRectangleIcon className="h-5 w-5" />
+                <span>Return Products</span>
+              </button>
+              <button
+                onClick={() => navigate(`/business/purchases/${invoiceId}/edit`)}
+                className="btn-primary flex items-center min-h-[44px]"
+              >
+                <PencilIcon className="h-5 w-5 mr-2" />
+                Edit Invoice
+              </button>
+            </div>
           </div>
         </div>
 
@@ -369,6 +391,91 @@ const PurchaseInvoiceDetailsPage = () => {
             <p className="text-gray-500 text-center py-4">No products found</p>
           )}
         </div>
+
+        {/* Returns Section */}
+        {invoice.returns && invoice.returns.length > 0 && (
+          <div className="card p-6 mb-6">
+            <h2 className="text-xl font-semibold text-gray-900 mb-6">Returned Products</h2>
+            <div className="space-y-4">
+              {invoice.returns.map((returnRecord) => (
+                <div key={returnRecord.id} className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="font-semibold text-gray-900">{returnRecord.returnNumber}</span>
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        returnRecord.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                        returnRecord.status === 'REJECTED' ? 'bg-red-100 text-red-800' :
+                        'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {returnRecord.status}
+                      </span>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-gray-600">Return Date</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {new Date(returnRecord.returnDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                  
+                  {returnRecord.reason && (
+                    <p className="text-sm text-gray-600 mb-3">
+                      <span className="font-medium">Reason:</span> {returnRecord.reason}
+                    </p>
+                  )}
+                  
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-white">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
+                          {returnRecord.returnItems.some(item => item.reason) && (
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {returnRecord.returnItems.map((item, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-3 py-2 text-sm text-gray-900">{item.productName}</td>
+                            <td className="px-3 py-2 text-sm text-gray-900">{item.quantity}</td>
+                            <td className="px-3 py-2 text-sm text-gray-900">Rs. {item.purchasePrice.toLocaleString()}</td>
+                            <td className="px-3 py-2 text-sm font-semibold text-gray-900">
+                              Rs. {(item.quantity * item.purchasePrice).toLocaleString()}
+                            </td>
+                            {returnRecord.returnItems.some(i => i.reason) && (
+                              <td className="px-3 py-2 text-sm text-gray-600">{item.reason || '-'}</td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50">
+                        <tr>
+                          <td colSpan={returnRecord.returnItems.some(item => item.reason) ? 4 : 3} className="px-3 py-2 text-right text-sm font-medium text-gray-700">
+                            Return Total:
+                          </td>
+                          <td className="px-3 py-2 text-sm font-bold text-gray-900">
+                            Rs. {returnRecord.totalAmount.toLocaleString()}
+                          </td>
+                          {returnRecord.returnItems.some(item => item.reason) && <td></td>}
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  
+                  {returnRecord.notes && (
+                    <p className="text-sm text-gray-600 mt-3 pt-3 border-t border-gray-200">
+                      <span className="font-medium">Notes:</span> {returnRecord.notes}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Payments Section */}
         {invoice.supplier && (

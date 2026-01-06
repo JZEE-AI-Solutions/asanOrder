@@ -1,7 +1,8 @@
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const router = express.Router();
 const prisma = require('../../lib/db');
-const { authenticateToken } = require('../../middleware/auth');
+const { authenticateToken, requireRole } = require('../../middleware/auth');
 const accountingService = require('../../services/accountingService');
 const balanceService = require('../../services/balanceService');
 
@@ -16,7 +17,10 @@ router.get('/', authenticateToken, async (req, res) => {
       order = 'desc',
       type,
       fromDate,
-      toDate
+      toDate,
+      orderId,
+      customerId,
+      supplierId
     } = req.query;
 
     const skip = (page - 1) * limit;
@@ -26,6 +30,9 @@ router.get('/', authenticateToken, async (req, res) => {
     };
 
     if (type) where.type = type;
+    if (orderId) where.orderId = orderId;
+    if (customerId) where.customerId = customerId;
+    if (supplierId) where.supplierId = supplierId;
     if (fromDate || toDate) {
       where.date = {};
       if (fromDate) where.date.gte = new Date(fromDate);
@@ -124,22 +131,72 @@ router.post('/', authenticateToken, async (req, res) => {
       });
     }
 
-    // For supplier payments, amount can be 0 if fully paid with advance
-    // For other types, amount and paymentMethod are required
-    if (type !== 'SUPPLIER_PAYMENT' && (!amount || !paymentMethod)) {
+    // For customer payments, amount is required, paymentAccountId required only if verified
+    if (type === 'CUSTOMER_PAYMENT' && !amount) {
       return res.status(400).json({
         success: false,
         error: {
           code: 'VALIDATION_ERROR',
-          message: 'Amount and payment method are required'
+          message: 'Amount is required for customer payments'
         }
       });
     }
 
+    // Check if payment should be verified immediately
+    const isVerified = req.body.isVerified !== undefined ? req.body.isVerified : (orderId !== null && orderId !== undefined);
+    
+    // Initialize customer advance variables
+    let useCustomerAdvance = false;
+    let customerAdvanceAmountUsed = 0;
+    let customerAdvanceAccount = null;
+    
+    // For customer payments, check if advance balance should be used
+    if (type === 'CUSTOMER_PAYMENT' && req.body.useAdvanceBalance && customerId) {
+      useCustomerAdvance = true;
+      try {
+        // Get customer's current advanceBalance directly from database
+        // This is more reliable than calculating from balance service
+        const customerForAdvance = await prisma.customer.findUnique({
+          where: { id: customerId },
+          select: { advanceBalance: true }
+        });
+        const availableAdvance = customerForAdvance?.advanceBalance || 0;
+        
+        if (availableAdvance > 0) {
+          const requestedAdvance = req.body.advanceAmountUsed ? parseFloat(req.body.advanceAmountUsed) : availableAdvance;
+          customerAdvanceAmountUsed = Math.min(requestedAdvance, availableAdvance, parseFloat(amount));
+          
+          // Get or create Customer Advance Balance account
+          customerAdvanceAccount = await accountingService.getAccountByCode('1210', tenantId) ||
+            await accountingService.getOrCreateAccount({
+              code: '1210',
+              name: 'Customer Advance Balance',
+              type: 'ASSET',
+              tenantId,
+              balance: 0
+            });
+        }
+      } catch (balanceError) {
+        console.error('Error calculating customer balance for advance usage:', balanceError);
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Failed to calculate customer balance for advance usage'
+          }
+        });
+      }
+    }
+    
     // For supplier payments with advance, validate advance usage
     let actualAdvanceUsed = 0;
     let advanceToSuppliersAccount = null;
     let cashPaymentAmount = parseFloat(amount) || 0;
+    
+    // For customer payments, calculate cash payment amount (total - advance used)
+    if (type === 'CUSTOMER_PAYMENT') {
+      cashPaymentAmount = parseFloat(amount) - customerAdvanceAmountUsed;
+    }
 
     if (type === 'SUPPLIER_PAYMENT' && useAdvanceBalance && supplierId) {
       try {
@@ -243,29 +300,71 @@ router.post('/', authenticateToken, async (req, res) => {
         });
       }
 
-      const arAccount = await accountingService.getAccountByCode('1200', tenantId) ||
-        await accountingService.getOrCreateAccount({
-          code: '1200',
-          name: 'Accounts Receivable',
-          type: 'ASSET',
-          tenantId,
-          balance: 0
+      // For verified payments, payment account is required
+      if (isVerified && !paymentAccount) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Payment account is required for verified payments'
+          }
         });
+      }
 
-      accountToCredit = arAccount;
+      // Only create accounting entries if payment is verified
+      if (isVerified) {
+        const arAccount = await accountingService.getAccountByCode('1200', tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '1200',
+            name: 'Accounts Receivable',
+            type: 'ASSET',
+            tenantId,
+            balance: 0
+          });
 
-      transactionLines = [
-        {
-          accountId: paymentAccount.id,
-          debitAmount: amount,
-          creditAmount: 0
-        },
-        {
-          accountId: arAccount.id,
-          debitAmount: 0,
-          creditAmount: amount
+        // Build transaction lines
+        // 1. Cash/Bank payment (if any)
+        if (cashPaymentAmount > 0 && paymentAccount) {
+          transactionLines.push({
+            accountId: paymentAccount.id,
+            debitAmount: cashPaymentAmount,
+            creditAmount: 0
+          });
         }
-      ];
+
+        // 2. Advance usage (if any)
+        // When advance is used, we credit the Customer Advance Balance (ASSET) to decrease it
+        if (customerAdvanceAmountUsed > 0 && customerAdvanceAccount) {
+          transactionLines.push({
+            accountId: customerAdvanceAccount.id,
+            debitAmount: 0,
+            creditAmount: customerAdvanceAmountUsed
+          });
+        }
+
+        // 3. Credit account (AR for order payments, Advance Balance for direct payments)
+        if (transactionLines.length > 0) {
+          const creditAccount = orderId 
+            ? arAccount 
+            : (await accountingService.getAccountByCode('1210', tenantId) ||
+               await accountingService.getOrCreateAccount({
+                 code: '1210',
+                 name: 'Customer Advance Balance',
+                 type: 'ASSET',
+                 tenantId,
+                 balance: 0
+               }));
+
+          accountToCredit = creditAccount;
+
+          transactionLines.push({
+            accountId: creditAccount.id,
+            debitAmount: 0,
+            creditAmount: parseFloat(amount)
+          });
+        }
+      }
+      // If unverified, transactionLines will remain empty and no transaction will be created
     } else if (type === 'SUPPLIER_PAYMENT') {
       if (!supplierId) {
         return res.status(400).json({
@@ -331,78 +430,116 @@ router.post('/', authenticateToken, async (req, res) => {
         }
       }
 
-      // Create accounting transaction
-      const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
-      
-      // Enhance description with invoice number if available
-      if (purchaseInvoiceId && type === 'SUPPLIER_PAYMENT') {
-        try {
-          const invoice = await prisma.purchaseInvoice.findUnique({
-            where: { id: purchaseInvoiceId },
-            select: { invoiceNumber: true }
-          });
-          if (invoice?.invoiceNumber) {
-            description += ` - Invoice: ${invoice.invoiceNumber}`;
+      // Create accounting transaction only if verified (transactionLines has entries)
+      let transaction = null;
+      if (transactionLines.length > 0) {
+        const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+        
+        // Enhance description with invoice number if available
+        if (purchaseInvoiceId && type === 'SUPPLIER_PAYMENT') {
+          try {
+            const invoice = await prisma.purchaseInvoice.findUnique({
+              where: { id: purchaseInvoiceId },
+              select: { invoiceNumber: true }
+            });
+            if (invoice?.invoiceNumber) {
+              description += ` - Invoice: ${invoice.invoiceNumber}`;
+            }
+          } catch (err) {
+            // Don't fail if we can't fetch invoice number
+            console.error('Error fetching invoice number for transaction description:', err);
           }
-        } catch (err) {
-          // Don't fail if we can't fetch invoice number
-          console.error('Error fetching invoice number for transaction description:', err);
         }
+        
+        transaction = await accountingService.createTransaction(
+          {
+            transactionNumber,
+            date: new Date(date),
+            description,
+            tenantId,
+            orderId: orderId || null,
+            orderReturnId: orderReturnId || null,
+            purchaseInvoiceId: purchaseInvoiceId || null
+          },
+          transactionLines
+        );
       }
-      
-      const transaction = await accountingService.createTransaction(
-        {
-          transactionNumber,
-          date: new Date(date),
-          description,
-          tenantId,
-          orderId,
-          orderReturnId,
-          purchaseInvoiceId: purchaseInvoiceId || null
-        },
-        transactionLines
-      );
 
-      // Create payment record only if there's actual cash/bank payment
-      // Advance usage is handled through accounting entries only
+      // Create payment record (for both verified and unverified payments)
+      // For customer payments, always create payment record
+      // For supplier payments, only create if there's actual cash/bank payment
       let payment = null;
-      if (cashPaymentAmount > 0) {
+      if (type === 'CUSTOMER_PAYMENT' || (type === 'SUPPLIER_PAYMENT' && cashPaymentAmount > 0)) {
         payment = await tx.payment.create({
-        data: {
-          paymentNumber,
-          date: new Date(date),
-          type,
-            amount: cashPaymentAmount, // Only cash/bank payment amount
-            paymentMethod: paymentMethod || 'Cash',
-          tenantId,
-          customerId,
-          supplierId,
-          orderId,
-          orderReturnId,
-          purchaseInvoiceId: purchaseInvoiceId || null,
-          transactionId: transaction.id
-        },
-        include: {
-          customer: true,
-          supplier: true,
-          order: true
-        }
-      });
+          data: {
+            paymentNumber,
+            date: new Date(date),
+            type,
+            amount: type === 'CUSTOMER_PAYMENT' ? parseFloat(amount) : cashPaymentAmount,
+            paymentMethod: paymentMethod || (type === 'CUSTOMER_PAYMENT' ? 'Cash' : null),
+            accountId: paymentAccountId || null,
+            tenantId,
+            customerId: type === 'CUSTOMER_PAYMENT' ? customerId : null,
+            supplierId: type === 'SUPPLIER_PAYMENT' ? supplierId : null,
+            orderId: orderId || null,
+            orderReturnId: orderReturnId || null,
+            purchaseInvoiceId: purchaseInvoiceId || null,
+            transactionId: transaction ? transaction.id : null // null if unverified
+          },
+          include: {
+            customer: true,
+            supplier: true,
+            order: true,
+            account: true
+          }
+        });
       }
 
-      // Update order payment amount if customer payment
+      // Update order payment amount if customer payment with order
       if (type === 'CUSTOMER_PAYMENT' && orderId) {
         const order = await tx.order.findUnique({
           where: { id: orderId }
         });
         
-        const currentPaymentAmount = order.paymentAmount || 0;
-        await tx.order.update({
-          where: { id: orderId },
-          data: {
-            paymentAmount: currentPaymentAmount + parseFloat(amount)
-          }
+        if (order) {
+          const currentPaymentAmount = order.paymentAmount || 0;
+          await tx.order.update({
+            where: { id: orderId },
+            data: {
+              paymentAmount: currentPaymentAmount + parseFloat(amount)
+            }
+          });
+        }
+      }
+
+      // Update customer advance balance
+      if (type === 'CUSTOMER_PAYMENT' && customerId) {
+        const customer = await tx.customer.findUnique({
+          where: { id: customerId }
         });
+        
+        if (customer) {
+          let newAdvanceBalance = customer.advanceBalance || 0;
+          
+          // If advance was used, decrease advance balance
+          // Use advanceAmountToDeduct which is captured before transaction to ensure correct value
+          if (useCustomerAdvance && advanceAmountToDeduct > 0) {
+            newAdvanceBalance = Math.max(0, newAdvanceBalance - advanceAmountToDeduct);
+          }
+          
+          // If direct payment (no order) and verified, increase advance balance
+          if (!orderId && isVerified && transaction && cashPaymentAmount > 0) {
+            newAdvanceBalance = newAdvanceBalance + cashPaymentAmount;
+          }
+          
+          // Always update to ensure balance is saved (even if unchanged, to ensure transaction commits)
+          await tx.customer.update({
+            where: { id: customerId },
+            data: {
+              advanceBalance: newAdvanceBalance
+            }
+          });
+        }
       }
 
       return {
@@ -481,15 +618,24 @@ router.put('/:id', authenticateToken, async (req, res) => {
       });
     }
 
-    // Only allow editing supplier payments for now
-    if (existingPayment.type !== 'SUPPLIER_PAYMENT') {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Only supplier payments can be edited'
-        }
+    // Allow editing both supplier and customer payments
+    // For customer payments, only allow editing if not linked to order payment verification
+    if (existingPayment.type === 'CUSTOMER_PAYMENT' && existingPayment.orderId) {
+      // Check if this payment was created via order payment verification
+      const order = await prisma.order.findUnique({
+        where: { id: existingPayment.orderId },
+        select: { paymentVerified: true, verifiedPaymentAmount: true }
       });
+      
+      if (order && order.paymentVerified && Math.abs((order.verifiedPaymentAmount || 0) - existingPayment.amount) < 0.01) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'This payment is linked to order payment verification. Use order payment update endpoint instead.'
+          }
+        });
+      }
     }
 
     const oldAmount = existingPayment.amount;
@@ -734,6 +880,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
         }
 
+        const creditAccount = accountToCredit;
         transactionLines.push(
           {
             accountId: oldPaymentAccount.id,
@@ -741,9 +888,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
             creditAmount: 0
           },
           {
-            accountId: apAccount.id,
+            accountId: creditAccount.id,
             debitAmount: 0,
-            creditAmount: oldAmount // Credit AP (reverse debit)
+            creditAmount: oldAmount // Credit AR/AP/Advance (reverse debit)
           },
           {
             accountId: newPaymentAccount.id,
@@ -751,8 +898,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
             creditAmount: newAmount // Credit new account (new payment)
           },
           {
-            accountId: apAccount.id,
-            debitAmount: newAmount, // Debit AP (new payment)
+            accountId: creditAccount.id,
+            debitAmount: newAmount, // Debit AR/AP/Advance (new payment)
             creditAmount: 0
           }
         );
@@ -790,11 +937,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
           });
         }
 
+        const creditAccount = accountToCredit;
         if (amountDifference > 0) {
-          // Payment increased: Debit AP more, Credit payment account more
+          // Payment increased: Debit AR/AP/Advance more, Credit payment account more
           transactionLines.push(
             {
-              accountId: apAccount.id,
+              accountId: creditAccount.id,
               debitAmount: amountDifference,
               creditAmount: 0
             },
@@ -805,10 +953,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
           );
         } else {
-          // Payment decreased: Credit AP (reduce liability), Debit payment account (get money back)
+          // Payment decreased: Credit AR/AP/Advance (reduce), Debit payment account (get money back)
           transactionLines.push(
             {
-              accountId: apAccount.id,
+              accountId: creditAccount.id,
               debitAmount: 0,
               creditAmount: Math.abs(amountDifference)
             },
@@ -851,6 +999,181 @@ router.put('/:id', authenticateToken, async (req, res) => {
       error: {
         code: 'INTERNAL_ERROR',
         message: error.message || 'Failed to update payment'
+      }
+    });
+  }
+});
+
+// Verify payment (for direct customer payments without orders)
+router.post('/:id/verify', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('paymentAccountId').notEmpty().withMessage('Payment account is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
+      });
+    }
+
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const { paymentAccountId } = req.body;
+
+    // Get payment
+    const payment = await prisma.payment.findFirst({
+      where: {
+        id,
+        tenantId,
+        type: 'CUSTOMER_PAYMENT'
+      },
+      include: {
+        customer: true,
+        order: true
+      }
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Payment not found'
+        }
+      });
+    }
+
+    // Check if already verified
+    if (payment.transactionId) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Payment has already been verified'
+        }
+      });
+    }
+
+    // Validate payment account
+    const paymentAccount = await prisma.account.findFirst({
+      where: {
+        id: paymentAccountId,
+        tenantId,
+        type: 'ASSET',
+        accountSubType: { in: ['CASH', 'BANK'] }
+      }
+    });
+
+    if (!paymentAccount) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Invalid payment account. Must be a Cash or Bank account.'
+        }
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Determine credit account based on whether payment is linked to order
+      const arAccount = await accountingService.getAccountByCode('1200', tenantId) ||
+        await accountingService.getOrCreateAccount({
+          code: '1200',
+          name: 'Accounts Receivable',
+          type: 'ASSET',
+          tenantId,
+          balance: 0
+        });
+
+      // For direct payments (no orderId), credit to Customer Advance Balance
+      // For order payments, credit to AR
+      const creditAccount = payment.orderId 
+        ? arAccount 
+        : (await accountingService.getAccountByCode('1210', tenantId) ||
+           await accountingService.getOrCreateAccount({
+             code: '1210',
+             name: 'Customer Advance Balance',
+             type: 'ASSET',
+             tenantId,
+             balance: 0
+           }));
+
+      // Create accounting transaction
+      const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+      const transaction = await accountingService.createTransaction(
+        {
+          transactionNumber,
+          date: payment.date,
+          description: `Payment Verified: ${payment.paymentNumber}${payment.orderId ? ` (Order: ${payment.order?.orderNumber || payment.orderId})` : ' (Direct Payment)'}`,
+          tenantId,
+          orderId: payment.orderId || null
+        },
+        [
+          {
+            accountId: paymentAccount.id,
+            debitAmount: payment.amount,
+            creditAmount: 0
+          },
+          {
+            accountId: creditAccount.id,
+            debitAmount: 0,
+            creditAmount: payment.amount
+          }
+        ]
+      );
+
+      // Update payment with transaction ID
+      const updatedPayment = await tx.payment.update({
+        where: { id },
+        data: {
+          transactionId: transaction.id,
+          accountId: paymentAccountId,
+          paymentMethod: paymentAccount.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash'
+        },
+        include: {
+          customer: true,
+          order: true,
+          account: true
+        }
+      });
+
+      // Update customer advance balance if direct payment
+      if (!payment.orderId && payment.customerId) {
+        const customer = await tx.customer.findUnique({
+          where: { id: payment.customerId }
+        });
+        
+        if (customer) {
+          await tx.customer.update({
+            where: { id: payment.customerId },
+            data: {
+              advanceBalance: (customer.advanceBalance || 0) + payment.amount
+            }
+          });
+        }
+      }
+
+      return { payment: updatedPayment, transaction };
+    });
+
+    res.json({
+      success: true,
+      message: `Payment of Rs. ${payment.amount.toFixed(2)} verified successfully`,
+      data: result.payment,
+      transaction: result.transaction
+    });
+  } catch (error) {
+    console.error('Error verifying payment:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error.message || 'Failed to verify payment'
       }
     });
   }

@@ -1,6 +1,7 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const accountingService = require('../services/accountingService');
@@ -61,91 +62,8 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         where: { tenantId }
       });
 
-      // 2. Delete Orders (references forms, customers - must be deleted before forms)
-      stats.orders = await tx.order.deleteMany({
-        where: { tenantId }
-      });
-
-      // 3. Delete ReturnItems (references returns)
-      // First get all returns for this tenant, then delete their items
-      const tenantReturns = await tx.return.findMany({
-        where: { tenantId },
-        select: { id: true }
-      });
-      const returnIds = tenantReturns.map(r => r.id);
-      
-      if (returnIds.length > 0) {
-        const returnItems = await tx.returnItem.deleteMany({
-          where: {
-            returnId: {
-              in: returnIds
-            }
-          }
-        });
-        stats.returnItems = returnItems.count || 0;
-      }
-
-      // 4. Delete Returns (references purchase_invoices)
-      stats.returns = await tx.return.deleteMany({
-        where: { tenantId }
-      });
-
-      // 5. Delete PurchaseItems (references purchase_invoices and products)
-      stats.purchaseItems = await tx.purchaseItem.deleteMany({
-        where: { tenantId }
-      });
-
-      // 6. Delete PurchaseInvoices (no dependencies after purchase items are deleted)
-      stats.purchaseInvoices = await tx.purchaseInvoice.deleteMany({
-        where: { tenantId }
-      });
-
-      // 7. Delete Products (no dependencies after product logs and purchase items are deleted)
-      stats.products = await tx.product.deleteMany({
-        where: { tenantId }
-      });
-
-      // 8. Delete CustomerLogs (references customers)
-      // First get all customers for this tenant, then delete their logs
-      const tenantCustomers = await tx.customer.findMany({
-        where: { tenantId },
-        select: { id: true }
-      });
-      const customerIds = tenantCustomers.map(c => c.id);
-      
-      if (customerIds.length > 0) {
-        const customerLogs = await tx.customerLog.deleteMany({
-          where: {
-            customerId: {
-              in: customerIds
-            }
-          }
-        });
-        stats.customerLogs = customerLogs.count || 0;
-      }
-
-      // 9. Delete Customers (no dependencies after customer logs and orders are deleted)
-      stats.customers = await tx.customer.deleteMany({
-        where: { tenantId }
-      });
-
-      // 10. Delete FormFields (references forms - must be deleted before forms)
-      stats.formFields = await tx.formField.deleteMany({
-        where: {
-          form: {
-            tenantId
-          }
-        }
-      });
-
-      // 11. Delete Forms (no dependencies after form fields and orders are deleted)
-      stats.forms = await tx.form.deleteMany({
-        where: { tenantId }
-      });
-
-      // Accounting Module - Delete in order of dependencies
-      
-      // 12. Delete TransactionLines (references Transaction and Account - must be deleted before Transaction)
+      // Accounting Module - Delete transactions first (they reference Orders and Returns)
+      // 2. Delete TransactionLines (references Transaction and Account - must be deleted before Transaction)
       // First get all transactions for this tenant, then delete their lines
       const tenantTransactions = await tx.transaction.findMany({
         where: { tenantId },
@@ -164,7 +82,105 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         stats.transactionLines = transactionLines.count || 0;
       }
 
-      // 13. Delete ProfitDistributionItems (references ProfitDistribution, Investor, Transaction)
+      // 3. Delete Payments (references Customer, Supplier, Order, Return, Transaction)
+      // Delete before Transactions since Payments have one-to-one relationship with Transactions
+      // But we need to handle the circular dependency by deleting Payments first
+      stats.payments = await tx.payment.deleteMany({
+        where: { tenantId }
+      });
+
+      // 4. Delete Transactions (references Order, Return, PurchaseInvoice)
+      // Delete before Orders and Returns since Transactions reference them via foreign keys
+      stats.transactions = await tx.transaction.deleteMany({
+        where: { tenantId }
+      });
+
+      // Now we can safely delete Orders and Returns
+      // 5. Delete Orders (references forms, customers - must be deleted before forms)
+      stats.orders = await tx.order.deleteMany({
+        where: { tenantId }
+      });
+
+      // 6. Delete ReturnItems (references returns)
+      // First get all returns for this tenant, then delete their items
+      const tenantReturns = await tx.return.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const returnIds = tenantReturns.map(r => r.id);
+      
+      if (returnIds.length > 0) {
+        const returnItems = await tx.returnItem.deleteMany({
+          where: {
+            returnId: {
+              in: returnIds
+            }
+          }
+        });
+        stats.returnItems = returnItems.count || 0;
+      }
+
+      // 7. Delete Returns (references purchase_invoices, but Transactions already deleted)
+      stats.returns = await tx.return.deleteMany({
+        where: { tenantId }
+      });
+
+      // 8. Delete PurchaseItems (references purchase_invoices and products)
+      stats.purchaseItems = await tx.purchaseItem.deleteMany({
+        where: { tenantId }
+      });
+
+      // 9. Delete PurchaseInvoices (no dependencies after purchase items and transactions are deleted)
+      stats.purchaseInvoices = await tx.purchaseInvoice.deleteMany({
+        where: { tenantId }
+      });
+
+      // 10. Delete Products (no dependencies after product logs and purchase items are deleted)
+      stats.products = await tx.product.deleteMany({
+        where: { tenantId }
+      });
+
+      // 11. Delete CustomerLogs (references customers)
+      // First get all customers for this tenant, then delete their logs
+      const tenantCustomers = await tx.customer.findMany({
+        where: { tenantId },
+        select: { id: true }
+      });
+      const customerIds = tenantCustomers.map(c => c.id);
+      
+      if (customerIds.length > 0) {
+        const customerLogs = await tx.customerLog.deleteMany({
+          where: {
+            customerId: {
+              in: customerIds
+            }
+          }
+        });
+        stats.customerLogs = customerLogs.count || 0;
+      }
+
+      // 12. Delete Customers (no dependencies after customer logs, orders, and payments are deleted)
+      stats.customers = await tx.customer.deleteMany({
+        where: { tenantId }
+      });
+
+      // 13. Delete FormFields (references forms - must be deleted before forms)
+      stats.formFields = await tx.formField.deleteMany({
+        where: {
+          form: {
+            tenantId
+          }
+        }
+      });
+
+      // 14. Delete Forms (no dependencies after form fields and orders are deleted)
+      stats.forms = await tx.form.deleteMany({
+        where: { tenantId }
+      });
+
+      // Continue with remaining accounting module deletions
+      
+      // 15. Delete ProfitDistributionItems (references ProfitDistribution, Investor, Transaction)
       // First get all profit distributions for this tenant, then delete their items
       const tenantProfitDistributions = await tx.profitDistribution.findMany({
         where: { tenantId },
@@ -183,37 +199,23 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         stats.profitDistributionItems = profitDistributionItems.count || 0;
       }
 
-      // 14. Delete Withdrawals (references Investor, ProfitDistribution, Transaction)
+      // 16. Delete Withdrawals (references Investor, ProfitDistribution, Transaction)
       stats.withdrawals = await tx.withdrawal.deleteMany({
         where: { tenantId }
       });
 
-      // 15. Delete Investments (references Investor, Transaction)
+      // 17. Delete Investments (references Investor, Transaction)
       stats.investments = await tx.investment.deleteMany({
         where: { tenantId }
       });
 
-      // 16. Delete Expenses (references Account, Transaction)
+      // 18. Delete Expenses (references Account, Transaction)
       stats.expenses = await tx.expense.deleteMany({
         where: { tenantId }
       });
 
-      // 17. Delete Payments (references Customer, Supplier, Order, Return, Transaction)
-      // Delete before Suppliers and Transactions since Payments reference both
-      // (Foreign key has ON DELETE SET NULL, but cleaner to delete dependent records first)
-      stats.payments = await tx.payment.deleteMany({
-        where: { tenantId }
-      });
-
-      // 18. Delete Suppliers (has PurchaseInvoice, Payment - but PurchaseInvoices and Payments already deleted)
+      // 19. Delete Suppliers (has PurchaseInvoice, Payment - but PurchaseInvoices and Payments already deleted)
       stats.suppliers = await tx.supplier.deleteMany({
-        where: { tenantId }
-      });
-
-      // 19. Delete Transactions (references Order, Return, PurchaseInvoice)
-      // Delete after Payments, Expenses, Investments since these reference Transactions
-      // (Transactions have one-to-one relationships with Payment, Expense, Investment, ProfitDistribution, Withdrawal)
-      stats.transactions = await tx.transaction.deleteMany({
         where: { tenantId }
       });
 
@@ -257,6 +259,16 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
         data: { balance: 0 }
       });
       stats.accounts = 0; // System accounts preserved, only balances reset
+
+      // 25. Reset tenant settings to defaults (including COD fee payment preference)
+      await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          defaultCodFeePaidBy: 'BUSINESS_OWNER', // Reset to default
+          shippingCityCharges: null,
+          shippingQuantityRules: null
+        }
+      });
 
       return stats;
     }, {
@@ -387,6 +399,81 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
     } catch (accountError) {
       console.error('Error initializing chart of accounts for new tenant:', accountError);
       // Don't fail tenant creation if account initialization fails
+    }
+
+    // Create default shopping cart form for the new tenant
+    try {
+      const formLink = crypto.randomBytes(16).toString('hex');
+      
+      // Default form fields for shopping cart
+      const defaultFields = [
+        {
+          label: 'Customer Name',
+          fieldType: 'TEXT',
+          isRequired: true,
+          placeholder: 'Enter your full name',
+          order: 0
+        },
+        {
+          label: 'Phone Number',
+          fieldType: 'PHONE',
+          isRequired: true,
+          placeholder: 'Enter your phone number',
+          order: 1
+        },
+        {
+          label: 'Email Address',
+          fieldType: 'EMAIL',
+          isRequired: false,
+          placeholder: 'Enter your email',
+          order: 2
+        },
+        {
+          label: 'Delivery Address',
+          fieldType: 'TEXTAREA',
+          isRequired: true,
+          placeholder: 'Enter complete delivery address',
+          order: 3
+        },
+        {
+          label: 'City',
+          fieldType: 'TEXT',
+          isRequired: true,
+          placeholder: 'Enter your city',
+          order: 4
+        }
+      ];
+
+      // Create form
+      const defaultForm = await prisma.form.create({
+        data: {
+          name: `${businessName} Order Form`,
+          description: `Default order form for ${businessName}`,
+          formCategory: 'SHOPPING_CART',
+          tenantId: result.id,
+          formLink: formLink,
+          isPublished: true // Automatically publish
+        }
+      });
+
+      // Create form fields
+      for (const field of defaultFields) {
+        await prisma.formField.create({
+          data: {
+            label: field.label,
+            fieldType: field.fieldType,
+            isRequired: field.isRequired,
+            placeholder: field.placeholder,
+            order: field.order,
+            formId: defaultForm.id
+          }
+        });
+      }
+
+      console.log(`✅ Created and published default shopping cart form for tenant: ${result.businessName}`);
+    } catch (formError) {
+      console.error('Error creating default form for new tenant:', formError);
+      // Don't fail tenant creation if form creation fails
     }
 
     res.status(201).json({
@@ -605,7 +692,7 @@ router.put('/owner/me', authenticateToken, requireRole(['BUSINESS_OWNER']), [
     const updateData = req.body;
     
     // Only include fields that are provided and valid
-    const allowedFields = ['businessName', 'contactPerson', 'whatsappNumber', 'businessAddress', 'businessType'];
+    const allowedFields = ['businessName', 'contactPerson', 'whatsappNumber', 'businessAddress', 'businessType', 'defaultCodFeePaidBy'];
     const filteredData = {};
     for (const field of allowedFields) {
       if (updateData[field] !== undefined) {

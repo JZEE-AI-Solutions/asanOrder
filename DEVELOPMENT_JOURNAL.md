@@ -50,592 +50,940 @@ This journal tracks project milestones, features, and conversations.
    - Responsive design maintained
 
 **Files Modified**:
-- `frontend/src/pages/OrderDetailsPage.jsx` - Complete rewrite with edit functionality
+- `frontend/src/pages/OrderDetailsPage.jsx` - Added complete edit functionality
 
-**API Endpoints Used**:
-- `GET /api/order/:id` - Fetch order details
-- `PUT /api/order/:id` - Update order
-- `POST /api/order/:id/confirm` - Confirm order (existing)
-
-**Components Used**:
-- `OrderProductSelector` - For product selection and management
-- `ModernLayout` - Layout wrapper
-- `LoadingSpinner` - Loading states
-
-**Status**: ✅ Completed
-
-### Color Contrast Improvements
-
-**Issue**: Gray colors were causing readability issues, especially in input fields and labels.
-
-**Improvements Made**:
-
-1. **Input Fields**:
-   - Changed from default (gray background) to explicit white background (`bg-white`)
-   - Added dark text color (`text-gray-900`) for better contrast
-   - Increased border thickness to `border-2` for better visibility
-
-2. **Labels and Headers**:
-   - Changed label colors from `text-gray-500` to `text-gray-700` or `text-gray-900` for better readability
-   - Made headers bold (`font-bold`) instead of semibold
-   - Changed icon colors from `text-gray-400` to `text-gray-700` for better visibility
-
-3. **Product Cards**:
-   - Changed background from `bg-gray-50` to `bg-white` for better contrast
-   - Increased border thickness to `border-2 border-gray-300`
-   - Made product names larger and bolder (`text-lg font-bold`)
-   - Improved label contrast with `text-gray-700 font-semibold`
-   - Enhanced category badges with `bg-blue-100 text-blue-800`
-
-4. **Payment Section**:
-   - Enhanced payment amount display with stronger borders (`border-2`)
-   - Improved background colors (`bg-green-100` instead of `bg-green-50`)
-   - Made text bolder and larger for better readability
-
-5. **Metadata Section**:
-   - Added borders between items for better separation
-   - Made labels and values bolder
-   - Improved text contrast throughout
-
-**Result**: All text is now clearly readable with proper contrast ratios meeting accessibility standards.
-
-### Additional Color Improvements - OrderProductSelector Component
-
-**Issue**: Quantity and price input fields in the product selector had poor readability with gray backgrounds.
-
-**Improvements Made**:
-
-1. **Quantity Input Field**:
-   - Changed from display-only span to editable input field
-   - White background (`bg-white`) with dark text (`text-gray-900`)
-   - Thicker borders (`border-2 border-gray-300`)
-   - Larger, bolder text (`font-bold`)
-   - Improved button styling with better contrast
-
-2. **Price Input Field**:
-   - Explicit white background (`bg-white`) with dark text (`text-gray-900`)
-   - Thicker borders (`border-2 border-gray-300`)
-   - Bolder text (`font-bold`)
-   - Better padding for readability
-
-3. **Labels**:
-   - Changed from `text-gray-600` to `text-gray-900` with `font-bold`
-   - Better contrast against white backgrounds
-
-4. **Product Cards**:
-   - Thicker borders (`border-2 border-gray-300`)
-   - Better shadow for depth
-   - Improved product name styling (larger, bolder)
-   - Enhanced remove button with red color and hover effects
-
-5. **Section Headers**:
-   - "Selected Products" header now uses red color (`text-red-700`) for better visibility
-   - "Available Products" header has background and thicker border
-
-6. **Total Display**:
-   - Thicker border separator (`border-t-2`)
-   - Larger, bolder total amount in red (`text-red-600`)
-   - Better contrast for "Total:" label
-
-7. **Search Input**:
-   - White background with dark text
-   - Thicker border
-   - Better icon contrast
-
-**Result**: All input fields and text in the product selector are now highly readable with excellent contrast.
-
-## 2024-12-XX - Comprehensive Input Field Color Fix
-
-### Issue: Gray Input Fields Throughout Application
-
-**Problem**: Input fields across the application had gray backgrounds making text unreadable, especially in modals and forms.
-
-**Comprehensive Fix Applied**:
-
-1. **EnhancedProductModal** (`frontend/src/components/EnhancedProductModal.jsx`)
-   - Updated all input fields to have `bg-white text-gray-900 border-2`
-   - Fixed: Product Name, SKU, Description, Category, all pricing fields, inventory fields, and reason field
-
-2. **AddCustomerModal** (`frontend/src/components/AddCustomerModal.jsx`)
-   - Updated all input fields to have `bg-white text-gray-900 border-2`
-   - Fixed: Name, Phone Number, Email, Shipping Address, Notes
-
-3. **CSS Updates**:
-   - **index.css**: Updated `.input-field` class with `bg-white text-gray-900 border-2` and `font-medium`
-   - **components.css**: Added `!important` flags and explicit white background with dark text
-   - Enhanced placeholder styling
-
-4. **Previously Fixed**:
-   - OrderProductSelector (quantity and price inputs)
-   - OrderDetailsPage (form data inputs and payment amount)
-
-**Changes Made**:
-- All input fields now have explicit `bg-white` background
-- All input fields have `text-gray-900` for dark, readable text
-- Borders changed from `border` to `border-2` for better visibility
-- Added `font-medium` for better text readability
-- Placeholder text uses lighter gray (`text-gray-400`) for contrast
-
-**Result**: All input fields across the entire application now have white backgrounds with dark, highly readable text. No more gray input fields anywhere in the application.
-
-**Files Modified**:
-- `frontend/src/components/EnhancedProductModal.jsx`
-- `frontend/src/components/AddCustomerModal.jsx`
-- `frontend/src/index.css`
-- `frontend/src/styles/components.css`
-
-**Status**: ✅ Completed
-
-### Color Review - Removed Red Text Colors
-
-**Issue**: Red text colors were used for normal text elements, which is typically reserved for errors/warnings.
-
-**Changes Made**:
-- "Selected Products" header: Changed from `text-red-700` to `text-gray-900` (dark gray)
-- Total amount display: Changed from `text-red-600` to `text-gray-900` (dark gray)
-- Remove button: Kept red (`text-red-600`) as it's appropriate for a destructive action
-
-**Result**: All regular text now uses neutral colors (dark gray/black) for professional appearance, with red reserved only for destructive actions.
-
-## 2024-12-XX - Add Product Page (Full Page Instead of Modal)
-
-### Feature: Convert Product Modal to Full Page
-
-**Request**: On Products screen, clicking "Add Product" should open a full page instead of a popup modal, similar to how adding customers works.
-
-**Implementation Details**:
-
-1. **Created AddProductPage** (`frontend/src/pages/AddProductPage.jsx`)
-   - Full page component similar to AddCustomerPage
-   - Uses ModernLayout for consistent design
-   - Includes all product fields from EnhancedProductModal:
-     - Basic Information: Product Name, SKU, Description, Category
-     - Pricing: Retail Price, Purchase Price, Sale Price
-     - Inventory: Current Quantity, Min Stock Level, Max Stock Level
-     - Status: Active checkbox
-   - Uses react-hook-form for form management
-   - White background inputs with dark text for readability
-   - Navigation back to products list on cancel or success
-
-2. **Updated ProductsManagement Component** (`frontend/src/components/dashboard/ProductsManagement.jsx`)
-   - Changed `handleCreateProduct` to navigate to `/business/products/new` instead of opening modal
-   - Added `useNavigate` hook import
-   - Removed modal state management for new products (edit still uses modal)
-
-3. **Updated Routes** (`frontend/src/App.jsx`)
-   - Added route: `/business/products/new` → `LazyAddProductPage`
-   - Added import for `LazyAddProductPage`
-
-4. **Updated Lazy Components** (`frontend/src/components/LazyComponents.jsx`)
-   - Added `LazyAddProductPage` lazy loading export
-
-5. **Fixed AddCustomerPage Input Fields**
-   - Updated all input fields to have white backgrounds (`bg-white text-gray-900 border-2`)
-   - Consistent with other form improvements
-
-**User Experience**:
-- Clicking "Add Product" now navigates to a dedicated full page
-- Better user experience with more space for form fields
-- Consistent with add customer flow
-- Easy navigation back to products list
-- All inputs have proper white backgrounds for readability
-
-**Files Created**:
-- `frontend/src/pages/AddProductPage.jsx` - New full page component
-
-**Files Modified**:
-- `frontend/src/components/dashboard/ProductsManagement.jsx` - Changed to navigate instead of modal
-- `frontend/src/App.jsx` - Added route and import
-- `frontend/src/components/LazyComponents.jsx` - Added lazy loading
-- `frontend/src/pages/AddCustomerPage.jsx` - Fixed input field colors
-
-**Status**: ✅ Completed
-
-## 2024-12-XX - Fixed Create Order Form Text and Field Backgrounds
-
-### Issue: Text and Field Backgrounds Disturbed in Create Order Form
-
-**Problem**: Text and field backgrounds in the Create Order Form modal were not readable due to gray colors and low contrast.
-
-**Comprehensive Fix Applied**:
-
-1. **CreateFormModal** (`frontend/src/components/CreateFormModal.jsx`)
-   - Updated all form labels from `form-label` class to explicit `block text-sm font-bold text-gray-900 mb-2`
-   - Changed all descriptive text from `text-gray-500` to `text-gray-700 font-medium` for better readability
-   - Updated field labels and headers to use `font-bold text-gray-900` instead of `font-medium text-gray-700`
-   - Enhanced visibility badges and status indicators with darker colors
-   - Updated all section headers to use bold, dark text
-   - Improved contrast for help text, field type indicators, and option labels
-   - Enhanced colored sections (blue, yellow, green) with darker borders and better text contrast
-
-2. **EditFormModal** (`frontend/src/components/EditFormModal.jsx`)
-   - Applied same fixes for consistency
-   - Updated all labels to `font-bold text-gray-900`
-   - Changed descriptive text to `text-gray-700 font-medium`
-   - Enhanced field labels and status indicators
-
-**Changes Made**:
-- All form labels now use `font-bold text-gray-900` for maximum readability
-- All descriptive/help text uses `text-gray-700 font-medium` instead of `text-gray-500`
-- Field headers and section titles use bold, dark text
-- Status badges and indicators have better contrast
-- Input fields already have white backgrounds from previous CSS fixes
-- All text elements now have proper contrast ratios
-
-**Result**: Create Order Form and Edit Order Form modals now have highly readable text with proper contrast. All labels, descriptions, and field information are clearly visible with dark text on appropriate backgrounds.
-
-**Files Modified**:
-- `frontend/src/components/CreateFormModal.jsx` - Fixed all text colors and labels
-- `frontend/src/components/EditFormModal.jsx` - Fixed all text colors and labels
-
-**Status**: ✅ Completed
-
-## 2024-12-XX - Fixed White Text on White Background in Form Fields
-
-### Critical Issue: White Text on White Background in Form Fields
-
-**Problem**: On create/edit form screens, input field text was white on white backgrounds, making it completely unreadable. This affected all form inputs, selects, and textareas.
-
-**Comprehensive Fix Applied**:
-
-1. **CSS Updates** (`frontend/src/styles/components.css`):
-   - Added explicit text color rules for select and option elements
-   - Added global CSS rules to ensure all form inputs have dark text (`var(--color-gray-900)`)
-   - Added `!important` flags to override any conflicting styles
-   - Ensured all input, textarea, and select elements have proper text color
-
-2. **CSS Updates** (`frontend/src/index.css`):
-   - Added Tailwind classes for select and option elements
-   - Ensured `text-gray-900` is applied to all form elements
-
-3. **CreateFormModal** (`frontend/src/components/CreateFormModal.jsx`):
-   - Added explicit `bg-white text-gray-900` classes to all input fields
-   - Added `text-gray-900 bg-white` classes to all select elements
-   - Added `text-gray-900 bg-white` classes to all option elements
-   - Fixed: Form Name, Tenant select, Description textarea, Form Category select, all field inputs
-
-4. **EditFormModal** (`frontend/src/components/EditFormModal.jsx`):
-   - Added explicit `bg-white text-gray-900` classes to all input fields
-   - Added `text-gray-900 bg-white` classes to all select and option elements
-   - Fixed: Form Name, Description, Form Category, all field inputs and selects
-
-5. **UI Components** (`frontend/src/components/ui/Input.jsx`):
-   - Added `text-gray-900` to Input component
-   - Added `text-gray-900` to Textarea component
-   - Added `text-gray-900` to Select component
-   - Ensures all reusable form components have proper text color
-
-**Changes Made**:
-- All input fields now have explicit `text-gray-900` class for dark, readable text
-- All select elements have `text-gray-900` class
-- All option elements have `text-gray-900 bg-white` classes
-- Global CSS rules ensure all form elements have dark text by default
-- Added `!important` flags in CSS to override any conflicting styles
-- Fixed both CreateFormModal and EditFormModal components
-
-**Result**: All form fields across the entire application now have dark, readable text on white backgrounds. No more white text on white background issues. All inputs, selects, textareas, and options are now clearly visible and readable.
-
-**Files Modified**:
-- `frontend/src/styles/components.css` - Added global form element text color rules
-- `frontend/src/index.css` - Added Tailwind classes for form elements
-- `frontend/src/components/CreateFormModal.jsx` - Added explicit text color classes to all form fields
-- `frontend/src/components/EditFormModal.jsx` - Added explicit text color classes to all form fields
-- `frontend/src/components/ui/Input.jsx` - Added text-gray-900 to all form components
-
-**Status**: ✅ Completed
-
-## 2024-12-XX - Enhanced Order Cards with Product Information
-
-### Feature: Order Cards Enhancement
-
-**Request**: Update order cards to display product images, product names, total amount, and payment status (received/pending).
-
-**Implementation Details**:
-
-1. **Enhanced Order Cards** (`frontend/src/pages/OrdersScreen.jsx`)
-   - Added product images display (thumbnails)
-   - Added product names and quantities
-   - Added total amount calculation from products
-   - Added received and pending payment amounts
-   - Enhanced both card view and list/table view
-
-2. **Key Features Implemented**:
-   - **Product Display**: 
-     - Shows up to 3 product images with names
-     - Displays quantity and unit price for each product
-     - Shows "+X more products" indicator if more than 3 products
-   - **Payment Information**:
-     - Total amount (calculated from products or payment amount)
-     - Received amount (payment amount from order)
-     - Pending amount (difference between total and received)
-   - **Visual Enhancements**:
-     - Product thumbnails with proper borders
-     - Color-coded payment status (green for received, orange for pending)
-     - Better spacing and layout
-
-3. **Technical Implementation**:
-   - Parses `selectedProducts`, `productQuantities`, and `productPrices` from order data
-   - Calculates products total: sum of (quantity × price) for all products
-   - Calculates pending amount: max(0, productsTotal - receivedAmount)
-   - Handles both card view and table/list view
-   - Graceful fallback when products data is not available
-
-4. **User Experience**:
-   - Quick visual identification of products in each order
-   - Clear payment status at a glance
-   - Better information density without clutter
-   - Responsive design maintained
-
-**Files Modified**:
-- `frontend/src/pages/OrdersScreen.jsx` - Enhanced order cards and table view
-
-**Status**: ✅ Completed
-
-## 2024-12-XX - Accounting Module Implementation
-
-### Feature: Comprehensive Accounting Module
-
-**Request**: Implement a standalone, full-fledged accounting module with customer/supplier balances, expenses, shipping charges, COD fees, investor management, profit calculation/distribution, and withdrawals.
-
-**Implementation Details**:
-
-1. **Database Schema** (`backend/prisma/schema.prisma`):
-   - Added 12 new models: Account, Transaction, TransactionLine, Expense, Supplier, LogisticsCompany, Payment, Investor, Investment, ProfitDistribution, ProfitDistributionItem, Withdrawal
-   - Updated existing models: Order (added refundAmount, returnStatus, advanceBalance, actualShippingCost, shippingVariance, codFee, codAmount, logisticsCompanyId), Return (added orderId, returnType, refundMethod, refundAmount, shippingChargeHandling), Customer (added advanceBalance), PurchaseInvoice (added supplierId), Tenant (added totalInvestedCapital, totalProfitDistributed, ownerWithdrawals)
-   - All models include proper indexes for performance
-   - Proper relations between models
-
-2. **Backend Services**:
-   - `accountingService.js` - Core accounting logic, double-entry transactions, chart of accounts initialization
-   - `balanceService.js` - Customer AR and Supplier AP balance calculations
-   - `expenseService.js` - Expense management with automatic accounting entries
-   - `codFeeService.js` - COD fee calculation (percentage, range-based, fixed)
-   - `returnService.js` - Customer order returns (full/partial) with flexible shipping handling
-   - `investorService.js` - Investor and investment management
-   - `profitService.js` - Profit calculation and distribution
-   - `withdrawalService.js` - Withdrawals (investor profit, owner personal, investor capital)
-
-3. **Backend Routes** (`backend/routes/accounting/`):
-   - Organized into focused modules: accounts.js, transactions.js, balances.js, expenses.js, payments.js, returns.js, investors.js, profit.js, withdrawals.js, logistics.js
-   - All routes use authentication middleware
-   - Standardized error handling and response format
-   - RESTful API design
-
-4. **Order Integration** (`backend/routes/order.js`):
-   - Auto-create AR transaction when order is confirmed
-   - Auto-create payment transaction if prepayment exists
-   - Auto-calculate and accrue COD fee if COD order
-   - All accounting entries are balanced (debits = credits)
-
-5. **Frontend Pages** (`frontend/src/pages/accounting/`):
-   - `AccountingDashboard.jsx` - Main overview with balance summary and recent transactions
-   - `ExpensesPage.jsx` - Expense management with filters and pagination
-   - `BalancesPage.jsx` - Customer AR and Supplier AP balances (tabs)
-   - `TransactionsPage.jsx` - Journal entries list with filters
-
-6. **Frontend Components** (`frontend/src/components/accounting/`):
-   - `ExpenseForm.jsx` - Create/edit expense form (mobile-friendly)
-
-7. **Navigation Updates**:
-   - Added "Accounting" menu item to Sidebar
-   - Added accounting routes to App.jsx
-   - Mobile-first responsive design
-
-**Key Features Implemented**:
-- Double-entry bookkeeping system
-- Automatic accounting entries on order confirmation
-- Customer AR and Supplier AP tracking
-- Expense management (Petrol, Utility, Other)
-- COD fee calculation and tracking
-- Customer order returns (full/partial) with flexible shipping handling
-- Investor management and investment tracking
-- Profit calculation and distribution
-- Withdrawals (investor and owner)
-- Balance summary dashboard
-- Mobile-friendly UI with 44px touch targets
-
-**Technical Implementation**:
-- Database: PostgreSQL with Prisma ORM
-- Backend: Node.js/Express with service layer architecture
-- Frontend: React with mobile-first Tailwind CSS
-- API: RESTful with standardized response format
-- Error handling: Comprehensive try-catch with user-friendly messages
-- Transactions: Database transactions for data consistency
-
-**Files Created/Modified**:
-- Backend: 15+ new service files, 10+ new route files, schema updates
-- Frontend: 4 new pages, 1 new component, navigation updates
-- Integration: Order confirmation endpoint updated
-
-**Status**: ✅ Core Implementation Completed
-
-**Next Steps**:
-- Run database migration: `npx prisma migrate dev --name accounting_module`
-- Test all accounting flows
-- Add remaining frontend pages (Settings with tabs for accounts, investors, logistics)
-- Add payment recording UI
-- Add return management UI
-- Add investor/profit management UI
+**Status**: ✅ Implementation Complete
 
 ---
 
-## 2024-12-XX - Supplier Screen & Accounting Integration Review
+## 2026-01-02 - Payment Account Selection for Orders
 
-### Review: Supplier Screen on Business Order Dashboard
+### Feature: Payment Account Selection at Order Confirmation and Edit
 
-**Request**: Review supplier screen on business order dashboard and its integration with accounting for any issues.
-
-**Issues Found and Fixed**:
-
-1. **Balance Calculation Not Returned for All Suppliers** ❌ → ✅
-   - **Issue**: The API endpoint `/accounting/suppliers` only calculated balance when `hasPendingPayment` filter was active. This meant suppliers in the normal list view didn't have calculated balance objects.
-   - **Impact**: UI couldn't display pending balances correctly, and balance calculations were inconsistent.
-   - **Fix**: Modified `backend/routes/accounting/suppliers.js` to always calculate balance for all suppliers, then filter by pending payments if needed. This ensures consistent data structure.
-
-2. **UI Type Mismatch** ❌ → ✅
-   - **Issue**: `SuppliersSection` component tried to access `supplier.balance.pending` (object property), but when filter was inactive, `supplier.balance` was just a number from the database field.
-   - **Impact**: Runtime errors when trying to access `.pending` on a number, causing UI to break.
-   - **Fix**: Updated `frontend/src/components/dashboard/SuppliersSection.jsx` to handle both cases: `supplier.balance?.pending` (calculated balance object) or `supplier.balance` (number fallback).
-
-3. **Balance Calculation Logic Clarification** ✅
-   - **Review**: Verified the balance calculation logic in `balanceService.calculateSupplierBalance()` correctly handles:
-     - Linked Payment records (preferred method)
-     - `paymentAmount` field (backward compatibility for old invoices)
-     - Avoids double counting by prioritizing linked payments
-   - **Enhancement**: Added clarifying comments to the code explaining the priority logic.
-
-**Files Modified**:
-- `backend/routes/accounting/suppliers.js` - Always calculate balance for all suppliers
-- `frontend/src/components/dashboard/SuppliersSection.jsx` - Handle both balance object and number types
-- `backend/services/balanceService.js` - Added clarifying comments
-
-**Status**: ✅ All Issues Fixed
-
-**Notes**:
-- The supplier screen is accessible via `/business/suppliers` route (separate page, not a tab in dashboard)
-- Balance calculation correctly handles both new Payment records and legacy `paymentAmount` fields
-- Accounting integration is working correctly - purchase invoices create proper accounting transactions
-
----
-
-## 2024-12-XX - Clear All Data Functionality Review for Suppliers
-
-### Review: Clear All Data Functionality After Supplier Implementation
-
-**Request**: Review the "clear all data" functionality for tenants to ensure it properly handles suppliers and related accounting data after the supplier implementation.
-
-**Review Findings**:
-
-1. **Suppliers Are Properly Included** ✅
-   - Suppliers are included in the deletion process (step 18, now step 18 after fix)
-   - Stats tracking includes suppliers count
-   - Frontend warning message already mentions Suppliers
-
-2. **Deletion Order Issue** ❌ → ✅
-   - **Issue**: Suppliers were being deleted before Payments (step 17 vs step 18)
-   - **Impact**: While the foreign key constraint has `ON DELETE SET NULL` (which would set supplierId to NULL automatically), it's cleaner and safer to delete dependent records (Payments) before parent records (Suppliers)
-   - **Fix**: Swapped the order - Payments now deleted at step 17, Suppliers at step 18
-   - **Rationale**: Explicitly deleting dependent records first is cleaner than relying on database cascade behavior
-
-3. **Foreign Key Constraints Verified** ✅
-   - `purchase_invoices.supplierId` → `ON DELETE SET NULL` (PurchaseInvoices deleted before Suppliers)
-   - `payments.supplierId` → `ON DELETE SET NULL` (Payments now deleted before Suppliers)
-   - All related accounting data (Transactions, TransactionLines) properly handled
-
-4. **Complete Deletion Sequence Verified** ✅
-   - PurchaseInvoices deleted at step 6 (before Suppliers)
-   - Payments deleted at step 17 (before Suppliers)
-   - Suppliers deleted at step 18
-   - Transactions deleted at step 19 (after Payments)
-   - All accounting relationships properly handled
-
-**Files Modified**:
-- `backend/routes/tenant.js` - Fixed deletion order (Payments before Suppliers)
-
-**Status**: ✅ Review Complete - All Issues Fixed
-
-**Notes**:
-- The clear-all-data functionality properly handles all supplier-related data
-- Deletion order now follows best practices (dependent records before parent records)
-- All foreign key constraints are respected
-- Frontend warning message already includes Suppliers in the list
-
----
-
-## 2024-12-XX - Supplier Advance Payment Adjustment Feature
-
-### Feature: Adjust Supplier Advance Payments in Purchase Invoice Creation
-
-**Request**: Implement functionality to adjust/use supplier advance payments when creating purchase invoices. If a supplier has paid advance payment (negative balance), the system should allow using that advance amount against new purchase invoices.
+**Request**: Implement the ability for business owners to select the payment account for prepayments at the time of order confirmation and also in edit mode.
 
 **Implementation Details**:
 
-1. **Backend Changes**:
+1.  **Database Schema Update** (`backend/prisma/schema.prisma`):
+    -   Added `paymentAccountId` (String, optional, foreign key to Account model) and `paymentMethod` (String, optional) fields to the `Order` model.
+    -   Created a migration: `20260102232639_add_payment_account_to_orders`.
 
-   - **Added Supplier Advance Account** (`backend/services/accountingService.js`):
-     - Added account code `1220` - "Supplier Advance Balance" (LIABILITY type)
-     - This account tracks advance payments from suppliers
+2.  **Backend API Updates** (`backend/routes/order.js`):
+    -   **Order Submission (`POST /order/submit`)**:
+        -   Modified to accept and store `paymentAccountId` and `paymentMethod` if provided by the customer during order submission.
+    -   **Order Confirmation (`POST /order/:id/confirm`)**:
+        -   Modified to accept `paymentAccountId` from the request body.
+        -   When a prepayment exists (`paymentAmount > 0`), the accounting entry for the payment (Debit Cash/Bank, Credit Accounts Receivable) now uses the `paymentAccountId` provided in the request.
+        -   If `paymentAccountId` is not provided in the request, it falls back to the `paymentAccountId` stored on the order (if any), or defaults to the 'Cash' account (code '1000').
+    -   **Order Update (`PUT /order/:id`)**:
+        -   Modified to accept and update `paymentAccountId` and `paymentMethod` fields.
+        -   **Customer Re-linking Logic**: Added logic to detect changes in the customer's phone number within the `formData`. If the phone number changes:
+            -   It extracts the new phone number.
+            -   Uses `customerService.findOrCreateCustomer` to find an existing customer with the new number or create a new one.
+            -   Updates the `order.customerId` to link the order to the correct customer.
 
-   - **New API Endpoint** (`backend/routes/accounting/suppliers.js`):
-     - `GET /accounting/suppliers/by-name/:name/balance` - Fetches supplier balance by name
-     - Returns supplier info, balance details, and available advance amount
-     - Calculates available advance as: `totalPaid > totalOwed ? totalPaid - totalOwed : 0`
+3.  **Frontend UI Updates**:
+    -   **EnhancedOrderDetailsModal** (`frontend/src/components/EnhancedOrderDetailsModal.jsx`):
+        -   Imported `PaymentAccountSelector` component.
+        -   Added `selectedPaymentAccountId` state and initialized it from `order.paymentAccountId`.
+        -   The `PaymentAccountSelector` component is conditionally rendered when `order.paymentAmount > 0` and the order status is 'PENDING' (for confirmation) or when in edit mode.
+        -   The `handleConfirmOrder` function was updated to send `selectedPaymentAccountId` to the backend.
+        -   In edit mode, the `PaymentAccountSelector` is displayed below the payment amount field, allowing the business owner to update the account.
+    -   **OrderDetailsPage** (`frontend/src/pages/OrderDetailsPage.jsx`):
+        -   Imported `PaymentAccountSelector` component.
+        -   Added `selectedPaymentAccountId` state and initialized it from `order.paymentAccountId`.
+        -   The `PaymentAccountSelector` component is conditionally rendered when `order.paymentAmount > 0` and the order status is 'PENDING' (for confirmation) or when in edit mode.
+        -   The `confirmOrder` function was updated to send `selectedPaymentAccountId` to the backend.
+        -   In edit mode, the `PaymentAccountSelector` is displayed below the payment amount field, allowing the business owner to update the account.
 
-   - **Updated Purchase Invoice Creation** (`backend/routes/purchaseInvoice.js`):
-     - Added support for `useAdvanceBalance` and `advanceAmountUsed` parameters
-     - Calculates available advance from supplier balance
-     - Adjusts payment amount: `paidAmount = paymentAmount - actualAdvanceUsed`
-     - Creates accounting entries:
-       - Debit: Inventory (totalAmount)
-       - Credit: Supplier Advance Balance (actualAdvanceUsed) - reduces liability
-       - Credit: Cash/Bank (paidAmount) - if cash payment made
-       - Credit: Accounts Payable (unpaidAmount) - if still unpaid
-     - Updates supplier balance after advance usage: `balance = balance + actualAdvanceUsed`
+4.  **Key Features**:
+    -   **Flexible Account Selection**: Business owner can select payment account at confirmation time, even if different from what was recorded at submission.
+    -   **Smart Defaults**: System defaults to Cash account (code 1000) if no account is selected.
+    -   **Account Priority**: Uses confirmation selection > submission selection > default Cash.
+    -   **UI Integration**: Payment account selector only shows when order has prepayment (`paymentAmount > 0`).
+    -   **Quick Add Support**: Payment account selector includes "Add New Account" functionality for convenience.
+    -   **Customer Phone Number Correction**: When a business owner corrects a phone number in edit mode, the order's `customerId` is automatically updated to link to the correct customer (existing or newly created).
 
-2. **Frontend Changes** (`frontend/src/pages/AddPurchasePage.jsx`):
+5.  **Accounting Flow**:
+    -   When order is confirmed with prepayment:
+        1.  Creates AR transaction (Debit AR, Credit Sales Revenue, Credit Shipping Revenue).
+        2.  Creates payment transaction using selected payment account:
+            -   Debit: Selected Payment Account (Cash/Bank)
+            -   Credit: Accounts Receivable.
+    -   If no account selected, defaults to Cash account (code 1000).
 
-   - **Supplier Name Field Enhancement**:
-     - Automatically fetches supplier balance when supplier name is entered
-     - Shows available advance balance if supplier has advance
-     - Displays loading state while fetching balance
-
-   - **Advance Balance UI Section**:
-     - Shows available advance amount
-     - Checkbox to "Use Advance Balance"
-     - Input field to specify advance amount to use (with max validation)
-     - Real-time calculation showing:
-       - Total Amount
-       - Advance Used
-       - Remaining Payment (Total - Advance)
-     - Visual breakdown with color-coded amounts
-
-   - **Form Submission**:
-     - Includes `useAdvanceBalance` and `advanceAmountUsed` in payload
-     - Backend automatically adjusts payment amounts
-
-3. **Accounting Logic**:
-
-   - **When Advance is Used**:
-     - Debit: Supplier Advance Balance (reduces liability - supplier owes us less)
-     - Credit: Accounts Payable (reduces what we owe supplier)
-     - Proper double-entry bookkeeping maintained
-
-   - **Supplier Balance Update**:
-     - When advance is used, supplier balance increases (becomes less negative)
-     - Example: If supplier has -5000 advance and uses 2000, balance becomes -3000
+6.  **User Experience**:
+    -   Clear labeling: "Payment Account (for prepayment)".
+    -   Helpful hint text explaining the purpose.
+    -   Account selector shows account balance for reference.
+    -   Responsive design maintained.
+    -   Only shows when relevant (orders with prepayment).
 
 **Files Modified**:
-- `backend/services/accountingService.js` - Added Supplier Advance Balance account
-- `backend/routes/accounting/suppliers.js` - Added balance by name endpoint
-- `backend/routes/purchaseInvoice.js` - Added advance adjustment logic
-- `frontend/src/pages/AddPurchasePage.jsx` - Added advance balance UI
+-   `backend/prisma/schema.prisma` - Added paymentAccountId and paymentMethod fields.
+-   `backend/routes/order.js` - Updated submission, confirmation, and update endpoints.
+-   `frontend/src/components/EnhancedOrderDetailsModal.jsx` - Added payment account selector UI.
+-   `frontend/src/pages/OrderDetailsPage.jsx` - Added payment account selector UI.
+-   `backend/services/customerService.js` - Added `recalculateCustomerStats` function.
+-   `backend/routes/customer.js` - Added `POST /api/customer/:id/recalculate-stats` endpoint.
 
 **Status**: ✅ Implementation Complete
 
 **Notes**:
-- Advance balance is calculated as: `totalPaid > (openingBalance + totalInvoices)`
-- System automatically validates advance amount doesn't exceed available advance or invoice total
-- Accounting entries properly reflect advance usage
-- Supplier balance is automatically updated after advance usage
-- UI provides clear visual feedback on advance usage and remaining payment
+-   Database migration required: Run `npx prisma migrate dev` to apply schema changes.
+-   Backward compatible: Existing orders without paymentAccountId will default to Cash account.
+-   Best practice: Accounting entries are posted at order confirmation (when business commits to fulfill order), not at submission.
+-   Payment account can be selected/updated at confirmation time, providing flexibility for business owners.
 
+---
+
+## 2026-01-02 - Shipping Variance Tracking and Management
+
+### Feature: Shipping Variance Tracking at Dispatch and Edit
+
+**Request**: Implement shipping variance tracking to capture the difference between estimated shipping charges and actual shipping costs when orders are dispatched. Also provide ability to edit shipping variance in edit mode.
+
+**Implementation Details**:
+
+1.  **Database Schema** (Already exists):
+    -   `actualShippingCost` (Float, optional) - Actual amount paid to logistics company
+    -   `shippingVariance` (Float, optional) - Calculated variance (positive = expense, negative = income)
+    -   `shippingVarianceDate` (DateTime, optional) - When variance was recorded
+
+2.  **Backend API Updates** (`backend/routes/order.js`):
+    -   **Dispatch Endpoint (`POST /order/:id/dispatch`)**:
+        -   Modified to accept `actualShippingCost` from request body.
+        -   Calculates shipping variance: `variance = shippingCharges - actualShippingCost`
+            -   Positive variance = expense (actual cost > estimated)
+            -   Negative variance = income (actual cost < estimated)
+        -   Updates order with `actualShippingCost`, `shippingVariance`, and `shippingVarianceDate`.
+        -   Creates accounting entries for variance:
+            -   **Income (actual < estimated)**: Debit Shipping Expense (actual), Credit Shipping Variance Income (variance)
+            -   **Expense (actual > estimated)**: Debit Shipping Expense (variance), Debit Shipping Variance Expense (variance)
+        -   Uses accounts: `4300` (Shipping Variance Income), `5110` (Shipping Variance Expense), `5100` (Shipping Expense)
+
+    -   **Order Update (`PUT /order/:id`)**:
+        -   Modified to accept `actualShippingCost` in request body.
+        -   Recalculates variance when `actualShippingCost` is updated.
+        -   Updates `shippingVariance` and `shippingVarianceDate` accordingly.
+
+3.  **Frontend UI Updates**:
+    -   **OrderDetailsPage** (`frontend/src/pages/OrderDetailsPage.jsx`):
+        -   **Dispatch Modal**: Added modal that appears when dispatching orders, allowing business owner to enter actual shipping cost.
+            -   Shows estimated shipping charges (read-only)
+            -   Input field for actual shipping cost
+            -   Real-time variance calculation display (with color coding: green for income, red for expense)
+            -   Helpful hints explaining the impact on profit
+        -   **Shipping Variance Display**: Added section in order details to display variance when it exists:
+            -   Shows estimated vs actual shipping cost
+            -   Displays variance amount with color coding
+            -   Shows date when variance was recorded
+            -   Only visible when variance exists and not in edit mode
+        -   **Edit Mode**: Added ability to edit actual shipping cost for dispatched/completed orders:
+            -   Input field for actual shipping cost
+            -   Real-time variance calculation
+            -   Updates variance when order is saved
+
+    -   **ReportsPage** (`frontend/src/pages/ReportsPage.jsx`):
+        -   Added "Shipping Variance Analysis" section:
+            -   Shows variance expense (when actual > estimated)
+            -   Shows variance income (when actual < estimated)
+            -   Shows net variance with color coding
+            -   Displays helpful descriptions
+
+4.  **Accounting Integration**:
+    -   **Accounts Used**:
+        -   `4300` - Shipping Variance Income (INCOME)
+        -   `5110` - Shipping Variance Expense (EXPENSE)
+        -   `5100` - Shipping Expense (EXPENSE)
+    -   **Transaction Flow**:
+        -   When variance is income (actual < estimated):
+            -   Debit: Shipping Expense (actual cost)
+            -   Credit: Shipping Variance Income (variance amount)
+        -   When variance is expense (actual > estimated):
+            -   Debit: Shipping Expense (variance amount)
+            -   Debit: Shipping Variance Expense (variance amount)
+
+5.  **Profit Calculation**:
+    -   Shipping variance is already included in profit calculations via `profitService.calculateProfit()`:
+        -   `netProfit = revenue - expenses - shippingVarianceExpense + shippingVarianceIncome`
+    -   Variance impacts profit:
+        -   Positive variance (expense) decreases profit
+        -   Negative variance (income) increases profit
+
+6.  **Key Features**:
+    -   **Capture at Dispatch**: Business owner enters actual shipping cost when dispatching order
+    -   **Real-time Calculation**: Variance is calculated and displayed immediately
+    -   **Visual Feedback**: Color coding (green for income, red for expense) helps identify impact
+    -   **Edit Capability**: Can update actual shipping cost in edit mode for dispatched/completed orders
+    -   **Accounting Integration**: Automatic accounting entries created when variance exists
+    -   **Profit Reporting**: Variance included in profit reports and analytics
+    -   **User-Friendly**: Clear labels, hints, and explanations throughout
+
+**Files Modified**:
+-   `backend/routes/order.js` - Updated dispatch and update endpoints
+-   `frontend/src/pages/OrderDetailsPage.jsx` - Added dispatch modal, variance display, and edit capability
+-   `frontend/src/pages/ReportsPage.jsx` - Added shipping variance analysis section
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+-   Database schema already had the necessary fields (`actualShippingCost`, `shippingVariance`, `shippingVarianceDate`)
+-   Accounting accounts (`4300`, `5110`) already exist in chart of accounts
+-   Profit service already includes shipping variance in calculations
+-   Backward compatible: Existing orders without variance data will continue to work
+-   Variance is only calculated and displayed when actual shipping cost is provided
+-   Accounting entries are created automatically when order is dispatched with variance
+
+## 2026-01-03 - COD Fee Payment Configuration
+
+### Feature: Configurable COD Fee Payment (Business Owner vs Customer)
+
+**Request**: Make COD fee payment configurable - allow business owner to choose whether the COD fee is paid by the business owner or by the customer.
+
+**Implementation Details**:
+
+1.  **Database Schema Update** (`backend/prisma/schema.prisma`):
+    -   Added `codFeePaidBy` (String, optional) field to the `Order` model to store payment preference: "BUSINESS_OWNER" or "CUSTOMER".
+    -   Created migration: `20260103002429_add_cod_fee_paid_by`.
+
+2.  **Backend API Updates** (`backend/routes/order.js`):
+    -   **Order Confirmation (`POST /order/:id/confirm`)**:
+        -   Modified to accept `codFeePaidBy` from request body (defaults to 'BUSINESS_OWNER' if not provided).
+        -   Calculates `finalOrderTotal` based on payment preference:
+            -   If `CUSTOMER` pays: `finalOrderTotal = baseOrderTotal + codFee`
+            -   If `BUSINESS_OWNER` pays: `finalOrderTotal = baseOrderTotal`
+        -   **Accounting Entries**:
+            -   **If Customer Pays COD Fee**:
+                -   AR Transaction: Debit AR (includes COD fee), Credit Sales Revenue, Credit Shipping Revenue, Credit COD Fee Revenue (4400).
+                -   COD Fee Expense Transaction: Debit COD Fee Expense (5200), Credit COD Fee Payable (2200) - business still pays logistics company.
+            -   **If Business Owner Pays COD Fee** (current behavior):
+                -   AR Transaction: Debit AR (base order total), Credit Sales Revenue, Credit Shipping Revenue.
+                -   COD Fee Expense Transaction: Debit COD Fee Expense (5200), Credit COD Fee Payable (2200).
+        -   Stores `codFeePaidBy` in the order record.
+    -   **Order Update (`PUT /order/:id`)**:
+        -   Modified to accept and update `codFeePaidBy` field.
+        -   Allows changing COD fee payment preference in edit mode.
+
+3.  **Backend Service Updates**:
+    -   **`balanceService.js`**: Updated `calculateCustomerBalance` to include COD fee in order total when customer pays.
+    -   **`customerService.js`**: Updated `calculatePendingPayment` to include COD fee in order total when customer pays.
+    -   **`profitService.js`**: Updated `getProfitStatistics` to include COD fee revenue when customer pays.
+    -   **`order.js` (stats endpoint)**: Updated order stats calculation to include COD fee in revenue when customer pays.
+
+4.  **Frontend UI Updates**:
+    -   **OrderDetailsPage** (`frontend/src/pages/OrderDetailsPage.jsx`):
+        -   Added `codFeePaidBy` state initialized from `order.codFeePaidBy` or defaults to 'BUSINESS_OWNER'.
+        -   **Confirmation UI**: Added COD fee payment preference selector when order is PENDING and has COD fee.
+            -   Radio buttons for "Business Owner Pays" and "Customer Pays".
+            -   Real-time display of new order total when customer pays.
+            -   Clear explanation of accounting impact.
+        -   **Edit Mode**: Added COD fee payment preference selector in edit mode for orders with COD fee.
+            -   Same radio button interface.
+            -   Real-time calculation of order total.
+        -   Updated `calculateOrderTotal` function to include COD fee when customer pays.
+        -   Updated `confirmOrder` to send `codFeePaidBy` to backend.
+        -   Updated `handleSaveOrder` to send `codFeePaidBy` to backend.
+    -   **EnhancedOrderDetailsModal** (`frontend/src/components/EnhancedOrderDetailsModal.jsx`):
+        -   Added `codFeePaidBy` state and initialization.
+        -   Added COD fee payment preference selector in confirmation section.
+        -   Updated `handleConfirmOrder` to send `codFeePaidBy` to backend.
+
+5.  **Key Features**:
+    -   **Flexible Payment Configuration**: Business owner can choose per order whether COD fee is paid by business or customer.
+    -   **Proper Accounting**: 
+        -   When customer pays: COD fee is added to order total (revenue) and business still records expense (pays logistics).
+        -   When business pays: Only expense recorded (no revenue).
+    -   **Edit Mode Support**: COD fee payment preference can be changed in edit mode.
+    -   **Real-time Calculations**: Order totals update in real-time based on payment preference.
+    -   **Backward Compatible**: Existing orders without `codFeePaidBy` default to 'BUSINESS_OWNER' behavior.
+
+6.  **Accounting Flow Summary**:
+    -   **Customer Pays COD Fee**:
+        -   Order Total = Products + Shipping + COD Fee
+        -   AR: Debit (full amount), Credit Sales Revenue, Credit Shipping Revenue, Credit COD Fee Revenue
+        -   Expense: Debit COD Fee Expense, Credit COD Fee Payable (business pays logistics)
+        -   Net Effect: COD fee revenue - COD fee expense = 0 (break-even, but customer pays the fee)
+    -   **Business Owner Pays COD Fee**:
+        -   Order Total = Products + Shipping
+        -   AR: Debit (base amount), Credit Sales Revenue, Credit Shipping Revenue
+        -   Expense: Debit COD Fee Expense, Credit COD Fee Payable
+        -   Net Effect: COD fee reduces profit (expense only)
+
+7.  **User Experience**:
+    -   Clear labeling: "COD Fee Payment Preference"
+    -   Helpful explanations for each option
+    -   Real-time order total updates
+    -   Visual distinction with color-coded sections
+    -   Only shows when relevant (orders with COD fee)
+
+**Files Modified**:
+-   `backend/prisma/schema.prisma` - Added codFeePaidBy field
+-   `backend/routes/order.js` - Updated confirmation and update endpoints
+-   `backend/services/balanceService.js` - Updated order total calculation
+-   `backend/services/customerService.js` - Updated pending payment calculation
+-   `backend/services/profitService.js` - Updated profit calculation
+-   `frontend/src/pages/OrderDetailsPage.jsx` - Added COD fee payment selector UI
+-   `frontend/src/components/EnhancedOrderDetailsModal.jsx` - Added COD fee payment selector UI
+-   `DEVELOPMENT_JOURNAL.md` - Documented these changes
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+-   Database migration required: Run `npx prisma migrate dev` to apply schema changes (already applied).
+-   Backward compatible: Existing orders without `codFeePaidBy` default to 'BUSINESS_OWNER' behavior.
+-   Accounting entries are correctly created for both scenarios.
+-   All order total calculations updated to include COD fee when customer pays.
+-   Profit calculations correctly account for COD fee revenue when customer pays.
+
+---
+
+## 2026-01-03 - Order Viewing Bug Fix
+
+### Issue: Order Details Page Not Loading
+
+**Problem**: When trying to view an order, the page was not working due to a missing state variable declaration.
+
+**Root Cause**: The `codFeePaidBy` state variable was being used in the component (initialized in `fetchOrderDetails` and used throughout the component) but was not declared in the state declarations at the top of the component.
+
+**Fix Applied**:
+- Added missing state declaration: `const [codFeePaidBy, setCodFeePaidBy] = useState('BUSINESS_OWNER')` in `OrderDetailsPage.jsx`
+- This state variable is used for managing COD fee payment preference (BUSINESS_OWNER vs CUSTOMER)
+
+**Files Modified**:
+- `frontend/src/pages/OrderDetailsPage.jsx` - Added missing `codFeePaidBy` state declaration
+
+**Status**: ✅ Fixed
+
+**Notes**:
+- This was a regression from the COD Fee Payment Configuration feature implementation
+- The state variable was referenced but not declared, causing a runtime error when trying to view orders
+
+---
+
+## 2026-01-03 - Enhanced COD Fee Management System
+
+### Feature: Comprehensive COD Fee Management with Auto-Recalculation
+
+**Request**: Move logistics company management to Settings COD tab, implement auto-recalculation of COD fees in edit mode with manual override capability, and ensure proper accounting and profit calculations when COD fees change.
+
+**Implementation Details**:
+
+1. **Logistics Company Management in Settings COD Tab**:
+   - Moved logistics company management from Accounting section to Settings COD tab
+   - Added full CRUD functionality (Create, Read, Update, Delete) for logistics companies
+   - Support for all three calculation types:
+     - **PERCENTAGE**: For companies like TCS (e.g., 4% of COD amount)
+     - **RANGE_BASED**: For Pakistan Post (e.g., Rs. 75 if < Rs. 10,000, different for 10K-20K)
+     - **FIXED**: Fixed amount regardless of COD amount
+   - Added validation for range-based rules:
+     - No gaps between ranges (continuous coverage)
+     - Min < Max for each range
+     - Proper fee values (>= 0)
+   - Added DELETE endpoint for logistics companies (prevents deletion if used in orders)
+
+2. **Auto-Recalculation of COD Fee in Edit Mode**:
+   - COD fee automatically recalculates when:
+     - Products/quantities/prices change
+     - Payment amount changes
+     - Shipping charges change
+     - Logistics company changes
+   - Real-time preview of calculated COD fee
+   - Shows calculation breakdown (method, company, COD amount)
+
+3. **Manual COD Fee Override**:
+   - Toggle to enable/disable manual override
+   - When enabled, allows manual entry of COD fee
+   - When disabled, uses calculated value
+   - Override flag stored in state and sent to backend
+
+4. **Backend Enhancements**:
+   - Enhanced `PUT /order/:id` endpoint to handle COD fee recalculation
+   - Recalculates COD fee when order values change (if not manually overridden)
+   - Updates `codAmount` when order total/payment changes
+   - Returns logistics company information in order details
+   - Added validation for range-based COD fee rules in backend
+
+5. **Profit Calculation Updates**:
+   - Updated `profitService.js` to include COD fee expense in cost calculation
+   - COD fee expense is always included (business always pays logistics company)
+   - COD fee revenue included when customer pays
+   - Profit = Revenue - Cost (including COD fee expense)
+
+6. **UI/UX Enhancements**:
+   - **Settings COD Tab**:
+     - Section 1: Default Payment Preference (existing)
+     - Section 2: Logistics Companies Management
+       - Table view with company details
+       - Add/Edit/Delete functionality
+       - Form modal with validation
+       - Range rules editor with gap detection
+   - **Order Details Page**:
+     - Enhanced COD fee section in edit mode:
+       - Logistics company selector
+       - Real-time COD fee calculation
+       - Calculation breakdown display
+       - Manual override toggle and input
+       - COD fee payment preference selector
+       - Real-time order total preview
+     - COD fee display in view mode:
+       - Shows COD fee amount
+       - Displays logistics company and calculation method
+       - Shows COD amount and payment preference
+
+7. **Accounting Impact**:
+   - COD fee changes in edit mode affect profit calculations
+   - Historical accounting entries remain unchanged (audit trail preserved)
+   - Customer balance calculations correctly include/exclude COD fee based on payment preference
+   - Profit calculations include COD fee expense regardless of who pays
+
+**Files Modified**:
+- `frontend/src/pages/SettingsPage.jsx` - Added logistics company management to COD tab
+- `frontend/src/pages/OrderDetailsPage.jsx` - Added COD fee auto-recalculation and manual override
+- `backend/routes/accounting/logistics.js` - Added DELETE endpoint and range validation
+- `backend/routes/order.js` - Enhanced order update endpoint for COD fee recalculation
+- `backend/services/profitService.js` - Added COD fee expense to profit calculations
+- `DEVELOPMENT_JOURNAL.md` - Documented these changes
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+- Logistics companies can be managed from Settings COD tab (moved from Accounting)
+- COD fee auto-recalculates when order values change in edit mode
+- Manual COD fee override works correctly
+- All calculation types (PERCENTAGE, RANGE_BASED, FIXED) work correctly
+- Range-based rules validated for gaps and proper min/max values
+- Profit calculations include COD fee expense correctly
+- Customer balance calculations handle COD fee correctly
+- No breaking changes to existing functionality
+- Backend routes kept for backward compatibility (can be removed later)
+
+**Testing**:
+- Created comprehensive test suite: `backend/tests/cod-fee-management.test.js`
+- **Test Results**: 23/23 tests passing ✅
+- Test coverage includes:
+  - Logistics company CRUD operations (5 tests)
+  - COD fee calculation for all three types (8 tests)
+  - Auto-recalculation scenarios (4 tests)
+  - Profit calculation with COD fee (3 tests)
+  - Edge cases (3 tests)
+- Fixed range-based boundary handling (exclusive max for non-last ranges)
+- Fixed profit service to fetch product purchase prices from database
+
+**Admin Portal - Clear All Data**:
+- Verified and updated `clear-all-data` functionality to handle COD fee management features
+- **Backend (`backend/routes/tenant.js`)**:
+  - Already correctly deletes LogisticsCompanies (step 22, after Orders are deleted)
+  - Added reset of `defaultCodFeePaidBy` to default value ('BUSINESS_OWNER')
+  - Added reset of shipping-related settings (`shippingCityCharges`, `shippingQuantityRules`)
+- **Frontend (`frontend/src/pages/AdminDashboard.jsx`)**:
+  - Updated warning message to explicitly mention "All Logistics Companies and COD Fee Configurations"
+  - Added note that tenant settings will be reset to defaults
+
+**Dispatch Order - Logistics Company Selection**:
+- Added logistics company selection to dispatch modal with full accounting support
+- **Frontend (`frontend/src/pages/OrderDetailsPage.jsx`)**:
+  - Added `dispatchLogisticsCompanyId` state to track selected logistics company in dispatch modal
+  - Added logistics company dropdown to dispatch modal (after actual shipping cost field)
+  - Updated `dispatchOrder` function to send `logisticsCompanyId` in payload
+  - Initialize dispatch modal with order's current logistics company if available
+- **Backend (`backend/routes/order.js`)**:
+  - Updated dispatch endpoint to accept `logisticsCompanyId` in request body
+  - Added validation for `logisticsCompanyId` parameter
+  - Automatically recalculates COD fee when logistics company is set during dispatch
+  - Calculates COD amount from order data (products + shipping - payment)
+  - Updates order with logistics company, COD fee, COD amount, and COD fee calculation type
+  - Uses tenant's `defaultCodFeePaidBy` if order doesn't have one set
+  - **Accounting Entries**:
+    - Checks if COD fee accounting entries already exist (from order confirmation)
+    - If COD fee is set/changed during dispatch and entries don't exist, creates:
+      - **If Customer Pays COD Fee**: 
+        - AR adjustment transaction (Debit AR, Credit COD Fee Revenue)
+        - COD Fee Expense transaction (Debit COD Fee Expense, Credit COD Fee Payable)
+      - **If Business Owner Pays COD Fee**:
+        - COD Fee Expense transaction (Debit COD Fee Expense, Credit COD Fee Payable)
+    - Uses accounts: `1200` (AR), `4400` (COD Fee Revenue), `5200` (COD Fee Expense), `2200` (COD Fee Payable)
+- **Profit Impact**:
+  - Profit calculations already handle COD fee correctly via `profitService.js`
+  - COD fee expense is included in order cost (business always pays logistics)
+  - COD fee revenue is included in order revenue when customer pays
+  - Profit calculations automatically reflect COD fee changes
+- **Benefits**:
+  - Business owners can now select/update logistics company at dispatch time
+  - COD fee is automatically calculated based on selected logistics company
+  - Ensures accurate tracking of which logistics company handled each order
+  - COD fee is properly recorded even if not set during order confirmation
+  - Accounting entries are created automatically when COD fee is set during dispatch
+  - Profit calculations correctly reflect COD fee revenue and expense
+
+**Complete COD Fee Accounting Entries Implementation**:
+- Implemented comprehensive accounting entries handling for all COD fee scenarios
+- **Order Update Endpoint (`PUT /order/:id`)**:
+  - Added full accounting entries handling for confirmed/dispatched/completed orders
+  - **Case 1: COD Fee Removed**: Reverses all COD fee entries (revenue and expense)
+  - **Case 2: COD Fee Added**: Creates new COD fee entries (revenue if customer pays, expense always)
+  - **Case 3: COD Fee Amount Changed**: Creates adjustment entries for the difference
+  - **Case 4: Payment Preference Changed**: Adjusts AR/Revenue when codFeePaidBy changes
+  - Handles all combinations: amount changes, preference changes, additions, removals
+- **Dispatch Endpoint (`POST /order/:id/dispatch`)**:
+  - Enhanced to handle all edge cases and scenarios
+  - **COD Fee Decrease**: Creates reversing entries for the difference
+  - **COD Fee Removal**: Reverses all existing COD fee entries
+  - **COD Fee Increase**: Creates adjustment entries for the difference
+  - **Payment Preference Change**: Adjusts AR/Revenue when codFeePaidBy changes
+  - **Edge Cases Handled**:
+    - Order already DISPATCHED (re-dispatch scenario)
+    - COD fee exists but entries missing (creates entries even if amount unchanged)
+    - All combinations of amount and preference changes
+- **Profit Calculations**:
+  - Verified and confirmed correct handling in `profitService.js`
+  - Revenue includes COD fee when `codFeePaidBy === 'CUSTOMER'`
+  - Cost always includes COD fee expense (business always pays logistics)
+  - Profit = Revenue - Cost (correctly calculated for all scenarios)
+- **Accounting Accounts Used**:
+  - `1200` (Accounts Receivable) - Adjusted when COD fee revenue changes
+  - `4400` (COD Fee Revenue) - Created/adjusted when customer pays COD fee
+  - `5200` (COD Fee Expense) - Always created/adjusted (business pays logistics)
+  - `2200` (COD Fee Payable) - Liability account for COD fee expense
+- **All Scenarios Now Covered**:
+  ✅ Order confirmation with COD fee
+  ✅ Dispatch with new COD fee
+  ✅ Dispatch with COD fee increase
+  ✅ Dispatch with COD fee decrease
+  ✅ Dispatch with COD fee removal
+  ✅ Dispatch with payment preference change
+  ✅ Dispatch with order already DISPATCHED
+  ✅ Edit order: Add COD fee
+  ✅ Edit order: Change COD fee amount
+  ✅ Edit order: Change payment preference
+  ✅ Edit order: Remove COD fee
+  ✅ All combinations of changes
+
+---
+
+## 2026-01-03 - Shipping Cost Adjustment Feature
+
+### Feature: Separate Shipping Cost Adjustment for Dispatched/Completed Orders
+
+**Request**: Create a dedicated "Shipping Cost Adjustment" feature separate from order editing to handle recording actual shipping costs after dispatch. This distinguishes between:
+1. **Customer-facing changes**: Editing shipping charges that customer pays (affects AR and revenue)
+2. **Business expense recording**: Recording actual shipping cost while customer commitment remains unchanged (creates variance expense)
+
+**Problem**: Previously, both scenarios were handled in the edit order form, causing confusion. When a business owner needs to record that actual shipping cost was 500 while customer was charged 200, this should be a separate action that doesn't change customer commitment.
+
+**Implementation Details**:
+
+1. **Backend API Endpoint** (`backend/routes/order.js`):
+   - **New Endpoint**: `POST /order/:id/adjust-shipping-cost`
+   - **Validation**:
+     - Order must be DISPATCHED or COMPLETED
+     - `actualShippingCost` is required and must be >= 0
+     - User must have BUSINESS_OWNER or STOCK_KEEPER role
+   - **Logic**:
+     - Fetches order with current `shippingCharges` (customer commitment)
+     - Calculates variance: `variance = shippingCharges - actualShippingCost`
+     - Updates only: `actualShippingCost`, `shippingVariance`, `shippingVarianceDate`
+     - Does NOT update `shippingCharges` (customer commitment remains unchanged)
+   - **Accounting Entries**:
+     - If variance < 0 (actual > charged): Creates expense entry
+       - Debit Shipping Expense (actual cost)
+       - Debit Shipping Variance Expense (difference)
+     - If variance > 0 (actual < charged): Creates income entry
+       - Debit Shipping Expense (actual cost)
+       - Credit Shipping Variance Income (difference)
+     - Handles variance changes by reversing old entries and creating new ones
+     - Handles variance clearing when variance becomes 0
+
+2. **Frontend UI Component** (`frontend/src/pages/OrderDetailsPage.jsx`):
+   - **New Button**: "Adjust Shipping Cost" button
+     - Visible only for DISPATCHED/COMPLETED orders
+     - Orange theme to distinguish from customer-facing actions
+     - Placed in order actions section
+   - **New Modal**: "Adjust Shipping Cost" modal
+     - Displays customer commitment (unchanged): "Customer Charged: Rs. 200.00"
+     - Input field for actual shipping cost
+     - Real-time variance preview with color coding:
+       - Red for expense (actual > charged)
+       - Green for income (actual < charged)
+     - Clear explanation: "This records the actual cost paid. Customer commitment remains unchanged."
+     - Submit button: "Record Shipping Cost"
+   - **State Management**:
+     - `showShippingAdjustmentModal`: boolean
+     - `adjustmentActualCost`: number | null
+   - **Removed from Edit Order Form**:
+     - Removed "Actual Shipping Cost" section from edit mode
+     - Edit mode now only handles customer-facing changes (updating `shippingCharges`)
+     - Edit mode focused on order corrections, not expense recording
+
+3. **UI/UX Improvements**:
+   - **Visual Distinction**:
+     - Edit Order: Blue/Pink theme (customer-facing)
+     - Adjust Shipping Cost: Orange theme (business expense)
+   - **Help Text**:
+     - Edit Order: "Update what customer will pay"
+     - Adjust Shipping Cost: "Record actual cost paid to logistics. Customer commitment unchanged."
+   - **Order Details Display**:
+     - Shipping variance prominently displayed for DISPATCHED/COMPLETED orders
+     - Clear indication: "Customer Charged: Rs. 200" vs "Actual Cost: Rs. 500" vs "Variance: -Rs. 300 (Business Expense)"
+
+**Benefits**:
+- Clear separation of concerns between customer charges and business expenses
+- Prevents confusion when recording actual costs
+- Proper accounting for variance expenses
+- Better audit trail
+- User-friendly workflow
+
+**Status**: ✅ Implementation Complete
+
+**Note (2026-01-03)**: Added missing "Adjust Shipping Cost" button in order actions section for DISPATCHED/COMPLETED orders. The backend endpoint and modal were already implemented, but the button to trigger the modal was missing.
+
+---
+
+## 2026-01-03 - Default COD Fee Payment Configuration
+
+### Feature: Default COD Fee Payment Preference Setting
+
+**Request**: Add a configuration option in the business owner dashboard/settings page where business owners can set a default COD fee payment preference (Business Owner vs Customer). This default should be used when confirming orders unless overridden for individual orders.
+
+**Implementation Details**:
+
+1. **Database Schema Update** (`backend/prisma/schema.prisma`):
+   - Added `defaultCodFeePaidBy` (String, optional, default: 'BUSINESS_OWNER') field to the `Tenant` model.
+   - Created migration: `20260103220619_add_default_cod_fee_paid_by`.
+
+2. **Backend API Updates**:
+   - **Tenant Route** (`backend/routes/tenant.js`):
+     - Updated `PUT /tenant/owner/me` endpoint to accept and update `defaultCodFeePaidBy` field.
+     - Added validation to ensure value is either 'BUSINESS_OWNER' or 'CUSTOMER'.
+   - **Order Confirmation** (`backend/routes/order.js`):
+     - Modified to fetch `defaultCodFeePaidBy` from tenant when loading order.
+     - Updated COD fee payment preference logic to use: request value > tenant default > 'BUSINESS_OWNER' fallback.
+
+3. **Frontend UI Updates**:
+   - **SettingsPage** (`frontend/src/pages/SettingsPage.jsx`):
+     - Added new "COD Fee" tab in settings page.
+     - Added COD fee configuration section with radio buttons for:
+       - Business Owner Pays (default)
+       - Customer Pays
+     - Each option includes clear explanation of accounting impact.
+     - Added helpful note that this is a default and can be overridden per order.
+     - Integrated with existing tenant update API.
+
+4. **Key Features**:
+   - **Default Configuration**: Business owners can set a default preference that applies to all new order confirmations.
+   - **Per-Order Override**: The default can still be overridden when confirming individual orders.
+   - **Clear UI**: Radio button interface with explanations for each option.
+   - **Backward Compatible**: Existing tenants without a default will use 'BUSINESS_OWNER' as fallback.
+   - **Consistent Behavior**: Order confirmation uses: request > tenant default > 'BUSINESS_OWNER'.
+
+5. **User Experience**:
+   - Settings page now has a dedicated "COD Fee" tab.
+   - Clear labeling and explanations for each payment option.
+   - Visual feedback with border highlighting for selected option.
+   - Helpful note explaining that this is a default setting.
+
+**Files Modified**:
+- `backend/prisma/schema.prisma` - Added defaultCodFeePaidBy field to Tenant model
+- `backend/routes/tenant.js` - Updated to handle defaultCodFeePaidBy updates
+- `backend/routes/order.js` - Updated to use tenant default when codFeePaidBy not provided
+- `frontend/src/pages/SettingsPage.jsx` - Added COD fee configuration tab and UI
+- `DEVELOPMENT_JOURNAL.md` - Documented these changes
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+- Database migration required and applied: `20260103220619_add_default_cod_fee_paid_by`
+- Backward compatible: Existing tenants will default to 'BUSINESS_OWNER' behavior
+- The default setting only affects new order confirmations when no explicit preference is provided
+- Individual orders can still override the default preference
+- Test cases exist in `backend/tests/cod-fee-payment.test.js` (11/17 tests passing, some test expectations need adjustment)
+
+---
+
+## 2026-01-03 - Payment Recording Enhancement for Order Details
+
+### Feature: Complete Payment Recording with Account Selection and Payment History
+
+**Request**: Add payment account selection (Cash/Bank) to the "Receive Payment" popup and display payment history/details at the bottom of the order details page. Ensure all accounting entries are correctly posted.
+
+**Implementation Details**:
+
+1. **Payment Modal Enhancements** (`frontend/src/pages/OrderDetailsPage.jsx`):
+   - Added `PaymentAccountSelector` component to payment modal
+   - Added `paymentReceiveAccountId` state to track selected payment account
+   - Payment account selection is now required before recording payment
+   - Updated modal close handlers to reset account selection
+
+2. **Payment Recording** (`frontend/src/pages/OrderDetailsPage.jsx`):
+   - **Changed from**: Direct order update (`PUT /order/:id`) that only updated `paymentAmount` field
+   - **Changed to**: Proper payment recording endpoint (`POST /accounting/payments`)
+   - Now creates proper accounting entries:
+     - Debit: Cash/Bank Account (selected payment account)
+     - Credit: Accounts Receivable (AR)
+   - Updates order's `paymentAmount` automatically via backend
+   - Creates payment record with full transaction details
+
+3. **Payment History Section** (`frontend/src/pages/OrderDetailsPage.jsx`):
+   - Added new "Payment History" section at bottom of order details page
+   - Displays all payment records for the order:
+     - Payment number
+     - Date and time
+     - Amount
+     - Payment method (Cash/Bank Transfer)
+     - Account name and code
+   - Shows payment summary:
+     - Total paid amount
+     - Remaining balance (if any)
+   - Loading state while fetching payments
+   - Empty state when no payments exist
+
+4. **Backend Enhancements** (`backend/routes/accounting/payments.js`):
+   - Added support for filtering payments by `orderId` in GET endpoint
+   - Added support for filtering by `customerId` and `supplierId` for consistency
+   - Enables efficient fetching of payments for specific orders
+
+5. **State Management**:
+   - Added `payments` state array to store payment records
+   - Added `loadingPayments` state for loading indicator
+   - Added `fetchOrderPayments()` function to fetch payments for the order
+   - Payments are fetched automatically when order details are loaded
+
+6. **Key Features**:
+   - **Proper Accounting**: All payments now create correct accounting entries (Debit Cash/Bank, Credit AR)
+   - **Account Tracking**: Payment account is tracked and displayed in payment history
+   - **Payment History**: Complete payment history visible at bottom of order details
+   - **Real-time Updates**: Payment history refreshes after recording new payment
+   - **User-Friendly**: Clear UI with payment details, account information, and summaries
+   - **Validation**: Payment account selection is required before recording payment
+
+7. **Accounting Flow**:
+   - When payment is recorded:
+     1. Creates payment record with account reference
+     2. Creates accounting transaction:
+        - Debit: Selected Payment Account (Cash/Bank)
+        - Credit: Accounts Receivable (1200)
+     3. Updates order's `paymentAmount` field
+     4. All entries are properly linked and auditable
+
+**Files Modified**:
+- `frontend/src/pages/OrderDetailsPage.jsx` - Added payment account selector, updated payment recording, added payment history section
+- `backend/routes/accounting/payments.js` - Added orderId, customerId, supplierId filtering support
+- `DEVELOPMENT_JOURNAL.md` - Documented these changes
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+- Payment recording now uses proper accounting endpoint instead of direct order update
+- All accounting entries are correctly posted with proper debit/credit relationships
+- Payment history provides complete audit trail of all payments for the order
+- Backend payments endpoint now supports filtering by orderId for efficient queries
+- Payment account selection is required and validated before submission
+
+---
+
+## 2026-01-04 - Payment Verification System (Option A: Two-Step Verification)
+
+### Feature: Payment Verification Workflow to Prevent Incorrect Accounting Entries
+
+**Request**: Implement a payment verification system where business owners must verify customer-claimed payments before accounting entries are created. This prevents incorrect accounting when customers claim payment but haven't actually paid.
+
+**Problem**: Previously, when orders were confirmed with prepayments, accounting entries were created immediately based on customer-claimed amounts. If a customer claimed Rs. 1000 but didn't actually pay, the accounting would be incorrect.
+
+**Implementation Details**:
+
+1. **Database Schema Update** (`backend/prisma/schema.prisma`):
+   - Added `verifiedPaymentAmount` (Float, optional) - Actual verified amount by business owner
+   - Added `paymentVerified` (Boolean, default: false) - Whether payment is verified
+   - Added `paymentVerifiedAt` (DateTime, optional) - When payment was verified
+   - Added `paymentVerifiedBy` (String, optional) - User ID who verified the payment
+   - Created migration: `20260104222016_add_payment_verification_fields`
+
+2. **Order Confirmation Changes** (`backend/routes/order.js`):
+   - **Removed**: Payment accounting entries creation during order confirmation
+   - **Kept**: AR transaction creation (Debit AR, Credit Revenue) - this is correct as order is confirmed
+   - **Result**: Order confirmation no longer creates payment accounting entries
+   - Payment accounting entries are only created when payment is verified
+
+3. **Payment Verification Endpoint** (`backend/routes/order.js`):
+   - **New Endpoint**: `POST /order/:id/verify-payment`
+   - **Validation**:
+     - Order must be CONFIRMED, DISPATCHED, or COMPLETED
+     - Payment account is required and must be Cash/Bank type
+     - Verified amount must be >= 0
+     - Prevents re-verification if already verified
+   - **Functionality**:
+     - Creates payment accounting transaction (Debit Cash/Bank, Credit AR)
+     - Creates Payment record with full details
+     - Updates order with verification details (verifiedPaymentAmount, paymentVerified, paymentVerifiedAt, paymentVerifiedBy)
+     - Updates paymentAccountId on order
+
+4. **Frontend UI Updates** (`frontend/src/pages/OrderDetailsPage.jsx`):
+   - **Payment Verification Section**:
+     - Shows yellow warning banner for unverified prepayments
+     - Displays claimed amount vs verified amount
+     - "Verify Payment" button to open verification modal
+     - Only visible for CONFIRMED/DISPATCHED/COMPLETED orders with unverified prepayments
+   - **Verified Payment Display**:
+     - Shows green success banner when payment is verified
+     - Displays claimed amount (strikethrough) and verified amount
+     - Shows verification date and time
+   - **Verify Payment Modal**:
+     - Shows customer claimed amount (read-only)
+     - Input field for verified amount
+     - Payment account selector (required)
+     - Clear explanation of accounting impact
+     - Creates accounting entries and payment record on submit
+   - **Payment Status Display**:
+     - Updated to show claimed vs verified amounts
+     - Claimed amount shown with strikethrough if verified
+     - Verified amount highlighted in green with checkmark
+     - Unverified payments shown in red
+
+5. **State Management**:
+   - Added `showVerifyPaymentModal` state
+   - Added `verifyPaymentAmount` state (initialized from order.paymentAmount)
+   - Added `verifyPaymentAccountId` state
+   - Added `verifyingPayment` loading state
+   - Added `handleVerifyPayment` function
+
+6. **Key Features**:
+   - **Two-Step Process**: Order confirmation and payment verification are separate
+   - **Validation Required**: Business owner must verify payment before accounting entries are created
+   - **Clear UI**: Visual distinction between claimed and verified amounts
+   - **Audit Trail**: Tracks who verified payment and when
+   - **Prevents Errors**: No accounting entries created for unverified payments
+   - **Flexible**: Business owner can verify different amount than claimed
+
+7. **Accounting Flow**:
+   - **Order Confirmation**:
+     - Creates AR transaction (Debit AR, Credit Revenue)
+     - Does NOT create payment accounting entries
+   - **Payment Verification**:
+     - Creates payment accounting transaction (Debit Cash/Bank, Credit AR)
+     - Creates Payment record
+     - Updates order verification status
+
+8. **User Experience**:
+   - Clear visual indicators for unverified payments (yellow warning)
+   - Clear visual indicators for verified payments (green success)
+   - Easy-to-use verification modal
+   - Payment history shows only verified payments
+   - Payment status clearly shows claimed vs verified amounts
+
+**Files Modified**:
+- `backend/prisma/schema.prisma` - Added payment verification fields
+- `backend/routes/order.js` - Removed payment accounting from confirmation, added verify-payment endpoint
+- `frontend/src/pages/OrderDetailsPage.jsx` - Added payment verification UI and functionality
+- `DEVELOPMENT_JOURNAL.md` - Documented these changes
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+- Database migration required and applied: `20260104222016_add_payment_verification_fields`
+- Order confirmation no longer creates payment accounting entries
+- Payment verification is required before payment accounting entries are created
+- Prevents incorrect accounting when customers claim payment but don't pay
+- Business owner can verify different amount than claimed (handles partial payments, overpayments, etc.)
+- All verified payments are recorded in payment history
+- Payment verification creates proper accounting entries and payment records
+
+---
+
+## 2026-01-04 - Move Accounting Entries to Approval for Customer Order Returns
+
+### Feature: Accounting Entries Created on Approval Instead of Creation
+
+**Request**: Move accounting entries creation from return creation to return approval. This allows returns to be created as drafts and edited without accounting impact until approved.
+
+**Problem**: Previously, accounting entries were created immediately when a return was created, making it difficult to edit returns without complex transaction reversals. This also meant that draft returns affected accounting before being reviewed.
+
+**Implementation Details**:
+
+1. **Backend Service Updates** (`backend/services/returnService.js`):
+   - **`createOrderReturn` Function**:
+     - **Removed**: All accounting transaction creation logic (lines 207-319)
+     - **Result**: Returns are now created as drafts (PENDING status) without accounting entries
+     - Returns can be edited freely without accounting impact
+   - **`approveReturn` Function**:
+     - **Enhanced**: Now creates accounting entries when return is approved
+     - Creates Sales Returns + Accounts Receivable transaction
+     - Calculates transaction amounts from return items
+     - Handles shipping charges if FULL_REFUND is selected
+     - Updates account balances correctly
+     - Returns transaction details in response
+   - **`updateOrderReturn` Function**:
+     - **Enhanced**: Now allows editing for both PENDING and APPROVED returns
+     - **PENDING Returns**: No accounting entries exist, so editing is simple (just update data)
+     - **APPROVED Returns**: Reverses old accounting entries, updates data, creates new accounting entries
+     - Prevents editing REFUNDED or REJECTED returns
+     - Only reverses approval transactions (not refund transactions)
+   - **`rejectReturn` Function**:
+     - **Enhanced**: Only reverses accounting entries if return was APPROVED
+     - PENDING returns don't have accounting entries, so no reversal needed
+     - Prevents rejection of REFUNDED returns
+
+2. **Key Changes**:
+   - **Accounting Flow**:
+     - **Create Return**: No accounting entries (draft state)
+     - **Approve Return**: Creates accounting entries (Sales Returns + AR)
+     - **Edit PENDING Return**: No accounting impact (just data update)
+     - **Edit APPROVED Return**: Reverses old entries, creates new entries
+     - **Reject PENDING Return**: No accounting impact (just status change)
+     - **Reject APPROVED Return**: Reverses accounting entries
+   - **Transaction Calculation**:
+     - `approveReturn` calculates products value from return items
+     - Handles shipping charges correctly (adds to transaction if FULL_REFUND)
+     - `updateOrderReturn` recalculates products value from updated return items
+     - Both functions properly separate products value from shipping charges
+
+3. **Benefits**:
+   - **Better Workflow**: Returns are created as drafts, reviewed, then approved with accounting impact
+   - **Cleaner Accounting**: Only approved returns affect accounting books
+   - **Easier Edits**: PENDING returns can be edited without transaction reversals
+   - **Better Audit Trail**: Approval date marks when accounting impact occurs
+   - **Flexible**: Business owners can create returns, review them, make changes, then approve
+
+4. **Status Handling**:
+   - **PENDING**: Draft return, no accounting entries, fully editable
+   - **APPROVED**: Return approved, accounting entries created, editable (with reversal)
+   - **REFUNDED**: Return refunded, cannot be edited
+   - **REJECTED**: Return rejected, cannot be edited
+
+5. **Accounting Transaction Details**:
+   - **On Approval**:
+     - Debit: Sales Returns (4100) - products value + shipping (if FULL_REFUND)
+     - Credit: Accounts Receivable (1200) - same amount
+   - **On Edit (APPROVED)**:
+     - Reverses old approval transaction
+     - Creates new approval transaction with updated amounts
+   - **On Reject (APPROVED)**:
+     - Reverses approval transaction
+
+**Files Modified**:
+- `backend/services/returnService.js` - Moved accounting creation to approval, updated edit/reject logic
+- `DEVELOPMENT_JOURNAL.md` - Documented these changes
+
+**Status**: ✅ Implementation Complete
+
+**Notes**:
+- Returns are now created as drafts without accounting impact
+- Accounting entries are created only when return is approved
+- PENDING returns can be edited freely without accounting impact
+- APPROVED returns can be edited but require transaction reversal and recreation
+- REFUNDED returns cannot be edited (as expected)
+- All transaction calculations properly handle products value and shipping charges
+- Account balances are correctly updated on approval and edit
+- Backward compatible: Existing returns with accounting entries continue to work
+
+**Clear All Data Function Update**:
+- Updated `clear-all-data` function in `backend/routes/tenant.js` to handle new return accounting flow
+- **Fixed Deletion Order**: Transactions now deleted before Orders and Returns (since Transactions reference both via foreign keys)
+- **New Order**:
+  1. Delete TransactionLines (before Transactions)
+  2. Delete Payments (before Transactions, Orders, Returns)
+  3. Delete Transactions (before Orders and Returns - they reference both)
+  4. Delete Orders (after Transactions)
+  5. Delete ReturnItems (before Returns)
+  6. Delete Returns (after Transactions)
+- This ensures foreign key constraints are respected when deleting tenant data
+- Prevents errors when clearing data for tenants with approved returns that have accounting entries

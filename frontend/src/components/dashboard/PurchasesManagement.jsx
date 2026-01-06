@@ -5,6 +5,7 @@ import api, { getImageUrl } from '../../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../LoadingSpinner'
 import ProductImageUpload from '../ProductImageUpload'
+import PaymentAccountSelector from '../accounting/PaymentAccountSelector'
 import {
     PlusIcon,
     CameraIcon,

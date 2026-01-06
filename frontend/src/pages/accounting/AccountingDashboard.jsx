@@ -36,7 +36,7 @@ function AccountingDashboard() {
       setLoading(true)
       const [summaryRes, transactionsRes] = await Promise.all([
         api.get('/accounting/balances/summary'),
-        api.get('/accounting/transactions?page=1&limit=5')
+        api.get('/accounting/transactions?page=1&limit=5&sort=date&order=desc')
       ])
 
       if (summaryRes.data?.success) {

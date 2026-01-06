@@ -21,8 +21,12 @@ class BalanceService {
             productQuantities: true,
             productPrices: true,
             paymentAmount: true,
+            verifiedPaymentAmount: true,
+            paymentVerified: true,
             shippingCharges: true,
             refundAmount: true,
+            codFee: true,
+            codFeePaidBy: true,
             createdAt: true,
             updatedAt: true
           }
@@ -34,6 +38,90 @@ class BalanceService {
       throw new Error('Customer not found');
     }
 
+    // Get all payments (including direct payments without orders)
+    const allPayments = await prisma.payment.findMany({
+      where: {
+        customerId: customerId,
+        type: 'CUSTOMER_PAYMENT'
+      },
+      select: {
+        id: true,
+        amount: true,
+        orderId: true,
+        date: true
+      }
+    });
+
+    // Get all returns
+    const allReturns = await prisma.return.findMany({
+      where: {
+        order: {
+          customerId: customerId
+        },
+        returnType: {
+          in: ['CUSTOMER_FULL', 'CUSTOMER_PARTIAL']
+        }
+      },
+      select: {
+        id: true,
+        returnNumber: true,
+        totalAmount: true,
+        refundAmount: true,
+        status: true,
+        orderId: true,
+        returnDate: true
+      }
+    });
+
+    // Calculate opening balance from accounting transactions
+    // Look for opening balance transaction
+    const openingBalanceTransaction = await prisma.transaction.findFirst({
+      where: {
+        tenantId: customer.tenantId,
+        description: {
+          contains: `Customer Opening Balance - ${customer.name || customer.phoneNumber}`,
+          mode: 'insensitive'
+        }
+      },
+      include: {
+        transactionLines: {
+          include: {
+            account: true
+          }
+        }
+      },
+      orderBy: {
+        date: 'asc'
+      }
+    });
+
+    let openingARBalance = 0;
+    let openingAdvanceBalance = 0;
+
+    // First, try to get opening balance from the initial opening balance transaction
+    // This ensures we get the original balance, not the current balance after subsequent transactions
+    if (openingBalanceTransaction) {
+      // Calculate opening balance from transaction lines
+      for (const line of openingBalanceTransaction.transactionLines) {
+        if (line.account.code === '1200') {
+          // Accounts Receivable - debit means customer owes us
+          openingARBalance += (line.debitAmount || 0) - (line.creditAmount || 0);
+        } else if (line.account.code === '1210') {
+          // Customer Advance Balance - debit means customer paid us advance
+          openingAdvanceBalance = (line.debitAmount || 0) - (line.creditAmount || 0);
+        }
+      }
+    }
+    
+    // If no opening balance transaction found, check if customer has advanceBalance set
+    // This handles cases where customer was created with advance balance but no transaction was created
+    // However, we should only use this if we didn't find a transaction (to avoid including subsequent payments)
+    if (!openingBalanceTransaction && customer.advanceBalance) {
+      openingAdvanceBalance = customer.advanceBalance;
+    }
+
+    let totalOrderValue = 0;
+    let totalVerifiedPayments = 0;
     let totalPending = 0;
     const orderBalances = [];
 
@@ -72,8 +160,19 @@ class BalanceService {
       const shippingCharges = order.shippingCharges || 0;
       orderTotal += shippingCharges;
 
+      // Add COD fee if customer pays
+      if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+        orderTotal += order.codFee;
+      }
+
+      totalOrderValue += orderTotal;
+
       // Calculate pending amount
-      const paidAmount = order.paymentAmount || 0;
+      // Use verified payment amount if payment is verified, otherwise use 0 (unverified payments don't count)
+      const paidAmount = order.paymentVerified && order.verifiedPaymentAmount !== null && order.verifiedPaymentAmount !== undefined
+        ? order.verifiedPaymentAmount
+        : 0;
+      totalVerifiedPayments += paidAmount;
       const refundAmount = order.refundAmount || 0;
       const pending = Math.max(0, orderTotal - paidAmount - refundAmount);
 
@@ -86,17 +185,56 @@ class BalanceService {
           paidAmount,
           refundAmount,
           pending,
-          orderDate: order.createdAt
+          orderDate: order.createdAt,
+          claimedPayment: order.paymentAmount || 0,
+          verifiedPayment: order.paymentVerified ? (order.verifiedPaymentAmount || 0) : 0,
+          paymentVerified: order.paymentVerified || false
         });
       }
     }
 
+    // Calculate direct payments (payments without orders)
+    const directPayments = allPayments.filter(p => !p.orderId);
+    const totalDirectPayments = directPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+    // Calculate total returns/refunds
+    const totalReturns = allReturns.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
+    const totalRefunds = allReturns.reduce((sum, r) => sum + (r.refundAmount || 0), 0);
+
+    // Net balance calculation:
+    // Opening AR + Order Totals - Verified Payments - Direct Payments - Returns + Opening Advance
+    const netARBalance = openingARBalance + totalOrderValue - totalVerifiedPayments - totalDirectPayments - totalReturns;
+    const netBalance = netARBalance - openingAdvanceBalance; // Positive = customer owes, Negative = customer has advance
+
     return {
       customerId: customer.id,
       customerName: customer.name,
-      totalPending,
-      advanceBalance: customer.advanceBalance || 0,
-      orders: orderBalances
+      openingARBalance,
+      openingAdvanceBalance,
+      totalOrderValue,
+      totalVerifiedPayments,
+      totalDirectPayments,
+      totalReturns,
+      totalRefunds,
+      totalPending: Math.max(0, netARBalance), // Pending AR (can't be negative)
+      availableAdvance: Math.max(0, -netBalance), // Available advance (if netBalance is negative)
+      netBalance, // Net balance (positive = owes us, negative = has advance)
+      advanceBalance: openingAdvanceBalance,
+      orders: orderBalances,
+      directPayments: directPayments.map(p => ({
+        id: p.id,
+        amount: p.amount,
+        date: p.date
+      })),
+      returns: allReturns.map(r => ({
+        id: r.id,
+        returnNumber: r.returnNumber,
+        totalAmount: r.totalAmount,
+        refundAmount: r.refundAmount,
+        status: r.status,
+        orderId: r.orderId,
+        returnDate: r.returnDate
+      }))
     };
   }
 

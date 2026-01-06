@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { authenticateToken } = require('../../middleware/auth');
+const { authenticateToken, requireRole } = require('../../middleware/auth');
 const returnService = require('../../services/returnService');
 
 // Get order returns
@@ -114,6 +114,77 @@ router.put('/:id/approve', authenticateToken, async (req, res) => {
       error: {
         code: 'INTERNAL_ERROR',
         message: error.message || 'Failed to approve return'
+      }
+    });
+  }
+});
+
+// Update return order (full editability)
+router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const {
+      returnType,
+      reason,
+      returnDate,
+      shippingChargeHandling,
+      shippingChargeAmount,
+      selectedProducts,
+      refundMethod,
+      refundAmount
+    } = req.body;
+
+    const returnRecord = await returnService.updateOrderReturn(id, {
+      tenantId,
+      returnType,
+      reason,
+      returnDate,
+      shippingChargeHandling,
+      shippingChargeAmount,
+      selectedProducts,
+      refundMethod,
+      refundAmount
+    });
+
+    res.json({
+      success: true,
+      message: 'Return updated successfully',
+      data: returnRecord
+    });
+  } catch (error) {
+    console.error('Error updating return:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error.message || 'Failed to update return'
+      }
+    });
+  }
+});
+
+// Reject return
+router.post('/:id/reject', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    const returnRecord = await returnService.rejectReturn(id, tenantId, reason);
+
+    res.json({
+      success: true,
+      message: 'Return rejected successfully',
+      data: returnRecord
+    });
+  } catch (error) {
+    console.error('Error rejecting return:', error);
+    res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error.message || 'Failed to reject return'
       }
     });
   }

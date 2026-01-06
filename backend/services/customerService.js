@@ -301,7 +301,11 @@ class CustomerService {
           productQuantities: true,
           productPrices: true,
           paymentAmount: true,
-          shippingCharges: true
+          verifiedPaymentAmount: true,
+          paymentVerified: true,
+          shippingCharges: true,
+          codFee: true,
+          codFeePaidBy: true
         }
       });
 
@@ -340,10 +344,18 @@ class CustomerService {
         
         // Add shipping charges
         const shippingCharges = order.shippingCharges || 0;
+        
+        // Add COD fee if customer pays
+        if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+          orderTotal += order.codFee;
+        }
         orderTotal += shippingCharges;
 
         // Calculate pending amount
-        const paid = order.paymentAmount || 0;
+        // Use verified payment amount if payment is verified, otherwise use 0 (unverified payments don't count)
+        const paid = order.paymentVerified && order.verifiedPaymentAmount !== null && order.verifiedPaymentAmount !== undefined
+          ? order.verifiedPaymentAmount
+          : 0;
         const pending = orderTotal - paid;
         if (pending > 0) {
           totalPending += pending;
@@ -509,13 +521,12 @@ class CustomerService {
    */
   async getCustomerStats(tenantId) {
     try {
-      const stats = await prisma.customer.aggregate({
-        where: { tenantId: tenantId },
-        _count: { id: true },
-        _sum: { totalSpent: true },
-        _avg: { totalSpent: true }
+      // Get customer count
+      const totalCustomers = await prisma.customer.count({
+        where: { tenantId: tenantId }
       });
 
+      // Get recent customers count
       const recentCustomers = await prisma.customer.count({
         where: {
           tenantId: tenantId,
@@ -525,14 +536,132 @@ class CustomerService {
         }
       });
 
+      // Calculate total revenue from actual orders (not stored totalSpent field)
+      // This ensures accuracy and consistency with other stats endpoints
+      const orders = await prisma.order.findMany({
+        where: {
+          tenantId: tenantId,
+          status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] }
+        },
+        select: {
+          selectedProducts: true,
+          productQuantities: true,
+          productPrices: true,
+          shippingCharges: true,
+          codFee: true,
+          codFeePaidBy: true
+        }
+      });
+
+      let totalRevenue = 0;
+      let orderCount = 0;
+
+      for (const order of orders) {
+        try {
+          // Parse order data
+          let selectedProducts = [];
+          let productQuantities = {};
+          let productPrices = {};
+
+          selectedProducts = typeof order.selectedProducts === 'string' 
+            ? JSON.parse(order.selectedProducts) 
+            : (order.selectedProducts || []);
+          productQuantities = typeof order.productQuantities === 'string'
+            ? JSON.parse(order.productQuantities)
+            : (order.productQuantities || {});
+          productPrices = typeof order.productPrices === 'string'
+            ? JSON.parse(order.productPrices)
+            : (order.productPrices || {});
+
+          // Calculate order total (products + shipping + COD fee if customer pays)
+          let orderTotal = 0;
+          if (Array.isArray(selectedProducts)) {
+            selectedProducts.forEach(product => {
+              const quantity = productQuantities[product.id] || product.quantity || 1;
+              const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+              orderTotal += price * quantity;
+            });
+          }
+          
+          // Add shipping charges
+          const shippingCharges = order.shippingCharges || 0;
+          orderTotal += shippingCharges;
+          
+          // Add COD fee if customer pays
+          if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+            orderTotal += order.codFee;
+          }
+
+          totalRevenue += orderTotal;
+          orderCount++;
+        } catch (e) {
+          console.error('Error calculating order total for customer stats:', e);
+          // Continue with next order
+        }
+      }
+
+      const averageOrderValue = orderCount > 0 ? totalRevenue / orderCount : 0;
+
       return {
-        totalCustomers: stats._count.id,
-        totalRevenue: stats._sum.totalSpent || 0,
-        averageOrderValue: stats._avg.totalSpent || 0,
+        totalCustomers,
+        totalRevenue,
+        averageOrderValue,
         newCustomersLast30Days: recentCustomers
       };
     } catch (error) {
       console.error('Error getting customer stats:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recalculate customer statistics from actual linked orders
+   * @param {string} customerId - Customer ID
+   * @returns {Object} Updated customer with recalculated stats
+   */
+  async recalculateCustomerStats(customerId) {
+    try {
+      const customer = await prisma.customer.findUnique({
+        where: { id: customerId },
+        include: {
+          orders: {
+            select: {
+              paymentAmount: true,
+              shippingCharges: true,
+              createdAt: true
+            }
+          }
+        }
+      });
+
+      if (!customer) {
+        throw new Error('Customer not found');
+      }
+
+      // Recalculate based on actual linked orders
+      const actualTotalOrders = customer.orders.length;
+      const actualTotalSpent = customer.orders.reduce((sum, order) => {
+        return sum + (order.paymentAmount || 0) + (order.shippingCharges || 0);
+      }, 0);
+      const lastOrderDate = customer.orders.length > 0 
+        ? customer.orders.sort((a, b) => b.createdAt - a.createdAt)[0].createdAt
+        : null;
+
+      // Update customer record
+      const updatedCustomer = await prisma.customer.update({
+        where: { id: customerId },
+        data: {
+          totalOrders: actualTotalOrders,
+          totalSpent: actualTotalSpent,
+          lastOrderDate: lastOrderDate
+        }
+      });
+
+      console.log(`✅ Recalculated stats for customer ${customerId}: ${actualTotalOrders} orders, Rs. ${actualTotalSpent} spent`);
+
+      return updatedCustomer;
+    } catch (error) {
+      console.error('Error recalculating customer stats:', error);
       throw error;
     }
   }

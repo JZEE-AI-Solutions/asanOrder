@@ -12,7 +12,6 @@ const ModernLayout = ({ children }) => {
     return (
         <div className="min-h-screen bg-brand-50 flex">
             <Sidebar
-                onNewOrder={() => setIsNewOrderModalOpen(true)}
                 onLogout={logout}
                 isOpen={isSidebarOpen}
                 onClose={() => setIsSidebarOpen(false)}

@@ -5,6 +5,7 @@ const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const customerService = require('../services/customerService');
 const accountingService = require('../services/accountingService');
+const balanceService = require('../services/balanceService');
 
 const router = express.Router();
 
@@ -693,6 +694,492 @@ router.get('/search/:query', authenticateToken, requireRole(['BUSINESS_OWNER']),
   }
 });
 
+// Update customer balance (Business Owner only)
+router.put('/:id/balance', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('balance').isFloat().withMessage('Balance must be a number'),
+  body('openingBalanceDate').optional({ nullable: true }).isISO8601().withMessage('Opening balance date must be a valid date')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: errors.array()
+      });
+    }
+
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const { balance, openingBalanceDate } = req.body;
+
+    // Verify customer belongs to tenant
+    const customer = await prisma.customer.findFirst({
+      where: { id, tenantId }
+    });
+
+    if (!customer) {
+      return res.status(404).json({
+        error: 'Customer not found'
+      });
+    }
+
+    const oldAdvanceBalance = customer.advanceBalance || 0;
+    // For customers: positive balance = customer owes us (AR), negative = advance (they paid us)
+    // We store advanceBalance as positive when customer has advance
+    const newBalance = parseFloat(balance);
+    const newAdvanceBalance = newBalance < 0 ? Math.abs(newBalance) : 0;
+    const balanceChanged = oldAdvanceBalance !== newAdvanceBalance || (newBalance > 0 && oldAdvanceBalance === 0);
+
+    // Update customer
+    const updatedCustomer = await prisma.customer.update({
+      where: { id },
+      data: {
+        advanceBalance: newAdvanceBalance
+      }
+    });
+
+    // Create accounting adjustment entry if balance changed
+    if (balanceChanged) {
+      try {
+        // Get or create Opening Balance equity account
+        const openingBalanceAccount = await accountingService.getAccountByCode('3001', tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '3001',
+            name: 'Opening Balance',
+            type: 'EQUITY',
+            tenantId,
+            balance: 0
+          });
+
+        const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}-CUST-ADJ`;
+        const transactionLines = [];
+        
+        // Use provided opening balance date or current date for adjustment
+        const transactionDate = openingBalanceDate ? new Date(openingBalanceDate) : new Date();
+
+        const customerAdvanceAccount = await accountingService.getAccountByCode('1210', tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '1210',
+            name: 'Customer Advance Balance',
+            type: 'ASSET',
+            tenantId,
+            balance: 0
+          });
+
+        const arAccount = await accountingService.getAccountByCode('1200', tenantId) ||
+          await accountingService.getOrCreateAccount({
+            code: '1200',
+            name: 'Accounts Receivable',
+            type: 'ASSET',
+            tenantId,
+            balance: 0
+          });
+
+        // Determine balance types
+        const oldIsAdvance = oldAdvanceBalance > 0; // Customer had advance (they paid us)
+        const newIsAdvance = newBalance < 0; // New balance is advance (they paid us)
+        const newIsPayable = newBalance > 0; // New balance is payable (they owe us)
+
+        if (oldIsAdvance && newIsAdvance) {
+          // Both are advance - adjust Customer Advance Balance
+          const adjustmentAmount = Math.abs(newBalance) - oldAdvanceBalance;
+          if (adjustmentAmount > 0) {
+            // Increase in advance
+            transactionLines.push(
+              {
+                accountId: customerAdvanceAccount.id,
+                debitAmount: adjustmentAmount,
+                creditAmount: 0
+              },
+              {
+                accountId: openingBalanceAccount.id,
+                debitAmount: 0,
+                creditAmount: adjustmentAmount
+              }
+            );
+          } else if (adjustmentAmount < 0) {
+            // Decrease in advance
+            transactionLines.push(
+              {
+                accountId: customerAdvanceAccount.id,
+                debitAmount: 0,
+                creditAmount: Math.abs(adjustmentAmount)
+              },
+              {
+                accountId: openingBalanceAccount.id,
+                debitAmount: Math.abs(adjustmentAmount),
+                creditAmount: 0
+              }
+            );
+          }
+        } else if (!oldIsAdvance && newIsPayable) {
+          // Changed from no advance to payable (Customer owes us)
+          transactionLines.push(
+            {
+              accountId: arAccount.id,
+              debitAmount: newBalance,
+              creditAmount: 0
+            },
+            {
+              accountId: openingBalanceAccount.id,
+              debitAmount: 0,
+              creditAmount: newBalance
+            }
+          );
+        } else if (oldIsAdvance && newIsPayable) {
+          // Changed from advance to payable
+          // Reverse advance: Credit Advance, Debit Opening Balance
+          // Create AR: Debit AR, Credit Opening Balance
+          // Net: Credit Advance (oldAdvanceBalance), Debit AR (newBalance), Net Opening Balance
+          const netOpeningBalanceChange = oldAdvanceBalance - newBalance;
+          transactionLines.push(
+            {
+              accountId: customerAdvanceAccount.id,
+              debitAmount: 0,
+              creditAmount: oldAdvanceBalance
+            },
+            {
+              accountId: arAccount.id,
+              debitAmount: newBalance,
+              creditAmount: 0
+            },
+            {
+              accountId: openingBalanceAccount.id,
+              debitAmount: netOpeningBalanceChange > 0 ? netOpeningBalanceChange : 0,
+              creditAmount: netOpeningBalanceChange < 0 ? Math.abs(netOpeningBalanceChange) : 0
+            }
+          );
+        } else if (!oldIsAdvance && newIsAdvance) {
+          // Changed from no advance to advance
+          transactionLines.push(
+            {
+              accountId: customerAdvanceAccount.id,
+              debitAmount: Math.abs(newBalance),
+              creditAmount: 0
+            },
+            {
+              accountId: openingBalanceAccount.id,
+              debitAmount: 0,
+              creditAmount: Math.abs(newBalance)
+            }
+          );
+        }
+
+        if (transactionLines.length > 0) {
+          await accountingService.createTransaction({
+            transactionNumber,
+            date: transactionDate,
+            description: `Customer Balance Adjustment - ${customer.name || customer.phoneNumber}`,
+            tenantId
+          }, transactionLines);
+        }
+      } catch (accountingError) {
+        console.error('Error creating accounting entry for customer balance adjustment:', accountingError);
+        // Don't fail customer update if accounting entry fails
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Customer balance updated successfully',
+      customer: updatedCustomer
+    });
+  } catch (error) {
+    console.error('Error updating customer balance:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update customer balance'
+    });
+  }
+});
+
+// Get customer ledger (Business Owner only)
+router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { fromDate, toDate } = req.query;
+
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Verify customer belongs to tenant
+    const customer = await prisma.customer.findFirst({
+      where: { id, tenantId: tenant.id }
+    });
+
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Build date filter
+    const dateFilter = {};
+    if (fromDate) dateFilter.gte = new Date(fromDate);
+    if (toDate) dateFilter.lte = new Date(toDate);
+
+    // Get all orders
+    const orders = await prisma.order.findMany({
+      where: {
+        customerId: id,
+        status: 'CONFIRMED',
+        ...(Object.keys(dateFilter).length > 0 && {
+          createdAt: dateFilter
+        })
+      },
+      select: {
+        id: true,
+        orderNumber: true,
+        createdAt: true,
+        selectedProducts: true,
+        productQuantities: true,
+        productPrices: true,
+        shippingCharges: true,
+        codFee: true,
+        codFeePaidBy: true,
+        verifiedPaymentAmount: true,
+        paymentVerified: true
+      },
+      orderBy: {
+        createdAt: 'asc'
+      }
+    });
+
+    // Fetch all payments (including those not linked to orders)
+    const allPayments = await prisma.payment.findMany({
+      where: {
+        customerId: id,
+        type: 'CUSTOMER_PAYMENT',
+        ...(Object.keys(dateFilter).length > 0 && {
+          date: dateFilter
+        })
+      },
+      select: {
+        id: true,
+        paymentNumber: true,
+        date: true,
+        amount: true,
+        orderId: true,
+        account: {
+          select: {
+            id: true,
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        date: 'asc'
+      }
+    });
+
+    // Fetch all returns
+    const allReturns = await prisma.return.findMany({
+      where: {
+        order: {
+          customerId: id
+        },
+        returnType: {
+          in: ['CUSTOMER_FULL', 'CUSTOMER_PARTIAL']
+        },
+        ...(Object.keys(dateFilter).length > 0 && {
+          returnDate: dateFilter
+        })
+      },
+      select: {
+        id: true,
+        returnNumber: true,
+        returnDate: true,
+        totalAmount: true,
+        refundAmount: true,
+        status: true,
+        orderId: true,
+        order: {
+          select: {
+            orderNumber: true
+          }
+        }
+      },
+      orderBy: {
+        returnDate: 'asc'
+      }
+    });
+
+    // Find opening balance transaction date from accounting transactions
+    let openingBalanceDate = customer.createdAt; // Default to customer creation date
+    if (customer.advanceBalance !== 0) {
+      try {
+        // Find the opening balance transaction for this customer
+        const openingBalanceTransaction = await prisma.transaction.findFirst({
+          where: {
+            tenantId: tenant.id,
+            description: {
+              contains: `Customer Opening Balance - ${customer.name || customer.phoneNumber}`,
+              mode: 'insensitive'
+            }
+          },
+          orderBy: {
+            date: 'asc'
+          },
+          select: {
+            date: true
+          }
+        });
+        
+        if (openingBalanceTransaction) {
+          openingBalanceDate = openingBalanceTransaction.date;
+        }
+      } catch (error) {
+        console.error('Error fetching opening balance transaction date:', error);
+        // Use customer.createdAt as fallback
+      }
+    }
+
+    // Build ledger entries
+    const ledgerEntries = [];
+
+    // Add opening balance entry FIRST (before all other transactions)
+    const customerBalance = await balanceService.calculateCustomerBalance(id);
+    if (customerBalance.openingARBalance !== 0 || customerBalance.openingAdvanceBalance !== 0) {
+      ledgerEntries.push({
+        date: openingBalanceDate,
+        type: 'OPENING_BALANCE',
+        description: 'Opening Balance',
+        reference: null,
+        debit: customerBalance.openingARBalance > 0 ? customerBalance.openingARBalance : 0,
+        credit: customerBalance.openingAdvanceBalance > 0 ? customerBalance.openingAdvanceBalance : 0,
+        isOpeningBalance: true
+      });
+    }
+
+    // Add order entries (AR created)
+    for (const order of orders) {
+      // Parse order data to calculate total
+      let orderTotal = 0;
+      try {
+        const selectedProducts = typeof order.selectedProducts === 'string'
+          ? JSON.parse(order.selectedProducts)
+          : (order.selectedProducts || []);
+        const productQuantities = typeof order.productQuantities === 'string'
+          ? JSON.parse(order.productQuantities)
+          : (order.productQuantities || {});
+        const productPrices = typeof order.productPrices === 'string'
+          ? JSON.parse(order.productPrices)
+          : (order.productPrices || {});
+
+        if (Array.isArray(selectedProducts)) {
+          selectedProducts.forEach(product => {
+            const quantity = productQuantities[product.id] || product.quantity || 1;
+            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+            orderTotal += price * quantity;
+          });
+        }
+      } catch (e) {
+        console.error('Error parsing order data for ledger:', e);
+      }
+
+      orderTotal += (order.shippingCharges || 0);
+      if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+        orderTotal += order.codFee;
+      }
+
+      if (orderTotal > 0) {
+        ledgerEntries.push({
+          date: order.createdAt,
+          type: 'ORDER',
+          description: `Order: ${order.orderNumber}`,
+          reference: order.orderNumber,
+          debit: orderTotal,
+          credit: 0,
+          orderId: order.id
+        });
+      }
+    }
+
+    // Add payment entries
+    for (const payment of allPayments) {
+      ledgerEntries.push({
+        date: payment.date,
+        type: 'PAYMENT',
+        description: `Payment: ${payment.paymentNumber}${payment.account ? ` (${payment.account.name})` : ''}`,
+        reference: payment.paymentNumber,
+        debit: 0,
+        credit: payment.amount,
+        paymentId: payment.id,
+        orderId: payment.orderId
+      });
+    }
+
+    // Add return entries
+    for (const returnRecord of allReturns) {
+      if (returnRecord.totalAmount > 0) {
+        ledgerEntries.push({
+          date: returnRecord.returnDate,
+          type: 'RETURN',
+          description: `Return: ${returnRecord.returnNumber}${returnRecord.order ? ` (Order: ${returnRecord.order.orderNumber})` : ''}`,
+          reference: returnRecord.returnNumber,
+          debit: 0,
+          credit: returnRecord.totalAmount,
+          returnId: returnRecord.id,
+          orderId: returnRecord.orderId
+        });
+      }
+
+      // Add refund entry if refunded
+      if (returnRecord.status === 'REFUNDED' && returnRecord.refundAmount > 0) {
+        ledgerEntries.push({
+          date: returnRecord.returnDate,
+          type: 'REFUND',
+          description: `Refund: ${returnRecord.returnNumber}`,
+          reference: returnRecord.returnNumber,
+          debit: returnRecord.refundAmount,
+          credit: 0,
+          returnId: returnRecord.id
+        });
+      }
+    }
+
+    // Sort by date
+    ledgerEntries.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Calculate running balance
+    let runningBalance = customerBalance.openingARBalance - customerBalance.openingAdvanceBalance;
+    const ledgerWithBalance = ledgerEntries.map(entry => {
+      runningBalance = runningBalance + entry.debit - entry.credit;
+      return {
+        ...entry,
+        balance: runningBalance
+      };
+    });
+
+    res.json({
+      success: true,
+      customer: {
+        id: customer.id,
+        name: customer.name,
+        phoneNumber: customer.phoneNumber
+      },
+      ledger: ledgerWithBalance,
+      summary: {
+        openingARBalance: customerBalance.openingARBalance,
+        openingAdvanceBalance: customerBalance.openingAdvanceBalance,
+        totalOrders: orders.length,
+        totalPayments: allPayments.length,
+        totalReturns: allReturns.length,
+        currentBalance: runningBalance
+      }
+    });
+
+  } catch (error) {
+    console.error('Get customer ledger error:', error);
+    res.status(500).json({ error: 'Failed to get customer ledger' });
+  }
+});
+
 // Get customer orders (Business Owner only)
 router.get('/:id/orders', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
@@ -933,6 +1420,50 @@ router.get('/analytics/overview', authenticateToken, requireRole(['BUSINESS_OWNE
   } catch (error) {
     console.error('Get customer analytics error:', error);
     res.status(500).json({ error: 'Failed to get customer analytics' });
+  }
+});
+
+// Recalculate customer statistics (Business Owner only)
+router.post('/:id/recalculate-stats', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get tenant for the business owner
+    const tenant = await prisma.tenant.findUnique({
+      where: { ownerId: req.user.id }
+    });
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    // Verify customer belongs to tenant
+    const customer = await prisma.customer.findFirst({
+      where: { id, tenantId: tenant.id }
+    });
+
+    if (!customer) {
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+    // Recalculate stats
+    const updatedCustomer = await customerService.recalculateCustomerStats(id);
+
+    res.json({
+      success: true,
+      message: 'Customer statistics recalculated successfully',
+      customer: {
+        id: updatedCustomer.id,
+        name: updatedCustomer.name,
+        phoneNumber: updatedCustomer.phoneNumber,
+        totalOrders: updatedCustomer.totalOrders,
+        totalSpent: updatedCustomer.totalSpent,
+        lastOrderDate: updatedCustomer.lastOrderDate
+      }
+    });
+  } catch (error) {
+    console.error('Recalculate customer stats error:', error);
+    res.status(500).json({ error: 'Failed to recalculate customer statistics' });
   }
 });
 

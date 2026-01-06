@@ -197,6 +197,75 @@ const ReportsPage = () => {
               </div>
             </div>
 
+            {/* Shipping Variance Section */}
+            {profitStats.shippingVariance && (
+              <div className="card p-6 mb-8">
+                <h2 className="text-xl font-bold text-gray-900 mb-4">Shipping Variance Analysis</h2>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-red-600 uppercase tracking-wide mb-1">Variance Expense</p>
+                        <p className="text-2xl font-bold text-red-900">
+                          Rs. {profitStats.shippingVariance.expense?.toFixed(2) || '0.00'}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">When actual cost > estimated</p>
+                      </div>
+                      <CurrencyDollarIcon className="h-10 w-10 text-red-600 opacity-50" />
+                    </div>
+                  </div>
+
+                  <div className="bg-green-50 border-2 border-green-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-green-600 uppercase tracking-wide mb-1">Variance Income</p>
+                        <p className="text-2xl font-bold text-green-900">
+                          Rs. {profitStats.shippingVariance.income?.toFixed(2) || '0.00'}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">When actual cost &lt; estimated</p>
+                      </div>
+                      <CurrencyDollarIcon className="h-10 w-10 text-green-600 opacity-50" />
+                    </div>
+                  </div>
+
+                  <div className={`border-2 rounded-lg p-4 ${
+                    (profitStats.shippingVariance.net || 0) >= 0 
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-red-50 border-red-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className={`text-sm font-semibold uppercase tracking-wide mb-1 ${
+                          (profitStats.shippingVariance.net || 0) >= 0 
+                            ? 'text-green-600' 
+                            : 'text-red-600'
+                        }`}>
+                          Net Variance
+                        </p>
+                        <p className={`text-2xl font-bold ${
+                          (profitStats.shippingVariance.net || 0) >= 0 
+                            ? 'text-green-900' 
+                            : 'text-red-900'
+                        }`}>
+                          Rs. {(profitStats.shippingVariance.net || 0).toFixed(2)}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          {(profitStats.shippingVariance.net || 0) >= 0 
+                            ? 'Overall positive impact on profit' 
+                            : 'Overall negative impact on profit'}
+                        </p>
+                      </div>
+                      <ChartBarIcon className={`h-10 w-10 opacity-50 ${
+                        (profitStats.shippingVariance.net || 0) >= 0 
+                          ? 'text-green-600' 
+                          : 'text-red-600'
+                      }`} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Additional Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               <div className="card p-6">
@@ -205,7 +274,7 @@ const ReportsPage = () => {
                     <p className="text-sm font-semibold text-gray-600 mb-1">Orders Analyzed</p>
                     <p className="text-2xl font-bold text-gray-900">{profitStats.orderCount || 0}</p>
                   </div>
-                  <CalendarIcon className="h-10 w-10 text-gray-400" />
+                <CalendarIcon className="h-10 w-10 text-gray-400" />
                 </div>
               </div>
 
