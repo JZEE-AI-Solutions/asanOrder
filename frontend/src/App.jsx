@@ -25,6 +25,7 @@ import {
   LazyCreateStandaloneSupplierReturnPage,
   LazyVendorsPage,
   LazyOrderDetailsPage,
+  LazyDispatchOrderPage,
   LazyStockKeeperDashboard,
   LazyClientFormDynamic,
   LazyOrderReceipt,
@@ -115,6 +116,14 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyOrderDetailsPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/orders/:orderId/dispatch" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyDispatchOrderPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

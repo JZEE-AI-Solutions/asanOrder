@@ -125,6 +125,10 @@ model Order {
   codFeeCalculationType String?
   codFeePaidBy          String? // "BUSINESS_OWNER" or "CUSTOMER"
   logisticsCompanyId    String?
+  isDeleted             Boolean           @default(false)
+  deletedAt             DateTime?
+  deletedBy             String?
+  deleteReason          String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   formId                String

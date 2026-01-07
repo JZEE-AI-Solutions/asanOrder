@@ -20,6 +20,7 @@ export const LazyCreateSupplierReturnPage = lazy(() => import('../pages/CreateSu
 export const LazyCreateStandaloneSupplierReturnPage = lazy(() => import('../pages/CreateStandaloneSupplierReturnPage'))
 export const LazyVendorsPage = lazy(() => import('../pages/VendorsPage'))
 export const LazyOrderDetailsPage = lazy(() => import('../pages/OrderDetailsPage'))
+export const LazyDispatchOrderPage = lazy(() => import('../pages/DispatchOrderPage'))
 export const LazyStockKeeperDashboard = lazy(() => import('../pages/StockKeeperDashboard'))
 export const LazyTenantDetails = lazy(() => import('../pages/TenantDetails'))
 

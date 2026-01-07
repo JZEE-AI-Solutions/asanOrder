@@ -139,7 +139,7 @@ async function createTestOrder(tenantId, formId, customerId, product, logisticsC
 }
 
 // Helper function to confirm order (simulating the API endpoint)
-async function confirmOrder(orderId, codFeePaidBy = 'BUSINESS_OWNER', paymentAccountId = null) {
+async function confirmOrder(orderId, codFeePaidBy = 'BUSINESS_OWNER', paymentAccountId = null, verifiedAmount = null) {
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     include: {
@@ -205,14 +205,10 @@ async function confirmOrder(orderId, codFeePaidBy = 'BUSINESS_OWNER', paymentAcc
       logisticsCompanyId: order.logisticsCompanyId
     }
     
-    if (paymentAccountId) {
+    if (paymentAccountId && !verifiedAmount) {
+      // Only set paymentAccountId if not verifying payment (backward compatibility)
       updateData.paymentAccountId = paymentAccountId
     }
-    
-    const updated = await tx.order.update({
-      where: { id: orderId },
-      data: updateData
-    })
     
     // Create accounting entries
     const arAccount = await accountingService.getAccountByCode('1200', order.tenantId) ||
@@ -290,8 +286,83 @@ async function confirmOrder(orderId, codFeePaidBy = 'BUSINESS_OWNER', paymentAcc
       transactionLines
     )
     
-    // Handle prepayment if exists
-    if (paymentAmount > 0) {
+    // Handle payment verification if verifiedAmount and paymentAccountId are provided
+    let verifiedPayment = null
+    if (verifiedAmount !== null && verifiedAmount !== undefined && paymentAccountId) {
+      const verifiedAmountValue = parseFloat(verifiedAmount)
+      
+      if (verifiedAmountValue > 0) {
+        // Validate payment account
+        const paymentAccount = await tx.account.findFirst({
+          where: {
+            id: paymentAccountId,
+            tenantId: order.tenantId,
+            type: 'ASSET',
+            accountSubType: { in: ['CASH', 'BANK'] }
+          }
+        })
+
+        if (!paymentAccount) {
+          throw new Error('Invalid payment account. Must be a Cash or Bank account.')
+        }
+
+        const paymentMethod = paymentAccount.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash'
+
+        // Create payment accounting transaction
+        const paymentTransactionNumber = `TXN-${new Date().getFullYear()}-${Date.now() + 1}`
+        
+        const paymentTransaction = await accountingService.createTransaction(
+          {
+            transactionNumber: paymentTransactionNumber,
+            date: new Date(),
+            description: `Payment Verified: ${order.orderNumber}`,
+            tenantId: order.tenantId,
+            orderId: order.id
+          },
+          [
+            {
+              accountId: paymentAccount.id,
+              debitAmount: verifiedAmountValue,
+              creditAmount: 0
+            },
+            {
+              accountId: arAccount.id,
+              debitAmount: 0,
+              creditAmount: verifiedAmountValue
+            }
+          ]
+        )
+
+        // Create Payment record
+        const paymentCount = await tx.payment.count({
+          where: { tenantId: order.tenantId }
+        })
+        const paymentNumber = `PAY-${new Date().getFullYear()}-${String(paymentCount + 1).padStart(4, '0')}`
+
+        verifiedPayment = await tx.payment.create({
+          data: {
+            paymentNumber,
+            date: new Date(),
+            type: 'CUSTOMER_PAYMENT',
+            amount: verifiedAmountValue,
+            paymentMethod: paymentMethod,
+            accountId: paymentAccount.id,
+            tenantId: order.tenantId,
+            customerId: order.customerId,
+            orderId: order.id,
+            transactionId: paymentTransaction.id
+          }
+        })
+
+        // Update order with verification details
+        updateData.verifiedPaymentAmount = verifiedAmountValue
+        updateData.paymentVerified = true
+        updateData.paymentVerifiedAt = new Date()
+        updateData.paymentVerifiedBy = order.tenant.ownerId
+        updateData.paymentAccountId = paymentAccountId
+      }
+    } else if (paymentAmount > 0) {
+      // Handle prepayment if exists (old behavior for backward compatibility)
       let paymentAccount = null
       if (paymentAccountId) {
         paymentAccount = await tx.account.findUnique({
@@ -376,10 +447,16 @@ async function confirmOrder(orderId, codFeePaidBy = 'BUSINESS_OWNER', paymentAcc
       )
     }
     
-    return updated
+    // Update order with all changes (including payment verification if applicable)
+    const updated = await tx.order.update({
+      where: { id: orderId },
+      data: updateData
+    })
+    
+    return { order: updated, payment: verifiedPayment }
   })
   
-  return updatedOrder
+  return updatedOrder.order
 }
 
 // Helper function to update order (simulating edit mode)
@@ -1969,6 +2046,221 @@ describe('COD Fee Payment Configuration Tests', () => {
       const confirmedOrder = await confirmOrder(order.id) // Defaults to BUSINESS_OWNER
       
       expect(confirmedOrder.codFeePaidBy).toBe('BUSINESS_OWNER')
+    })
+  })
+
+  describe('Payment Verification During Order Confirmation', () => {
+    let order
+    let cashAccount
+    let bankAccount
+
+    beforeAll(async () => {
+      // Create cash account
+      cashAccount = await accountingService.getOrCreateAccount({
+        code: '1000',
+        name: 'Cash',
+        type: 'ASSET',
+        accountSubType: 'CASH',
+        tenantId: testData.tenant.id,
+        balance: 0
+      })
+
+      // Create bank account
+      bankAccount = await accountingService.getOrCreateAccount({
+        code: '1100',
+        name: 'Bank Account',
+        type: 'ASSET',
+        accountSubType: 'BANK',
+        tenantId: testData.tenant.id,
+        balance: 0
+      })
+    })
+
+    test('should verify payment during order confirmation when verifiedAmount and paymentAccountId provided', async () => {
+      // Create order with claimed payment
+      const order = await prisma.order.create({
+        data: {
+          orderNumber: `TEST-${Date.now()}`,
+          formId: testData.form.id,
+          tenantId: testData.tenant.id,
+          customerId: testData.customer.id,
+          status: 'PENDING',
+          formData: JSON.stringify({ name: 'Test Customer', phone: '1234567890' }),
+          selectedProducts: JSON.stringify([testData.product]),
+          productQuantities: JSON.stringify({ [testData.product.id]: 2 }),
+          productPrices: JSON.stringify({ [testData.product.id]: 1000 }),
+          shippingCharges: 200,
+          paymentAmount: 1000, // Customer claimed to pay Rs. 1000
+          logisticsCompanyId: testData.logisticsCompany.id
+        }
+      })
+
+      testData.orders.push(order)
+
+      // Confirm order with payment verification
+      const verifiedAmount = 1000 // Verify full claimed amount
+      const confirmedOrder = await confirmOrder(
+        order.id,
+        'BUSINESS_OWNER',
+        cashAccount.id,
+        verifiedAmount
+      )
+
+      // Verify order was confirmed
+      expect(confirmedOrder.status).toBe('CONFIRMED')
+      expect(confirmedOrder.paymentVerified).toBe(true)
+      expect(confirmedOrder.verifiedPaymentAmount).toBe(1000)
+      expect(confirmedOrder.paymentAccountId).toBe(cashAccount.id)
+      expect(confirmedOrder.paymentVerifiedAt).not.toBeNull()
+      expect(confirmedOrder.paymentVerifiedBy).toBe(testData.tenant.ownerId)
+
+      // Verify payment record was created
+      const payment = await prisma.payment.findFirst({
+        where: {
+          orderId: order.id,
+          type: 'CUSTOMER_PAYMENT'
+        }
+      })
+
+      expect(payment).not.toBeNull()
+      expect(payment.amount).toBe(1000)
+      expect(payment.accountId).toBe(cashAccount.id)
+      expect(payment.transactionId).not.toBeNull()
+
+      // Verify accounting entries were created
+      const paymentTransaction = await prisma.transaction.findUnique({
+        where: { id: payment.transactionId },
+        include: { transactionLines: true }
+      })
+
+      expect(paymentTransaction).not.toBeNull()
+      expect(paymentTransaction.description).toContain('Payment Verified')
+      
+      // Verify transaction is balanced
+      const totalDebits = paymentTransaction.transactionLines.reduce((sum, line) => sum + line.debitAmount, 0)
+      const totalCredits = paymentTransaction.transactionLines.reduce((sum, line) => sum + line.creditAmount, 0)
+      expect(totalDebits).toBe(totalCredits)
+      expect(totalDebits).toBe(1000)
+
+      // Verify Cash account was debited
+      const cashLine = paymentTransaction.transactionLines.find(line => line.accountId === cashAccount.id)
+      expect(cashLine).not.toBeNull()
+      expect(cashLine.debitAmount).toBe(1000)
+      expect(cashLine.creditAmount).toBe(0)
+
+      // Verify AR account was credited
+      const arAccount = await accountingService.getAccountByCode('1200', testData.tenant.id)
+      const arLine = paymentTransaction.transactionLines.find(line => line.accountId === arAccount.id)
+      expect(arLine).not.toBeNull()
+      expect(arLine.debitAmount).toBe(0)
+      expect(arLine.creditAmount).toBe(1000)
+    })
+
+    test('should handle payment verification with partial amount (verified < claimed)', async () => {
+      // Create order with claimed payment
+      const order = await prisma.order.create({
+        data: {
+          orderNumber: `TEST-${Date.now()}`,
+          formId: testData.form.id,
+          tenantId: testData.tenant.id,
+          customerId: testData.customer.id,
+          status: 'PENDING',
+          formData: JSON.stringify({ name: 'Test Customer', phone: '1234567890' }),
+          selectedProducts: JSON.stringify([testData.product]),
+          productQuantities: JSON.stringify({ [testData.product.id]: 2 }),
+          productPrices: JSON.stringify({ [testData.product.id]: 1000 }),
+          shippingCharges: 200,
+          paymentAmount: 1000, // Customer claimed to pay Rs. 1000
+          logisticsCompanyId: testData.logisticsCompany.id
+        }
+      })
+
+      testData.orders.push(order)
+
+      // Confirm order with partial payment verification (only 500 received)
+      const verifiedAmount = 500 // Verify only Rs. 500 (less than claimed)
+      const confirmedOrder = await confirmOrder(
+        order.id,
+        'BUSINESS_OWNER',
+        bankAccount.id,
+        verifiedAmount
+      )
+
+      // Verify order was confirmed
+      expect(confirmedOrder.status).toBe('CONFIRMED')
+      expect(confirmedOrder.paymentVerified).toBe(true)
+      expect(confirmedOrder.verifiedPaymentAmount).toBe(500) // Verified amount is less than claimed
+      expect(confirmedOrder.paymentAmount).toBe(1000) // Claimed amount remains
+      expect(confirmedOrder.paymentAccountId).toBe(bankAccount.id)
+
+      // Verify payment record was created with verified amount
+      const payment = await prisma.payment.findFirst({
+        where: {
+          orderId: order.id,
+          type: 'CUSTOMER_PAYMENT'
+        }
+      })
+
+      expect(payment).not.toBeNull()
+      expect(payment.amount).toBe(500) // Payment record shows verified amount
+      expect(payment.accountId).toBe(bankAccount.id)
+      expect(payment.paymentMethod).toBe('Bank Transfer')
+
+      // Verify accounting entries reflect verified amount (500), not claimed (1000)
+      const paymentTransaction = await prisma.transaction.findUnique({
+        where: { id: payment.transactionId },
+        include: { transactionLines: true }
+      })
+
+      const totalDebits = paymentTransaction.transactionLines.reduce((sum, line) => sum + line.debitAmount, 0)
+      const totalCredits = paymentTransaction.transactionLines.reduce((sum, line) => sum + line.creditAmount, 0)
+      expect(totalDebits).toBe(500) // Only verified amount is posted
+      expect(totalCredits).toBe(500)
+    })
+
+    test('should not verify payment if verifiedAmount is 0 or null', async () => {
+      const order = await prisma.order.create({
+        data: {
+          orderNumber: `TEST-${Date.now()}`,
+          formId: testData.form.id,
+          tenantId: testData.tenant.id,
+          customerId: testData.customer.id,
+          status: 'PENDING',
+          formData: JSON.stringify({ name: 'Test Customer', phone: '1234567890' }),
+          selectedProducts: JSON.stringify([testData.product]),
+          productQuantities: JSON.stringify({ [testData.product.id]: 2 }),
+          productPrices: JSON.stringify({ [testData.product.id]: 1000 }),
+          shippingCharges: 200,
+          paymentAmount: 1000,
+          logisticsCompanyId: testData.logisticsCompany.id
+        }
+      })
+
+      testData.orders.push(order)
+
+      // Confirm order without payment verification (verifiedAmount = 0)
+      const confirmedOrder = await confirmOrder(
+        order.id,
+        'BUSINESS_OWNER',
+        cashAccount.id,
+        0 // No verification
+      )
+
+      // Verify order was confirmed but payment not verified
+      expect(confirmedOrder.status).toBe('CONFIRMED')
+      expect(confirmedOrder.paymentVerified).toBeFalsy()
+      expect(confirmedOrder.verifiedPaymentAmount).toBeNull()
+
+      // Verify no payment record was created
+      const payment = await prisma.payment.findFirst({
+        where: {
+          orderId: order.id,
+          type: 'CUSTOMER_PAYMENT',
+          transactionId: { not: null }
+        }
+      })
+
+      expect(payment).toBeNull()
     })
   })
 })

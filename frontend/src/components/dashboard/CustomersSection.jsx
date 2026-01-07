@@ -12,7 +12,8 @@ import {
   ArrowRightIcon,
   Squares2X2Icon,
   ListBulletIcon,
-  FunnelIcon
+  FunnelIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline'
 
 const CustomersSection = ({
@@ -25,7 +26,8 @@ const CustomersSection = ({
   onRefreshCustomers,
   onCustomerClick,
   filterPendingPayments,
-  onFilterChange
+  onFilterChange,
+  onReceivePayment
 }) => {
   const [displayMode, setDisplayMode] = useState('list')
 
@@ -197,7 +199,22 @@ const CustomersSection = ({
                       </p>
                     </div>
 
-                    <ArrowRightIcon className="h-5 w-5 text-gray-400" />
+                    <div className="flex items-center space-x-2">
+                      {customer.pendingPayment > 0 && onReceivePayment && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            onReceivePayment(customer)
+                          }}
+                          className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs font-semibold flex items-center min-h-[32px]"
+                          title="Receive Payment"
+                        >
+                          <CurrencyDollarIcon className="h-3 w-3 mr-1" />
+                          Receive
+                        </button>
+                      )}
+                      <ArrowRightIcon className="h-5 w-5 text-gray-400" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -243,10 +260,25 @@ const CustomersSection = ({
                 <span className="text-xs text-gray-500">
                   Last: {customer.lastOrderDate ? new Date(customer.lastOrderDate).toLocaleDateString() : 'Never'}
                 </span>
-                <span className="text-sm font-medium text-brand-600 group-hover:text-brand-700 flex items-center">
-                  View Details
-                  <ArrowRightIcon className="h-4 w-4 ml-1" />
-                </span>
+                <div className="flex items-center space-x-2">
+                  {customer.pendingPayment > 0 && onReceivePayment && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onReceivePayment(customer)
+                      }}
+                      className="px-3 py-1.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs font-semibold flex items-center"
+                      title="Receive Payment"
+                    >
+                      <CurrencyDollarIcon className="h-3 w-3 mr-1" />
+                      Receive Payment
+                    </button>
+                  )}
+                  <span className="text-sm font-medium text-brand-600 group-hover:text-brand-700 flex items-center">
+                    View Details
+                    <ArrowRightIcon className="h-4 w-4 ml-1" />
+                  </span>
+                </div>
               </div>
             </div>
           ))}

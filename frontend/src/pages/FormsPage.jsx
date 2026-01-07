@@ -12,7 +12,8 @@ import {
     PencilIcon,
     TrashIcon,
     EyeSlashIcon,
-    ShareIcon
+    ShareIcon,
+    ShoppingBagIcon
 } from '@heroicons/react/24/outline';
 
 const FormsPage = () => {
@@ -252,6 +253,17 @@ const FormsPage = () => {
                                                         <PencilIcon className="h-4 w-4 mr-1" />
                                                         Edit
                                                     </button>
+                                                    {(form.formCategory === 'SHOPPING_CART' || 
+                                                      (form.fields && form.fields.some(field => field.fieldType === 'PRODUCT_SELECTOR'))) && (
+                                                        <button
+                                                            onClick={() => handleManageProducts(form)}
+                                                            className="text-blue-600 hover:text-blue-900 flex items-center"
+                                                            title="Manage Products"
+                                                        >
+                                                            <ShoppingBagIcon className="h-4 w-4 mr-1" />
+                                                            Products
+                                                        </button>
+                                                    )}
                                                     <button
                                                         onClick={() => deleteForm(form.id, form.name)}
                                                         className="text-red-600 hover:text-red-900 flex items-center"

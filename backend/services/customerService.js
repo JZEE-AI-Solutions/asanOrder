@@ -80,7 +80,10 @@ class CustomerService {
           notes: customerData.notes || null,
           tenantId: tenantId,
           totalOrders: 1,
-          totalSpent: orderData.paymentAmount || 0,
+          // Only set totalSpent if order is confirmed
+          totalSpent: (orderData.status === 'CONFIRMED' || orderData.status === 'DISPATCHED' || orderData.status === 'COMPLETED')
+            ? ((orderData.paymentAmount || 0) + (orderData.shippingCharges || 0) + ((orderData.codFeePaidBy === 'CUSTOMER' && orderData.codFee) ? orderData.codFee : 0))
+            : 0,
           lastOrderDate: new Date()
         }
       });
@@ -159,8 +162,19 @@ class CustomerService {
       }
 
       // Always update order statistics
+      // Note: totalSpent should only include confirmed orders, so we'll update it when order is confirmed
       updateData.totalOrders = currentCustomer.totalOrders + 1;
-      updateData.totalSpent = currentCustomer.totalSpent + (orderData.paymentAmount || 0);
+      // Only add to totalSpent if order is already confirmed
+      if (orderData.status === 'CONFIRMED' || orderData.status === 'DISPATCHED' || orderData.status === 'COMPLETED') {
+        const orderTotal = (orderData.paymentAmount || 0) + (orderData.shippingCharges || 0);
+        if (orderData.codFeePaidBy === 'CUSTOMER' && orderData.codFee && orderData.codFee > 0) {
+          orderTotal += orderData.codFee;
+        }
+        updateData.totalSpent = currentCustomer.totalSpent + orderTotal;
+      } else {
+        // Don't update totalSpent for pending orders
+        updateData.totalSpent = currentCustomer.totalSpent;
+      }
       updateData.lastOrderDate = new Date();
 
       // Update customer
@@ -638,13 +652,21 @@ class CustomerService {
         throw new Error('Customer not found');
       }
 
-      // Recalculate based on actual linked orders
-      const actualTotalOrders = customer.orders.length;
-      const actualTotalSpent = customer.orders.reduce((sum, order) => {
-        return sum + (order.paymentAmount || 0) + (order.shippingCharges || 0);
+      // Recalculate based on actual linked orders (only confirmed orders count)
+      const confirmedOrders = customer.orders.filter(order => 
+        order.status === 'CONFIRMED' || order.status === 'DISPATCHED' || order.status === 'COMPLETED'
+      );
+      const actualTotalOrders = confirmedOrders.length;
+      const actualTotalSpent = confirmedOrders.reduce((sum, order) => {
+        // Calculate order total (products + shipping + COD fee if customer pays)
+        let orderTotal = (order.paymentAmount || 0) + (order.shippingCharges || 0);
+        if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+          orderTotal += order.codFee;
+        }
+        return sum + orderTotal;
       }, 0);
-      const lastOrderDate = customer.orders.length > 0 
-        ? customer.orders.sort((a, b) => b.createdAt - a.createdAt)[0].createdAt
+      const lastOrderDate = confirmedOrders.length > 0 
+        ? confirmedOrders.sort((a, b) => b.createdAt - a.createdAt)[0].createdAt
         : null;
 
       // Update customer record

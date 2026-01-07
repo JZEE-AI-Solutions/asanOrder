@@ -121,15 +121,32 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
         }
       }
 
-      setExtractedProducts(response.data.products)
-      setExtractedReturns(response.data.returns)
-      setInvoiceData(response.data.invoiceData)
+      const extractedProducts = response.data.products
+      const extractedReturns = response.data.returns
+      const invoiceData = response.data.invoiceData
       
-      const message = response.data.hasReturns 
-        ? `Successfully extracted ${response.data.counts.products} products and ${response.data.counts.returns} returns!`
-        : `Successfully extracted ${response.data.counts.products} products!`
-      
-      toast.success(message)
+      // Automatically populate the form instead of showing review screen
+      if (onProductsExtracted) {
+        onProductsExtracted(extractedProducts, extractedReturns, invoiceData)
+        handleClose()
+        
+        const message = response.data.hasReturns 
+          ? `Successfully loaded ${response.data.counts.products} products and ${response.data.counts.returns} returns into form!`
+          : `Successfully loaded ${response.data.counts.products} products into form!`
+        
+        toast.success(message)
+      } else {
+        // Fallback: show review screen if callback not provided
+        setExtractedProducts(extractedProducts)
+        setExtractedReturns(extractedReturns)
+        setInvoiceData(invoiceData)
+        
+        const message = response.data.hasReturns 
+          ? `Successfully extracted ${response.data.counts.products} products and ${response.data.counts.returns} returns!`
+          : `Successfully extracted ${response.data.counts.products} products!`
+        
+        toast.success(message)
+      }
       
     } catch (error) {
       console.error('Error processing invoice:', error)

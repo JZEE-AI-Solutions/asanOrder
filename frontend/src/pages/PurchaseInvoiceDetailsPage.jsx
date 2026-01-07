@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeftIcon, CurrencyDollarIcon, PencilIcon, ArrowLeftOnRectangleIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, CurrencyDollarIcon, PencilIcon, ArrowLeftOnRectangleIcon, ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
@@ -37,6 +37,7 @@ const PurchaseInvoiceDetailsPage = () => {
     note: ''
   })
   const [processingEditPayment, setProcessingEditPayment] = useState(false)
+  const [isJournalEntriesExpanded, setIsJournalEntriesExpanded] = useState(false)
 
   useEffect(() => {
     if (invoiceId) {
@@ -808,86 +809,100 @@ const PurchaseInvoiceDetailsPage = () => {
 
         {/* Journal Entries Section */}
         <div className="card p-6 mt-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-6">Journal Entries</h2>
+          <button
+            onClick={() => setIsJournalEntriesExpanded(!isJournalEntriesExpanded)}
+            className="flex items-center justify-between w-full text-left mb-6 hover:opacity-80 transition-opacity"
+          >
+            <h2 className="text-xl font-semibold text-gray-900">Journal Entries</h2>
+            {isJournalEntriesExpanded ? (
+              <ChevronUpIcon className="h-5 w-5 text-gray-500" />
+            ) : (
+              <ChevronDownIcon className="h-5 w-5 text-gray-500" />
+            )}
+          </button>
           
-          {/* Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                From Date
-              </label>
-              <input
-                type="date"
-                value={transactionFilters.fromDate}
-                onChange={(e) => setTransactionFilters(prev => ({ ...prev, fromDate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                To Date
-              </label>
-              <input
-                type="date"
-                value={transactionFilters.toDate}
-                onChange={(e) => setTransactionFilters(prev => ({ ...prev, toDate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
-              />
-            </div>
-          </div>
+          {isJournalEntriesExpanded && (
+            <>
+              {/* Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    From Date
+                  </label>
+                  <input
+                    type="date"
+                    value={transactionFilters.fromDate}
+                    onChange={(e) => setTransactionFilters(prev => ({ ...prev, fromDate: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    To Date
+                  </label>
+                  <input
+                    type="date"
+                    value={transactionFilters.toDate}
+                    onChange={(e) => setTransactionFilters(prev => ({ ...prev, toDate: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[44px]"
+                  />
+                </div>
+              </div>
 
-          {/* Transactions Table */}
-          {loadingTransactions ? (
-            <div className="text-center py-8">
-              <LoadingSpinner />
-            </div>
-          ) : transactions.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">No journal entries found</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transaction #</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Debit</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Credit</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {transactions.map((transaction) => 
-                    transaction.transactionLines?.map((line, lineIndex) => (
-                      <tr key={`${transaction.id}-${lineIndex}`} className="hover:bg-gray-50">
-                        {lineIndex === 0 && (
-                          <>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900" rowSpan={transaction.transactionLines.length}>
-                              {new Date(transaction.date).toLocaleDateString()}
-                            </td>
-                            <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900" rowSpan={transaction.transactionLines.length}>
-                              {transaction.transactionNumber}
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-900" rowSpan={transaction.transactionLines.length}>
-                              {transaction.description}
-                            </td>
-                          </>
-                        )}
-                        <td className="px-4 py-3 text-sm text-gray-900">
-                          {line.account?.name || 'N/A'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          {line.debitAmount > 0 ? `Rs. ${line.debitAmount.toLocaleString()}` : '-'}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right text-gray-900">
-                          {line.creditAmount > 0 ? `Rs. ${line.creditAmount.toLocaleString()}` : '-'}
-                        </td>
+              {/* Transactions Table */}
+              {loadingTransactions ? (
+                <div className="text-center py-8">
+                  <LoadingSpinner />
+                </div>
+              ) : transactions.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No journal entries found</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Transaction #</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Account</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Debit</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Credit</th>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {transactions.map((transaction) => 
+                        transaction.transactionLines?.map((line, lineIndex) => (
+                          <tr key={`${transaction.id}-${lineIndex}`} className="hover:bg-gray-50">
+                            {lineIndex === 0 && (
+                              <>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900" rowSpan={transaction.transactionLines.length}>
+                                  {new Date(transaction.date).toLocaleDateString()}
+                                </td>
+                                <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900" rowSpan={transaction.transactionLines.length}>
+                                  {transaction.transactionNumber}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-900" rowSpan={transaction.transactionLines.length}>
+                                  {transaction.description}
+                                </td>
+                              </>
+                            )}
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {line.account?.name || 'N/A'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right text-gray-900">
+                              {line.debitAmount > 0 ? `Rs. ${line.debitAmount.toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right text-gray-900">
+                              {line.creditAmount > 0 ? `Rs. ${line.creditAmount.toLocaleString()}` : '-'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -1727,7 +1727,7 @@ const AddPurchasePage = () => {
               }
 
               setShowScanModal(false)
-              toast.success('Invoice data loaded! Please review and edit before submitting.')
+              toast.success('Invoice data loaded into form! You can review and edit before submitting.')
             }}
           />
         )}

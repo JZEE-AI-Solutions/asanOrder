@@ -78,8 +78,9 @@ const FormsSection = ({ forms, tenant, onOpenForm, onShareForm, onCopyFormLink, 
                     Open Form
                   </Button>
                   
-                  {/* Check if form has Product Selector field */}
-                  {form.fields && form.fields.some(field => field.fieldType === 'PRODUCT_SELECTOR') && (
+                  {/* Show Manage Products button for Shopping Cart forms or forms with Product Selector field */}
+                  {(form.formCategory === 'SHOPPING_CART' || 
+                    (form.fields && form.fields.some(field => field.fieldType === 'PRODUCT_SELECTOR'))) && (
                     <Button
                       onClick={() => onManageProducts(form)}
                       variant="secondary"
