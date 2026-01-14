@@ -323,14 +323,6 @@ router.get('/', authenticateToken, async (req, res) => {
       whereClause.status = status.toUpperCase();
     }
 
-    // Filter by deleted status
-    const includeDeleted = req.query.includeDeleted === 'true';
-    if (!includeDeleted) {
-      whereClause.isDeleted = false;
-    } else {
-      // If including deleted, only show deleted orders
-      whereClause.isDeleted = true;
-    }
 
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
@@ -492,7 +484,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
   try {
     const { id } = req.params;
-    const { paymentAccountId, codFeePaidBy, logisticsCompanyId, verifiedAmount } = req.body; // Payment account, COD fee preference, and verified payment amount
+    const { paymentAccountId, codFeePaidBy, logisticsCompanyId } = req.body; // Payment account and COD fee preference
 
     const order = await prisma.order.findUnique({
       where: { id },
@@ -597,9 +589,11 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
         updateData.paymentAccountId = paymentAccountId;
       }
       
-      // Initialize verifiedPayment variable outside try-catch
-      let verifiedPayment = null;
-      
+      const updated = await tx.order.update({
+        where: { id },
+        data: updateData
+      });
+
       // Create accounting transaction for AR
       try {
         // Get or create accounts
@@ -680,82 +674,9 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
           transactionLines
         );
 
-        // Handle payment verification if verifiedAmount and paymentAccountId are provided
-        // This allows payment to be verified and posted to accounting during order confirmation
-        if (verifiedAmount !== undefined && verifiedAmount !== null && paymentAccountId) {
-          const verifiedAmountValue = parseFloat(verifiedAmount);
-          
-          if (verifiedAmountValue > 0) {
-            // Validate payment account (use tx to ensure it's within transaction)
-            const paymentAccount = await tx.account.findFirst({
-              where: {
-                id: paymentAccountId,
-                tenantId: order.tenantId,
-                type: 'ASSET',
-                accountSubType: { in: ['CASH', 'BANK'] }
-              }
-            });
-
-            if (!paymentAccount) {
-              throw new Error('Invalid payment account. Must be a Cash or Bank account.');
-            }
-
-            const paymentMethod = paymentAccount.accountSubType === 'BANK' ? 'Bank Transfer' : 'Cash';
-
-            // Create payment accounting transaction
-            const paymentTransactionNumber = `TXN-${new Date().getFullYear()}-${Date.now() + 1}`;
-            
-            const paymentTransaction = await accountingService.createTransaction(
-              {
-                transactionNumber: paymentTransactionNumber,
-                date: new Date(),
-                description: `Payment Verified: ${order.orderNumber}`,
-                tenantId: order.tenantId,
-                orderId: order.id
-              },
-              [
-                {
-                  accountId: paymentAccount.id,
-                  debitAmount: verifiedAmountValue,
-                  creditAmount: 0
-                },
-                {
-                  accountId: arAccount.id,
-                  debitAmount: 0,
-                  creditAmount: verifiedAmountValue
-                }
-              ]
-            );
-
-            // Create Payment record (use tx for consistency within transaction)
-            const paymentCount = await tx.payment.count({
-              where: { tenantId: order.tenantId }
-            });
-            const paymentNumber = `PAY-${new Date().getFullYear()}-${String(paymentCount + 1).padStart(4, '0')}`;
-
-            verifiedPayment = await tx.payment.create({
-              data: {
-                paymentNumber,
-                date: new Date(),
-                type: 'CUSTOMER_PAYMENT',
-                amount: verifiedAmountValue,
-                paymentMethod: paymentMethod,
-                accountId: paymentAccount.id,
-                tenantId: order.tenantId,
-                customerId: order.customerId,
-                orderId: order.id,
-                transactionId: paymentTransaction.id
-              }
-            });
-
-            // Update order with verification details
-            updateData.verifiedPaymentAmount = verifiedAmountValue;
-            updateData.paymentVerified = true;
-            updateData.paymentVerifiedAt = new Date();
-            updateData.paymentVerifiedBy = req.user.id;
-            updateData.paymentAccountId = paymentAccountId;
-          }
-        }
+        // NOTE: Payment accounting entries are NOT created during order confirmation
+        // Payment must be verified separately using the verify-payment endpoint
+        // This ensures business owner validates payment before creating accounting entries
 
         // If COD order, handle COD fee expense (business always pays logistics company)
         // But accounting differs based on who pays the customer
@@ -811,38 +732,8 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
         // Log error but continue
       }
 
-      // Update order with all changes (including payment verification if applicable)
-      // This must happen after all accounting entries to ensure order is updated with verification details
-      const updated = await tx.order.update({
-        where: { id },
-        data: updateData
-      });
-
-      // Update customer totalSpent when order is confirmed
-      // Only confirmed orders should count towards totalSpent
-      if (order.customerId) {
-        const customer = await tx.customer.findUnique({
-          where: { id: order.customerId }
-        });
-        
-        if (customer) {
-          // Calculate order total (products + shipping + COD fee if customer pays)
-          const orderTotal = finalOrderTotal; // Already calculated above
-          
-          await tx.customer.update({
-            where: { id: order.customerId },
-            data: {
-              totalSpent: (customer.totalSpent || 0) + orderTotal
-            }
-          });
-        }
-      }
-
-      return { order: updated, payment: verifiedPayment };
+      return updated;
     });
-
-    const confirmedOrder = updatedOrder.order;
-    const verifiedPayment = updatedOrder.payment;
 
     // Decrease inventory when order is confirmed
     if (order.selectedProducts && order.productQuantities) {
@@ -872,7 +763,7 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
         // Merge updated order with original order data for message generation
         const orderWithData = {
           ...order,
-          ...confirmedOrder,
+          ...updatedOrder,
           orderNumber: order.orderNumber // Ensure orderNumber is included
         };
         const message = whatsappService.generateOrderConfirmationMessage(orderWithData, order.tenant);
@@ -885,11 +776,8 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
           
           // Return WhatsApp URL in response so frontend can open it
           res.json({
-            message: verifiedPayment 
-              ? `Order confirmed and payment of Rs. ${verifiedPayment.amount.toFixed(2)} verified successfully`
-              : 'Order confirmed successfully',
-            order: confirmedOrder,
-            payment: verifiedPayment,
+            message: 'Order confirmed successfully',
+            order: updatedOrder,
             whatsappUrl: whatsappUrl,
             customerPhone: customerPhone
           });
@@ -906,20 +794,12 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
 
     // Default response if WhatsApp notification not sent
     res.json({
-      message: verifiedPayment 
-        ? `Order confirmed and payment of Rs. ${verifiedPayment.amount.toFixed(2)} verified successfully`
-        : 'Order confirmed successfully',
-      order: confirmedOrder,
-      payment: verifiedPayment
+      message: 'Order confirmed successfully',
+      order: updatedOrder
     });
   } catch (error) {
     console.error('Confirm order error:', error);
-    console.error('Error stack:', error.stack);
-    const errorMessage = error.message || 'Failed to confirm order';
-    res.status(500).json({ 
-      error: errorMessage,
-      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
+    res.status(500).json({ error: 'Failed to confirm order' });
   }
 });
 
@@ -2984,112 +2864,6 @@ router.put('/:id/status', authenticateToken, requireRole(['ADMIN']), [
   } catch (error) {
     console.error('Update order status error:', error);
     res.status(500).json({ error: 'Failed to update order status' });
-  }
-});
-
-// Soft delete order (Business Owner only) - Only for PENDING orders
-router.delete('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { reason } = req.body;
-
-    // Get tenant for the business owner
-    const tenant = await prisma.tenant.findUnique({
-      where: { ownerId: req.user.id }
-    });
-
-    if (!tenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
-
-    // Check if order exists and belongs to tenant
-    const existingOrder = await prisma.order.findFirst({
-      where: {
-        id,
-        tenantId: tenant.id,
-        isDeleted: false
-      }
-    });
-
-    if (!existingOrder) {
-      return res.status(404).json({ error: 'Order not found' });
-    }
-
-    // Only allow deletion of PENDING orders
-    if (existingOrder.status !== 'PENDING') {
-      return res.status(400).json({ 
-        error: 'Only pending orders can be deleted. Please cancel the order instead.' 
-      });
-    }
-
-    // Soft delete the order
-    await prisma.order.update({
-      where: { id },
-      data: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        deletedBy: req.user.id,
-        deleteReason: reason || 'Deleted by business owner'
-      }
-    });
-
-    res.json({
-      success: true,
-      message: 'Order deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Delete order error:', error);
-    res.status(500).json({ error: 'Failed to delete order' });
-  }
-});
-
-// Restore order (Business Owner only)
-router.post('/:id/restore', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Get tenant for the business owner
-    const tenant = await prisma.tenant.findUnique({
-      where: { ownerId: req.user.id }
-    });
-
-    if (!tenant) {
-      return res.status(404).json({ error: 'Tenant not found' });
-    }
-
-    // Check if order exists and belongs to tenant
-    const existingOrder = await prisma.order.findFirst({
-      where: {
-        id,
-        tenantId: tenant.id,
-        isDeleted: true
-      }
-    });
-
-    if (!existingOrder) {
-      return res.status(404).json({ error: 'Deleted order not found' });
-    }
-
-    // Restore the order
-    await prisma.order.update({
-      where: { id },
-      data: {
-        isDeleted: false,
-        deletedAt: null,
-        deletedBy: null,
-        deleteReason: null
-      }
-    });
-
-    res.json({
-      success: true,
-      message: 'Order restored successfully'
-    });
-
-  } catch (error) {
-    console.error('Restore order error:', error);
-    res.status(500).json({ error: 'Failed to restore order' });
   }
 });
 

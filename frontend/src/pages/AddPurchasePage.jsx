@@ -1,14 +1,13 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useForm, useFieldArray, useWatch } from 'react-hook-form'
-import { ArrowLeftIcon, DocumentTextIcon, PlusIcon, TrashIcon, CameraIcon } from '@heroicons/react/24/outline'
+import { useForm, useFieldArray } from 'react-hook-form'
+import { ArrowLeftIcon, DocumentTextIcon, PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import toast from 'react-hot-toast'
 import LoadingSpinner from '../components/LoadingSpinner'
 import ModernLayout from '../components/ModernLayout'
 import { useTenant } from '../hooks'
 import PaymentAccountSelector from '../components/accounting/PaymentAccountSelector'
-import InvoiceUploadModal from '../components/InvoiceUploadModal'
 
 const AddPurchasePage = () => {
   const navigate = useNavigate()
@@ -24,15 +23,6 @@ const AddPurchasePage = () => {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [searchTimeout, setSearchTimeout] = useState(null)
   const [selectedSupplierId, setSelectedSupplierId] = useState(null)
-  const [showScanModal, setShowScanModal] = useState(false)
-  const [returnHandlingMethod, setReturnHandlingMethod] = useState('REDUCE_AP')
-  const [returnRefundAccountId, setReturnRefundAccountId] = useState('')
-  // Product autocomplete state - store suggestions per field
-  const [productSuggestions, setProductSuggestions] = useState({})
-  const [showProductSuggestions, setShowProductSuggestions] = useState({})
-  const [productSearchTimeouts, setProductSearchTimeouts] = useState({})
-  const [lastSearchQueries, setLastSearchQueries] = useState({}) // Track last search to prevent duplicates
-  const searchInProgress = useRef({}) // Track ongoing searches to prevent concurrent requests
   
   const {
     register,
@@ -40,11 +30,8 @@ const AddPurchasePage = () => {
     control,
     formState: { errors },
     watch,
-    setValue,
-    getValues,
-    trigger
+    setValue
   } = useForm({
-    mode: 'onChange', // Enable real-time validation and updates
     defaultValues: {
       invoiceNumber: '',
       supplierName: '',
@@ -54,8 +41,7 @@ const AddPurchasePage = () => {
       paymentAmount: '',
       paymentAccountId: '',
       notes: '',
-      items: [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }],
-      returnItems: []
+      items: [{ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' }]
     }
   })
 
@@ -85,55 +71,24 @@ const AddPurchasePage = () => {
     name: 'items'
   })
 
-  const { fields: returnFields, append: appendReturn, remove: removeReturn } = useFieldArray({
-    control,
-    name: 'returnItems'
-  })
+  const watchedItems = watch('items')
 
-  // Watch items and return items for changes - use useWatch for real-time updates
-  const watchedItems = useWatch({ control, name: 'items' })
-  const watchedReturnItems = useWatch({ control, name: 'returnItems' })
-
-  // Memoize totals calculation to prevent unnecessary recalculations
-  // Use useWatch values directly for real-time updates
-  const totals = useMemo(() => {
-    const items = watchedItems || []
-    const returnItems = watchedReturnItems || []
-    
-    const purchaseTotal = items.reduce((sum, item) => {
-      if (!item) return sum
-      const quantity = parseFloat(item.quantity) || 0
-      const price = parseFloat(item.purchasePrice) || 0
+  // Calculate total amount from items
+  const calculateTotal = () => {
+    const total = watchedItems.reduce((sum, item) => {
+      const quantity = parseFloat(item?.quantity) || 0
+      const price = parseFloat(item?.purchasePrice) || 0
       return sum + (quantity * price)
     }, 0)
-    
-    const returnTotal = returnItems.reduce((sum, item) => {
-      if (!item) return sum
-      const quantity = parseFloat(item.quantity) || 0
-      const price = parseFloat(item.purchasePrice) || 0
-      return sum + (quantity * price)
-    }, 0)
-    
-    const netTotal = purchaseTotal - returnTotal
-    return { purchaseTotal, returnTotal, netTotal }
-  }, [watchedItems, watchedReturnItems])
+    setValue('totalAmount', total.toFixed(2))
+    return total
+  }
 
-  // Calculate total amount from items (purchases - returns)
-  const calculateTotal = useCallback(() => {
-    return totals
-  }, [totals])
-
-  // Update total when items or return items change
+  // Update total when items change
   useEffect(() => {
-    const newTotal = Math.max(0, totals.netTotal).toFixed(2)
-    const currentTotal = watch('totalAmount')
-    
-    // Only update if value actually changed to prevent infinite loops
-    if (currentTotal !== newTotal) {
-      setValue('totalAmount', newTotal, { shouldValidate: false, shouldDirty: false })
-    }
+    calculateTotal()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [totals.netTotal])
+  }, [watchedItems])
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -143,16 +98,6 @@ const AddPurchasePage = () => {
       }
     }
   }, [searchTimeout])
-
-  // Cleanup product search timeouts on unmount
-  useEffect(() => {
-    return () => {
-      // Cleanup all product search timeouts
-      Object.values(productSearchTimeouts).forEach(timeout => {
-        if (timeout) clearTimeout(timeout)
-      })
-    }
-  }, [])
 
   // Calculate payment status based on advance balance and cash payment
   const calculatePaymentStatus = () => {
@@ -170,24 +115,9 @@ const AddPurchasePage = () => {
     }
   }
 
-  // Watch form values for payment calculation
-  const watchedTotalAmount = watch('totalAmount')
-  const watchedPaymentAmount = watch('paymentAmount')
-  const watchedPaymentStatus = watch('paymentStatus')
-
   // Auto-calculate advance usage and update payment status
   useEffect(() => {
-    const totalAmount = parseFloat(watchedTotalAmount) || 0
-    const netTotal = totals.netTotal
-    
-    // For return-only invoices (netTotal < 0), set payment status to unpaid and clear advance
-    if (netTotal < 0) {
-      setAdvanceAmountUsed(0)
-      setValue('paymentStatus', 'unpaid', { shouldValidate: false, shouldDirty: false })
-      setValue('paymentAmount', '', { shouldValidate: false, shouldDirty: false })
-      return
-    }
-    
+    const totalAmount = parseFloat(watch('totalAmount')) || 0
     if (totalAmount <= 0) {
       setAdvanceAmountUsed(0)
       return
@@ -200,7 +130,7 @@ const AddPurchasePage = () => {
       setAdvanceAmountUsed(advanceToUse)
       
       // Auto-update payment status
-      const cashPayment = parseFloat(watchedPaymentAmount || 0)
+      const cashPayment = parseFloat(watch('paymentAmount') || 0)
       const totalPayment = advanceToUse + cashPayment
       
       let calculatedStatus = 'unpaid'
@@ -208,7 +138,7 @@ const AddPurchasePage = () => {
         // Fully paid with advance
         calculatedStatus = 'paid'
         if (cashPayment > 0.01) {
-          setValue('paymentAmount', '', { shouldValidate: false, shouldDirty: false })
+          setValue('paymentAmount', '')
         }
       } else if (totalPayment >= totalAmount) {
         calculatedStatus = 'paid'
@@ -216,33 +146,26 @@ const AddPurchasePage = () => {
         calculatedStatus = 'partial'
       }
       
-      // Only update if status actually changed to prevent loops
-      if (watchedPaymentStatus !== calculatedStatus) {
-        setValue('paymentStatus', calculatedStatus, { shouldValidate: false, shouldDirty: false })
+      const currentStatus = watch('paymentStatus')
+      if (currentStatus !== calculatedStatus) {
+        setValue('paymentStatus', calculatedStatus)
       }
     } else {
       setAdvanceAmountUsed(0)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supplierBalance, watchedTotalAmount, watchedPaymentAmount, watchedPaymentStatus])
+  }, [supplierBalance, watch('totalAmount'), watch('paymentAmount')])
 
   const addItem = () => {
     append({ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '' })
   }
 
   const removeItem = (index) => {
-    // Check if there are valid return items
-    const hasValidReturnItems = returnFields.some(field => {
-      const returnItemName = watch(`returnItems.${field.id}.name`)
-      const returnItemQty = watch(`returnItems.${field.id}.quantity`)
-      return returnItemName && returnItemName.trim() && parseFloat(returnItemQty) > 0
-    })
-    // Allow removing all purchase items if there are valid return items
-    if (fields.length > 1 || hasValidReturnItems) {
+    if (fields.length > 1) {
       remove(index)
       setTimeout(() => calculateTotal(), 100)
     } else {
-      toast.error('At least one item (purchase or return) is required')
+      toast.error('At least one item is required')
     }
   }
 
@@ -252,120 +175,68 @@ const AddPurchasePage = () => {
       console.warn('Form submission prevented: Modal is open')
       return
     }
-    // Validate items - allow either purchase items OR return items
+    // Validate items
     const validItems = data.items.filter(item => 
       item.name && item.name.trim() && 
       item.quantity > 0 && 
       item.purchasePrice >= 0
     )
 
-    // Validate return items
-    const validReturnItems = (data.returnItems || []).filter(item => 
-      item.name?.trim() && 
-      parseFloat(item.quantity) > 0 && 
-      parseFloat(item.purchasePrice) >= 0
-    )
-
-    // Allow purchase with either items OR return items (or both)
-    if (validItems.length === 0 && validReturnItems.length === 0) {
-      toast.error('Please add at least one valid product (purchase or return)')
+    if (validItems.length === 0) {
+      toast.error('Please add at least one valid product')
       return
     }
 
     setIsSubmitting(true)
     try {
-      const totals = calculateTotal()
-      const purchaseTotal = totals.purchaseTotal
-      const returnTotal = totals.returnTotal
-      const netTotal = totals.netTotal
+      const totalAmount = parseFloat(data.totalAmount) || calculateTotal()
       
       // Calculate total payment (cash + advance)
       const advanceUsed = advanceAmountUsed || 0
       const cashPayment = data.paymentAmount ? parseFloat(data.paymentAmount) : 0
       const totalPayment = cashPayment + advanceUsed
       
-      // For return-only invoices (netTotal < 0), payment should be 0
-      // Returns are handled via returnHandlingMethod (REDUCE_AP or REFUND)
-      if (netTotal < 0) {
-        // This is a return-only invoice - no payment should be made
-        if (totalPayment > 0) {
-          toast.error('Payment cannot be made for return-only invoices. Returns are handled via the return handling method.')
-          setIsSubmitting(false)
-          return
-        }
-        // Ensure payment status is set to unpaid for return-only invoices
-        // Set it here to ensure it's correct before submission
-        setValue('paymentStatus', 'unpaid', { shouldValidate: false, shouldDirty: false })
-        // Update data object for this submission
-        data.paymentStatus = 'unpaid'
-        data.paymentAmount = ''
-      } else {
-        // Regular purchase invoice - validate payment against positive net total
-        // Validate total payment (against net total)
-        if (totalPayment > netTotal) {
-          toast.error(`Total payment (Rs. ${totalPayment.toFixed(2)}) exceeds net invoice total (Rs. ${netTotal.toFixed(2)})`)
-          setIsSubmitting(false)
-          return
-        }
-
-        // Validate payment status matches actual payment (against net total)
-        if (data.paymentStatus === 'paid' && totalPayment < netTotal) {
-          toast.error(`Payment status is "Fully Paid" but total payment is Rs. ${totalPayment.toFixed(2)}. Need Rs. ${(netTotal - totalPayment).toFixed(2)} more.`)
-          setIsSubmitting(false)
-          return
-        }
-
-        if (data.paymentStatus === 'partial' && totalPayment <= 0) {
-          toast.error('Payment status is "Partially Paid" but no payment entered')
-          setIsSubmitting(false)
-          return
-        }
-
-        if (data.paymentStatus === 'partial' && totalPayment >= netTotal) {
-          toast.error('Total payment covers full invoice. Payment status should be "Fully Paid"')
-          setIsSubmitting(false)
-          return
-        }
-      }
-
-      // Use cashPayment as paymentAmount for backend (advance is handled separately)
-      const paymentAmount = cashPayment
-      
-      // Only validate return total against purchase total if there are purchase items
-      // If only return items exist, this is a valid scenario (pure return transaction)
-      if (validItems.length > 0 && returnTotal > purchaseTotal) {
-        toast.error(`Return total (Rs. ${returnTotal.toFixed(2)}) cannot exceed purchase total (Rs. ${purchaseTotal.toFixed(2)})`)
+      // Validate total payment
+      if (totalPayment > totalAmount) {
+        toast.error(`Total payment (Rs. ${totalPayment.toFixed(2)}) exceeds invoice total (Rs. ${totalAmount.toFixed(2)})`)
         setIsSubmitting(false)
         return
       }
 
-      // Validate return handling method if return items exist
-      if (validReturnItems.length > 0) {
-        if (!returnHandlingMethod) {
-          toast.error('Please select a return handling method')
-          setIsSubmitting(false)
-          return
-        }
-        
-        if (returnHandlingMethod === 'REFUND' && !returnRefundAccountId) {
-          toast.error('Please select a refund account for returns')
-          setIsSubmitting(false)
-          return
-        }
+      // Validate payment status matches actual payment
+      if (data.paymentStatus === 'paid' && totalPayment < totalAmount) {
+        toast.error(`Payment status is "Fully Paid" but total payment is Rs. ${totalPayment.toFixed(2)}. Need Rs. ${(totalAmount - totalPayment).toFixed(2)} more.`)
+        setIsSubmitting(false)
+        return
       }
+
+      if (data.paymentStatus === 'partial' && totalPayment <= 0) {
+        toast.error('Payment status is "Partially Paid" but no payment entered')
+        setIsSubmitting(false)
+        return
+      }
+
+      if (data.paymentStatus === 'partial' && totalPayment >= totalAmount) {
+        toast.error('Total payment covers full invoice. Payment status should be "Fully Paid"')
+        setIsSubmitting(false)
+        return
+      }
+
+      // Use cashPayment as paymentAmount for backend (advance is handled separately)
+      const paymentAmount = cashPayment
 
       const payload = {
         invoiceNumber: data.invoiceNumber?.trim() || undefined,
         supplierName: data.supplierName || null,
         invoiceDate: data.invoiceDate,
-        totalAmount: netTotal, // Net amount (purchases - returns)
+        totalAmount: totalAmount,
         paymentAmount: paymentAmount > 0 ? paymentAmount : undefined,
         // Only include payment method if there's actual cash/bank payment
         paymentAccountId: paymentAmount > 0 ? (data.paymentAccountId || null) : null,
         notes: data.notes || null,
         useAdvanceBalance: advanceAmountUsed > 0,
         advanceAmountUsed: advanceAmountUsed > 0 ? advanceAmountUsed : undefined,
-        products: validItems.length > 0 ? validItems.map(item => {
+        products: validItems.map(item => {
           const categoryValue = item.newCategory?.trim() 
             ? item.newCategory.trim() 
             : (item.category?.trim() || null)
@@ -378,19 +249,7 @@ const AddPurchasePage = () => {
             category: categoryValue,
             description: item.description?.trim() || null
           }
-        }) : undefined,
-        returnItems: validReturnItems.length > 0 ? validReturnItems.map(item => ({
-          name: item.name.trim(),
-          productName: item.name.trim(),
-          quantity: parseInt(item.quantity),
-          purchasePrice: parseFloat(item.purchasePrice),
-          sku: item.sku?.trim() || null,
-          category: item.category?.trim() || null,
-          description: item.description?.trim() || null,
-          reason: item.reason || 'Purchase invoice return'
-        })) : undefined,
-        returnHandlingMethod: validReturnItems.length > 0 ? returnHandlingMethod : undefined,
-        returnRefundAccountId: validReturnItems.length > 0 && returnHandlingMethod === 'REFUND' ? returnRefundAccountId : undefined
+        })
       }
 
       const response = await api.post('/purchase-invoice/with-products', payload)
@@ -416,29 +275,19 @@ const AddPurchasePage = () => {
     <ModernLayout>
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/business/purchases')}
-              className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <ArrowLeftIcon className="h-6 w-6" />
-            </button>
-            <div className="flex items-center">
-              <div className="p-2 bg-blue-100 rounded-lg mr-3">
-                <DocumentTextIcon className="h-6 w-6 text-blue-600" />
-              </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Add Purchase Invoice</h1>
-            </div>
-          </div>
+        <div className="flex items-center gap-4 mb-8">
           <button
-            type="button"
-            onClick={() => setShowScanModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+            onClick={() => navigate('/business/purchases')}
+            className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
           >
-            <CameraIcon className="h-5 w-5" />
-            <span>Scan Invoice</span>
+            <ArrowLeftIcon className="h-6 w-6" />
           </button>
+          <div className="flex items-center">
+            <div className="p-2 bg-blue-100 rounded-lg mr-3">
+              <DocumentTextIcon className="h-6 w-6 text-blue-600" />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Add Purchase Invoice</h1>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -473,10 +322,7 @@ const AddPurchasePage = () => {
                   placeholder="Type to search suppliers..."
                   autoComplete="off"
                   onChange={async (e) => {
-                    // Call register's onChange first to update form state
-                    const { onChange } = register('supplierName')
-                    onChange(e)
-                    
+                    register('supplierName').onChange(e)
                     const supplierName = e.target.value.trim()
                     
                     // Clear previous timeout
@@ -490,7 +336,8 @@ const AddPurchasePage = () => {
                       if (!selectedSupplier || selectedSupplier.name !== supplierName) {
                         setSelectedSupplierId(null)
                         setSupplierBalance(null)
-                        setAdvanceAmountUsed(0)
+                        setUseAdvanceBalance(false)
+                        setAdvanceAmountUsed('')
                       }
                     }
                     
@@ -520,12 +367,7 @@ const AddPurchasePage = () => {
                       setShowSuggestions(true)
                     }
                   }}
-                  onBlur={(e) => {
-                    // Don't hide if clicking on suggestion dropdown
-                    const relatedTarget = e.relatedTarget
-                    if (relatedTarget && relatedTarget.closest('.supplier-suggestions-dropdown')) {
-                      return
-                    }
+                  onBlur={() => {
                     // Delay hiding suggestions to allow click on suggestion
                     setTimeout(() => setShowSuggestions(false), 200)
                   }}
@@ -533,13 +375,12 @@ const AddPurchasePage = () => {
                 
                 {/* Autocomplete Dropdown */}
                 {showSuggestions && supplierSuggestions.length > 0 && (
-                  <div className="supplier-suggestions-dropdown absolute z-10 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
+                  <div className="absolute z-10 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
                     {supplierSuggestions.map((supplier) => (
                       <div
                         key={supplier.id}
                         className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                        onMouseDown={(e) => {
-                          e.preventDefault() // Prevent input blur
+                        onClick={async () => {
                           setValue('supplierName', supplier.name)
                           setSelectedSupplierId(supplier.id)
                           setShowSuggestions(false)
@@ -547,23 +388,21 @@ const AddPurchasePage = () => {
                           
                           // Fetch balance only when supplier is selected
                           setLoadingSupplierBalance(true)
-                          api.get(`/accounting/suppliers/by-name/${encodeURIComponent(supplier.name)}/balance`)
-                            .then(response => {
-                              if (response.data.success) {
-                                setSupplierBalance(response.data)
-                              } else {
-                                setSupplierBalance(null)
-                                setAdvanceAmountUsed(0)
-                              }
-                            })
-                            .catch(error => {
-                              console.error('Error fetching supplier balance:', error)
+                          try {
+                            const response = await api.get(`/accounting/suppliers/by-name/${encodeURIComponent(supplier.name)}/balance`)
+                            if (response.data.success) {
+                              setSupplierBalance(response.data)
+                            } else {
                               setSupplierBalance(null)
                               setAdvanceAmountUsed(0)
-                            })
-                            .finally(() => {
-                              setLoadingSupplierBalance(false)
-                            })
+                            }
+                          } catch (error) {
+                            console.error('Error fetching supplier balance:', error)
+                            setSupplierBalance(null)
+                            setAdvanceAmountUsed(0)
+                          } finally {
+                            setLoadingSupplierBalance(false)
+                          }
                         }}
                       >
                         <div className="font-medium text-gray-900">{supplier.name}</div>
@@ -611,7 +450,7 @@ const AddPurchasePage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Net Amount (Rs.) <span className="text-red-500">*</span>
+                  Total Amount (Rs.) <span className="text-red-500">*</span>
                 </label>
                 <input
                   {...register('totalAmount', { 
@@ -621,7 +460,6 @@ const AddPurchasePage = () => {
                   type="number"
                   step="0.01"
                   min="0"
-                  value={Math.max(0, totals.netTotal).toFixed(2)}
                   className={`w-full px-3 py-2 bg-gray-100 text-gray-600 border-2 border-gray-300 rounded-lg cursor-not-allowed ${
                     errors.totalAmount ? 'border-red-300' : ''
                   }`}
@@ -631,18 +469,7 @@ const AddPurchasePage = () => {
                 {errors.totalAmount && (
                   <p className="text-red-500 text-xs mt-1">{errors.totalAmount.message}</p>
                 )}
-                {(() => {
-                  const totals = calculateTotal()
-                  return (
-                    <div className="text-xs text-gray-500 mt-1 space-y-1">
-                      <p>Purchase Total: Rs. {totals.purchaseTotal.toFixed(2)}</p>
-                      {totals.returnTotal > 0 && (
-                        <p className="text-red-600">Return Total: -Rs. {totals.returnTotal.toFixed(2)}</p>
-                      )}
-                      <p className="font-semibold">Net Amount: Rs. {totals.netTotal.toFixed(2)}</p>
-                    </div>
-                  )
-                })()}
+                <p className="text-xs text-gray-500 mt-1">Auto-calculated from items</p>
               </div>
 
               <div className="md:col-span-2">
@@ -695,196 +522,20 @@ const AddPurchasePage = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div className="relative">
+                      <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           Product Name <span className="text-red-500">*</span>
                         </label>
                         <input
                           {...register(`items.${index}.name`, { 
-                            validate: (value) => {
-                              // Get all current form values
-                              const allValues = getValues()
-                              const returnItems = allValues.returnItems || []
-                              
-                              // Check if there are valid return items
-                              const hasValidReturnItems = returnItems.some((item, idx) => {
-                                const returnItemName = item?.name
-                                const returnItemQty = item?.quantity
-                                return returnItemName && returnItemName.trim() && parseFloat(returnItemQty) > 0
-                              })
-                              
-                              // If there are return items, product name is optional
-                              if (hasValidReturnItems) return true
-                              
-                              // If no return items, product name is required
-                              if (!value || !value.trim()) {
-                                return 'Product name is required (or add return items)'
-                              }
-                              return true
-                            },
-                            onChange: (e) => {
-                              // Autocomplete logic only - register handles value update
-                              const productName = e.target.value.trim()
-                              const fieldKey = `items.${index}`
-                              
-                              // Clear previous timeout
-                              if (productSearchTimeouts[fieldKey]) {
-                                clearTimeout(productSearchTimeouts[fieldKey])
-                                delete productSearchTimeouts[fieldKey]
-                              }
-                              
-                              // Trigger re-validation of return items when purchase item name changes
-                              setTimeout(async () => {
-                                await trigger('returnItems')
-                              }, 150)
-                              
-                              if (productName.length >= 2) {
-                                // Check if we already have results for this query
-                                const lastQuery = lastSearchQueries[fieldKey]
-                                if (lastQuery === productName && productSuggestions[fieldKey]?.length > 0) {
-                                  // Already searched for this, just show suggestions
-                                  setShowProductSuggestions(prev => ({
-                                    ...prev,
-                                    [fieldKey]: true
-                                  }))
-                                  return
-                                }
-                                
-                                // Debounce search - wait 500ms after user stops typing
-                                const timeout = setTimeout(async () => {
-                                  // Double-check query hasn't changed (for purchase items)
-                                  const currentValue = watch(`items.${index}.name`)?.trim()
-                                  if (currentValue !== productName) {
-                                    return // Query changed, ignore this result
-                                  }
-                                  
-                                  // Prevent concurrent searches for the same field
-                                  if (searchInProgress.current[fieldKey]) {
-                                    return
-                                  }
-                                  searchInProgress.current[fieldKey] = true
-                                  
-                                  try {
-                                    const response = await api.get(`/products/search/${encodeURIComponent(productName)}`)
-                                    if (response.data.success) {
-                                      setLastSearchQueries(prev => ({
-                                        ...prev,
-                                        [fieldKey]: productName
-                                      }))
-                                      setProductSuggestions(prev => ({
-                                        ...prev,
-                                        [fieldKey]: response.data.products || []
-                                      }))
-                                      setShowProductSuggestions(prev => ({
-                                        ...prev,
-                                        [fieldKey]: true
-                                      }))
-                                    }
-                                  } catch (error) {
-                                    // Silently fail - don't spam console
-                                    if (error.code !== 'ERR_CANCELED' && error.code !== 'ERR_INSUFFICIENT_RESOURCES') {
-                                      console.error('Error searching products:', error)
-                                    }
-                                    setProductSuggestions(prev => ({
-                                      ...prev,
-                                      [fieldKey]: []
-                                    }))
-                                  } finally {
-                                    searchInProgress.current[fieldKey] = false
-                                  }
-                                }, 500)
-                                setProductSearchTimeouts(prev => ({
-                                  ...prev,
-                                  [fieldKey]: timeout
-                                }))
-                              } else {
-                                setProductSuggestions(prev => {
-                                  const newState = { ...prev }
-                                  delete newState[fieldKey]
-                                  return newState
-                                })
-                                setShowProductSuggestions(prev => {
-                                  const newState = { ...prev }
-                                  delete newState[fieldKey]
-                                  return newState
-                                })
-                              }
-                            }
+                            required: 'Product name is required',
+                            onChange: () => setTimeout(() => calculateTotal(), 100)
                           })}
                           className={`w-full px-3 py-2 bg-white text-gray-900 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                             itemErrors?.name ? 'border-red-300' : 'border-gray-300'
                           }`}
-                          placeholder="Type to search products..."
-                          autoComplete="off"
-                          onFocus={() => {
-                            const productName = watch(`items.${index}.name`)?.trim()
-                            const fieldKey = `items.${index}`
-                            if (productName && productName.length >= 2 && productSuggestions[fieldKey]?.length > 0) {
-                              setShowProductSuggestions(prev => ({
-                                ...prev,
-                                [fieldKey]: true
-                              }))
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const fieldKey = `items.${index}`
-                            // Don't hide if clicking on suggestion dropdown
-                            const relatedTarget = e.relatedTarget
-                            if (relatedTarget && relatedTarget.closest('.product-suggestions-dropdown')) {
-                              return
-                            }
-                            // Delay hiding suggestions to allow click on suggestion
-                            setTimeout(() => {
-                              setShowProductSuggestions(prev => ({
-                                ...prev,
-                                [fieldKey]: false
-                              }))
-                            }, 200)
-                          }}
+                          placeholder="Enter product name"
                         />
-                        {/* Product Autocomplete Dropdown */}
-                        {showProductSuggestions[`items.${index}`] && productSuggestions[`items.${index}`]?.length > 0 && (
-                          <div className="product-suggestions-dropdown absolute z-10 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                            {productSuggestions[`items.${index}`].map((product) => (
-                              <div
-                                key={product.id}
-                                className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                                onMouseDown={(e) => {
-                                  e.preventDefault() // Prevent input blur
-                                  setValue(`items.${index}.name`, product.name)
-                                  if (product.lastPurchasePrice) {
-                                    setValue(`items.${index}.purchasePrice`, product.lastPurchasePrice)
-                                  }
-                                  if (product.category) {
-                                    setValue(`items.${index}.category`, product.category)
-                                  }
-                                  if (product.sku) {
-                                    setValue(`items.${index}.sku`, product.sku)
-                                  }
-                                  if (product.description) {
-                                    setValue(`items.${index}.description`, product.description)
-                                  }
-                                  setShowProductSuggestions(prev => ({
-                                    ...prev,
-                                    [`items.${index}`]: false
-                                  }))
-                                  setTimeout(() => calculateTotal(), 100)
-                                }}
-                              >
-                                <div className="font-medium text-gray-900">{product.name}</div>
-                                {product.category && (
-                                  <div className="text-xs text-gray-500">Category: {product.category}</div>
-                                )}
-                                {product.lastPurchasePrice && (
-                                  <div className="text-xs text-gray-500">Last Price: Rs. {product.lastPurchasePrice.toFixed(2)}</div>
-                                )}
-                                {product.currentQuantity !== undefined && (
-                                  <div className="text-xs text-gray-500">Stock: {product.currentQuantity}</div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
                         {itemErrors?.name && (
                           <p className="text-red-500 text-xs mt-1">{itemErrors.name.message}</p>
                         )}
@@ -897,7 +548,8 @@ const AddPurchasePage = () => {
                         <input
                           {...register(`items.${index}.quantity`, { 
                             required: 'Quantity is required',
-                            min: { value: 1, message: 'Quantity must be at least 1' }
+                            min: { value: 1, message: 'Quantity must be at least 1' },
+                            onChange: () => setTimeout(() => calculateTotal(), 100)
                           })}
                           type="number"
                           min="1"
@@ -919,7 +571,8 @@ const AddPurchasePage = () => {
                         <input
                           {...register(`items.${index}.purchasePrice`, { 
                             required: 'Purchase price is required',
-                            min: { value: 0, message: 'Price must be positive' }
+                            min: { value: 0, message: 'Price must be positive' },
+                            onChange: () => setTimeout(() => calculateTotal(), 100)
                           })}
                           type="number"
                           step="0.01"
@@ -1026,412 +679,6 @@ const AddPurchasePage = () => {
             </div>
           </div>
 
-          {/* Return Items Section */}
-          <div className="card p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Return Items</h3>
-              <button
-                type="button"
-                onClick={async () => {
-                  appendReturn({ name: '', quantity: 1, purchasePrice: 0, sku: '', category: '', description: '', reason: 'Purchase invoice return' })
-                  // Trigger re-validation of purchase item names since they're now optional when return items exist
-                  setTimeout(async () => {
-                    await trigger('items')
-                  }, 100)
-                }}
-                className="btn-secondary flex items-center text-sm"
-              >
-                <PlusIcon className="h-4 w-4 mr-1" />
-                Add Return Item
-              </button>
-            </div>
-
-            {/* Return Handling Method */}
-            {returnFields.length > 0 && (
-              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Return Handling Method <span className="text-red-500">*</span>
-                </label>
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="returnHandlingMethod"
-                      value="REDUCE_AP"
-                      checked={returnHandlingMethod === 'REDUCE_AP'}
-                      onChange={(e) => {
-                        setReturnHandlingMethod(e.target.value)
-                        setReturnRefundAccountId('')
-                      }}
-                      className="mr-2"
-                    />
-                    <span className="text-sm text-gray-700">Reduce Accounts Payable (deducts from what we owe supplier)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="returnHandlingMethod"
-                      value="REFUND"
-                      checked={returnHandlingMethod === 'REFUND'}
-                      onChange={(e) => setReturnHandlingMethod(e.target.value)}
-                      className="mr-2"
-                    />
-                    <span className="text-sm text-gray-700">Refund to Account (supplier refunds money)</span>
-                  </label>
-                </div>
-                {returnHandlingMethod === 'REFUND' && (
-                  <div className="mt-3">
-                    <PaymentAccountSelector
-                      value={returnRefundAccountId}
-                      onChange={(accountId) => setReturnRefundAccountId(accountId)}
-                      showQuickAdd={true}
-                      required={true}
-                      className="w-full"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="space-y-4">
-              {returnFields.map((field, index) => {
-                const returnItemErrors = errors.returnItems?.[index]
-                const returnItem = watchedReturnItems?.[index]
-                const returnItemTotal = (parseFloat(returnItem?.quantity) || 0) * (parseFloat(returnItem?.purchasePrice) || 0)
-
-                return (
-                  <div key={field.id} className="border rounded-lg p-4 bg-red-50 border-red-200">
-                    <div className="flex justify-between items-center mb-3">
-                      <h5 className="font-semibold text-red-900">Return Item {index + 1}</h5>
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          removeReturn(index)
-                          // Trigger re-validation of purchase items when return item is removed
-                          setTimeout(async () => {
-                            await trigger('items')
-                          }, 100)
-                        }}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      <div className="relative">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Product Name <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          {...register(`returnItems.${index}.name`, { 
-                            validate: (value) => {
-                              // Get all current form values
-                              const allValues = getValues()
-                              const purchaseItems = allValues.items || []
-                              
-                              // Check if there are valid purchase items
-                              const hasValidPurchaseItems = purchaseItems.some((item, idx) => {
-                                const purchaseItemName = item?.name
-                                const purchaseItemQty = item?.quantity
-                                return purchaseItemName && purchaseItemName.trim() && parseFloat(purchaseItemQty) > 0
-                              })
-                              
-                              // If there are purchase items, return item name is optional
-                              if (hasValidPurchaseItems) return true
-                              
-                              // If no purchase items, return item name is required
-                              if (!value || !value.trim()) {
-                                return 'Product name is required (or add purchase items)'
-                              }
-                              return true
-                            },
-                            onChange: (e) => {
-                              // Autocomplete logic only - register handles value update
-                              const productName = e.target.value.trim()
-                              const fieldKey = `returnItems.${index}`
-                              
-                              // Clear previous timeout
-                              if (productSearchTimeouts[fieldKey]) {
-                                clearTimeout(productSearchTimeouts[fieldKey])
-                                delete productSearchTimeouts[fieldKey]
-                              }
-                              
-                              // Trigger re-validation of purchase items when return item name changes
-                              setTimeout(async () => {
-                                await trigger('items')
-                              }, 150)
-                              
-                              if (productName.length >= 2) {
-                                // Check if we already have results for this query
-                                const lastQuery = lastSearchQueries[fieldKey]
-                                if (lastQuery === productName && productSuggestions[fieldKey]?.length > 0) {
-                                  // Already searched for this, just show suggestions
-                                  setShowProductSuggestions(prev => ({
-                                    ...prev,
-                                    [fieldKey]: true
-                                  }))
-                                  return
-                                }
-                                
-                                // Debounce search - wait 500ms after user stops typing
-                                const timeout = setTimeout(async () => {
-                                  // Double-check query hasn't changed
-                                  const currentValue = watch(`returnItems.${index}.name`)?.trim()
-                                  if (currentValue !== productName) {
-                                    return // Query changed, ignore this result
-                                  }
-                                  
-                                  // Prevent concurrent searches for the same field
-                                  if (searchInProgress.current[fieldKey]) {
-                                    return
-                                  }
-                                  searchInProgress.current[fieldKey] = true
-                                  
-                                  try {
-                                    const response = await api.get(`/products/search/${encodeURIComponent(productName)}`)
-                                    if (response.data.success) {
-                                      setLastSearchQueries(prev => ({
-                                        ...prev,
-                                        [fieldKey]: productName
-                                      }))
-                                      setProductSuggestions(prev => ({
-                                        ...prev,
-                                        [fieldKey]: response.data.products || []
-                                      }))
-                                      setShowProductSuggestions(prev => ({
-                                        ...prev,
-                                        [fieldKey]: true
-                                      }))
-                                    }
-                                  } catch (error) {
-                                    // Silently fail - don't spam console
-                                    if (error.code !== 'ERR_CANCELED' && error.code !== 'ERR_INSUFFICIENT_RESOURCES') {
-                                      console.error('Error searching products:', error)
-                                    }
-                                    setProductSuggestions(prev => ({
-                                      ...prev,
-                                      [fieldKey]: []
-                                    }))
-                                  } finally {
-                                    searchInProgress.current[fieldKey] = false
-                                  }
-                                }, 500)
-                                setProductSearchTimeouts(prev => ({
-                                  ...prev,
-                                  [fieldKey]: timeout
-                                }))
-                              } else {
-                                setProductSuggestions(prev => {
-                                  const newState = { ...prev }
-                                  delete newState[fieldKey]
-                                  return newState
-                                })
-                                setShowProductSuggestions(prev => {
-                                  const newState = { ...prev }
-                                  delete newState[fieldKey]
-                                  return newState
-                                })
-                              }
-                            }
-                          })}
-                          className={`w-full px-3 py-2 bg-white text-gray-900 border-2 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                            returnItemErrors?.name ? 'border-red-300' : 'border-gray-300'
-                          }`}
-                          placeholder="Type to search products..."
-                          autoComplete="off"
-                          onFocus={() => {
-                            const productName = watch(`returnItems.${index}.name`)?.trim()
-                            const fieldKey = `returnItems.${index}`
-                            if (productName && productName.length >= 2 && productSuggestions[fieldKey]?.length > 0) {
-                              setShowProductSuggestions(prev => ({
-                                ...prev,
-                                [fieldKey]: true
-                              }))
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const fieldKey = `returnItems.${index}`
-                            // Don't hide if clicking on suggestion dropdown
-                            const relatedTarget = e.relatedTarget
-                            if (relatedTarget && relatedTarget.closest('.product-suggestions-dropdown')) {
-                              return
-                            }
-                            // Delay hiding suggestions to allow click on suggestion
-                            setTimeout(() => {
-                              setShowProductSuggestions(prev => ({
-                                ...prev,
-                                [fieldKey]: false
-                              }))
-                            }, 200)
-                          }}
-                        />
-                        {/* Product Autocomplete Dropdown */}
-                        {showProductSuggestions[`returnItems.${index}`] && productSuggestions[`returnItems.${index}`]?.length > 0 && (
-                          <div className="product-suggestions-dropdown absolute z-10 w-full mt-1 bg-white border-2 border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto">
-                            {productSuggestions[`returnItems.${index}`].map((product) => (
-                              <div
-                                key={product.id}
-                                className="px-4 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
-                                onMouseDown={(e) => {
-                                  e.preventDefault() // Prevent input blur
-                                  setValue(`returnItems.${index}.name`, product.name)
-                                  if (product.lastPurchasePrice) {
-                                    setValue(`returnItems.${index}.purchasePrice`, product.lastPurchasePrice)
-                                  }
-                                  if (product.category) {
-                                    setValue(`returnItems.${index}.category`, product.category)
-                                  }
-                                  if (product.sku) {
-                                    setValue(`returnItems.${index}.sku`, product.sku)
-                                  }
-                                  if (product.description) {
-                                    setValue(`returnItems.${index}.description`, product.description)
-                                  }
-                                  setShowProductSuggestions(prev => ({
-                                    ...prev,
-                                    [`returnItems.${index}`]: false
-                                  }))
-                                  setTimeout(() => calculateTotal(), 100)
-                                }}
-                              >
-                                <div className="font-medium text-gray-900">{product.name}</div>
-                                {product.category && (
-                                  <div className="text-xs text-gray-500">Category: {product.category}</div>
-                                )}
-                                {product.lastPurchasePrice && (
-                                  <div className="text-xs text-gray-500">Last Price: Rs. {product.lastPurchasePrice.toFixed(2)}</div>
-                                )}
-                                {product.currentQuantity !== undefined && (
-                                  <div className="text-xs text-gray-500">Stock: {product.currentQuantity}</div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {returnItemErrors?.name && (
-                          <p className="text-red-500 text-xs mt-1">{returnItemErrors.name.message}</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Quantity <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          {...register(`returnItems.${index}.quantity`, { 
-                            required: 'Quantity is required',
-                            min: { value: 1, message: 'Quantity must be at least 1' }
-                          })}
-                          type="number"
-                          min="1"
-                          className={`w-full px-3 py-2 bg-white text-gray-900 border-2 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                            returnItemErrors?.quantity ? 'border-red-300' : 'border-gray-300'
-                          }`}
-                          placeholder="0"
-                          onChange={(e) => {
-                            const { onChange } = register(`returnItems.${index}.quantity`)
-                            onChange(e)
-                            // Force update by setting value to trigger watch update
-                            setValue(`returnItems.${index}.quantity`, e.target.value, { shouldValidate: false, shouldDirty: true })
-                          }}
-                        />
-                        {returnItemErrors?.quantity && (
-                          <p className="text-red-500 text-xs mt-1">{returnItemErrors.quantity.message}</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Purchase Price (Rs.) <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          {...register(`returnItems.${index}.purchasePrice`, { 
-                            required: 'Purchase price is required',
-                            min: { value: 0, message: 'Price must be positive' }
-                          })}
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          className={`w-full px-3 py-2 bg-white text-gray-900 border-2 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 ${
-                            returnItemErrors?.purchasePrice ? 'border-red-300' : 'border-gray-300'
-                          }`}
-                          placeholder="0.00"
-                          onChange={(e) => {
-                            const { onChange } = register(`returnItems.${index}.purchasePrice`)
-                            onChange(e)
-                            // Force update by setting value to trigger watch update
-                            setValue(`returnItems.${index}.purchasePrice`, e.target.value, { shouldValidate: false, shouldDirty: true })
-                          }}
-                        />
-                        {returnItemErrors?.purchasePrice && (
-                          <p className="text-red-500 text-xs mt-1">{returnItemErrors.purchasePrice.message}</p>
-                        )}
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          SKU
-                        </label>
-                        <input
-                          {...register(`returnItems.${index}.sku`)}
-                          className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                          placeholder="Enter SKU (optional)"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Category
-                        </label>
-                        <select
-                          {...register(`returnItems.${index}.category`)}
-                          className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        >
-                          <option value="">Select category</option>
-                          {categories.map((cat) => (
-                            <option key={cat} value={cat}>
-                              {cat}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Return Total (Rs.)
-                        </label>
-                        <input
-                          type="text"
-                          value={returnItemTotal.toFixed(2)}
-                          className="w-full px-3 py-2 bg-gray-100 text-gray-900 border-2 border-gray-300 rounded-lg cursor-not-allowed"
-                          readOnly
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Description
-                      </label>
-                      <textarea
-                        {...register(`returnItems.${index}.description`)}
-                        className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        rows={2}
-                        placeholder="Enter return description (optional)"
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-              {returnFields.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  <p>No return items added. Click "Add Return Item" to add returns.</p>
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Payment Details Section - Simplified */}
           <div className="card p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Payment Details</h3>
@@ -1473,17 +720,14 @@ const AddPurchasePage = () => {
 
             {/* Payment Summary - Single consolidated view */}
             {(() => {
-              // Use calculated totals directly instead of watch to ensure it's always up-to-date
-              const netTotal = totals.netTotal
-              const total = Math.max(0, netTotal)
-              const isReturnOnly = netTotal < 0
+              const total = parseFloat(watch('totalAmount')) || 0
               const advanceUsed = advanceAmountUsed || 0
               const cashPayment = parseFloat(watch('paymentAmount') || 0)
               const totalPayment = advanceUsed + cashPayment
               const remaining = total - totalPayment
-              const isFullyPaid = totalPayment >= total && total > 0 && !isReturnOnly
-              const isPartiallyPaid = totalPayment > 0 && totalPayment < total && !isReturnOnly
-              const showPaymentFields = !isReturnOnly && advanceUsed < total // Don't show payment fields for return-only invoices
+              const isFullyPaid = totalPayment >= total && total > 0
+              const isPartiallyPaid = totalPayment > 0 && totalPayment < total
+              const showPaymentFields = advanceUsed < total // Only show payment fields if advance doesn't fully cover
               
               return (
                 <div className="space-y-4">
@@ -1498,26 +742,20 @@ const AddPurchasePage = () => {
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="font-semibold text-gray-900">Payment Summary</h4>
                       <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                        isReturnOnly
-                          ? 'bg-purple-100 text-purple-700'
-                          : isFullyPaid 
-                            ? 'bg-green-100 text-green-700' 
-                            : isPartiallyPaid 
-                              ? 'bg-yellow-100 text-yellow-700' 
-                              : 'bg-gray-100 text-gray-700'
+                        isFullyPaid 
+                          ? 'bg-green-100 text-green-700' 
+                          : isPartiallyPaid 
+                            ? 'bg-yellow-100 text-yellow-700' 
+                            : 'bg-gray-100 text-gray-700'
                       }`}>
-                        {isReturnOnly ? 'Return Only' : isFullyPaid ? '✓ Fully Paid' : isPartiallyPaid ? '⚠ Partially Paid' : 'Unpaid'}
+                        {isFullyPaid ? '✓ Fully Paid' : isPartiallyPaid ? '⚠ Partially Paid' : 'Unpaid'}
                       </span>
                     </div>
                     
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
-                        <p className="text-gray-600 text-xs mb-1">
-                          {isReturnOnly ? 'Return Total' : 'Invoice Total'}
-                        </p>
-                        <p className={`text-lg font-bold ${isReturnOnly ? 'text-purple-600' : 'text-gray-900'}`}>
-                          {isReturnOnly ? `Rs. ${Math.abs(netTotal).toLocaleString()}` : `Rs. ${total.toLocaleString()}`}
-                        </p>
+                        <p className="text-gray-600 text-xs mb-1">Invoice Total</p>
+                        <p className="text-lg font-bold text-gray-900">Rs. {total.toLocaleString()}</p>
                       </div>
                       {advanceUsed > 0 && (
                         <div>
@@ -1533,65 +771,59 @@ const AddPurchasePage = () => {
                       )}
                       <div>
                         <p className="text-gray-600 text-xs mb-1">
-                          {isReturnOnly ? 'Type' : remaining > 0 ? 'Remaining' : 'Status'}
+                          {remaining > 0 ? 'Remaining' : 'Status'}
                         </p>
                         <p className={`text-lg font-bold ${
-                          isReturnOnly 
-                            ? 'text-purple-600'
-                            : remaining > 0 
-                              ? 'text-red-600' 
-                              : 'text-green-600'
+                          remaining > 0 ? 'text-red-600' : 'text-green-600'
                         }`}>
-                          {isReturnOnly 
-                            ? 'Return' 
-                            : remaining > 0 
-                              ? `Rs. ${remaining.toLocaleString()}` 
-                              : '✓ Paid'}
+                          {remaining > 0 ? `Rs. ${remaining.toLocaleString()}` : '✓ Paid'}
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Payment Input Fields - Only show for purchase invoices (not return-only) */}
-                  {!isReturnOnly && total > 0 && (
+                  {/* Payment Input Fields - Only show if not fully covered by advance */}
+                  {!isFullyPaid || cashPayment > 0 ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {/* Payment Status - Always show if there's an invoice total */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Payment Status <span className="text-red-500">*</span>
-                        </label>
-                        <select
-                          {...register('paymentStatus', { 
-                            required: total > 0 ? 'Please select payment status' : false 
-                          })}
-                          className={`w-full px-3 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            errors.paymentStatus ? 'border-red-300' : 'border-gray-300'
-                          } bg-white`}
-                          onChange={(e) => {
-                            register('paymentStatus').onChange(e)
-                            if (e.target.value === 'unpaid') {
-                              setValue('paymentAmount', '')
-                              setValue('paymentAccountId', '')
-                            } else if (e.target.value === 'paid') {
-                              const total = parseFloat(watch('totalAmount')) || 0
-                              setValue('paymentAmount', Math.max(0, total - advanceUsed).toFixed(2))
-                            } else if (e.target.value === 'partial') {
-                              setValue('paymentAmount', '')
-                            }
-                          }}
-                        >
-                          <option value="">Select payment status</option>
-                          <option value="unpaid">Unpaid</option>
-                          <option value="partial">Partially Paid</option>
-                          <option value="paid">Fully Paid</option>
-                        </select>
+                      {/* Payment Status - Only show if advance doesn't fully cover */}
+                      {showPaymentFields && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Payment Status <span className="text-red-500">*</span>
+                          </label>
+                          <select
+                            {...register('paymentStatus', { 
+                              required: showPaymentFields ? 'Please select payment status' : false 
+                            })}
+                            className={`w-full px-3 py-2 border-2 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                              errors.paymentStatus ? 'border-red-300' : 'border-gray-300'
+                            } bg-white`}
+                            onChange={(e) => {
+                              register('paymentStatus').onChange(e)
+                              if (e.target.value === 'unpaid') {
+                                setValue('paymentAmount', '')
+                                setValue('paymentAccountId', '')
+                              } else if (e.target.value === 'paid') {
+                                const total = parseFloat(watch('totalAmount')) || 0
+                                setValue('paymentAmount', Math.max(0, total - advanceUsed).toFixed(2))
+                              } else if (e.target.value === 'partial') {
+                                setValue('paymentAmount', '')
+                              }
+                            }}
+                          >
+                            <option value="">Select payment status</option>
+                            <option value="unpaid">Unpaid</option>
+                            <option value="partial">Partially Paid</option>
+                            <option value="paid">Fully Paid</option>
+                          </select>
                           {errors.paymentStatus && (
                             <p className="text-red-500 text-xs mt-1">{errors.paymentStatus.message}</p>
                           )}
-                      </div>
+                        </div>
+                      )}
 
-                      {/* Cash Payment Amount - Show if payment status is not 'unpaid' */}
-                      {watch('paymentStatus') && watch('paymentStatus') !== 'unpaid' && (
+                      {/* Cash Payment Amount - Show if payment status is not 'unpaid' and advance doesn't fully cover */}
+                      {showPaymentFields && watch('paymentStatus') !== 'unpaid' && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Cash/Bank Payment (Rs.)
@@ -1599,7 +831,7 @@ const AddPurchasePage = () => {
                           </label>
                           <input
                             {...register('paymentAmount', {
-                              required: watch('paymentStatus') !== 'unpaid' && watch('paymentStatus') !== '' ? 'Cash payment is required' : false,
+                              required: showPaymentFields && watch('paymentStatus') !== 'unpaid' && watch('paymentStatus') !== '' ? 'Cash payment is required' : false,
                               min: { value: 0, message: 'Cannot be negative' },
                               validate: (value) => {
                                 const cash = parseFloat(value) || 0
@@ -1630,8 +862,8 @@ const AddPurchasePage = () => {
                         </div>
                       )}
 
-                      {/* Payment Account - Show if cash payment > 0 */}
-                      {watch('paymentStatus') && watch('paymentStatus') !== 'unpaid' && (parseFloat(watch('paymentAmount')) || 0) > 0 && (
+                      {/* Payment Account - Only show if cash payment > 0 and advance doesn't fully cover */}
+                      {showPaymentFields && cashPayment > 0 && (
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">
                             Payment Account <span className="text-red-500">*</span>
@@ -1648,6 +880,13 @@ const AddPurchasePage = () => {
                           )}
                         </div>
                       )}
+                    </div>
+                  ) : (
+                    // Fully paid with advance - show simple confirmation
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-green-700">
+                        ✓ Invoice fully paid using advance balance. No additional payment required.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -1680,57 +919,6 @@ const AddPurchasePage = () => {
             </button>
           </div>
         </form>
-
-        {/* Scan Invoice Modal */}
-        {showScanModal && (
-          <InvoiceUploadModal
-            onClose={() => setShowScanModal(false)}
-            onProductsExtracted={(extractedProducts, extractedReturns, invoiceData) => {
-              // Populate purchase items
-              if (extractedProducts && extractedProducts.length > 0) {
-                setValue('items', extractedProducts.map(p => ({
-                  name: p.name || '',
-                  quantity: p.quantity || 1,
-                  purchasePrice: p.purchasePrice || 0,
-                  sku: p.sku || '',
-                  category: p.category || '',
-                  description: p.description || ''
-                })))
-              }
-
-              // Populate return items
-              if (extractedReturns && extractedReturns.length > 0) {
-                setValue('returnItems', extractedReturns.map(r => ({
-                  name: r.name || r.productName || '',
-                  quantity: r.quantity || 1,
-                  purchasePrice: r.purchasePrice || 0,
-                  sku: r.sku || '',
-                  category: r.category || '',
-                  description: r.description || '',
-                  reason: r.reason || 'Purchase invoice return'
-                })))
-                
-                // Set default return handling method if returns exist
-                if (!returnHandlingMethod) {
-                  setReturnHandlingMethod('REDUCE_AP')
-                }
-              }
-
-              // Pre-fill invoice details if available
-              if (invoiceData) {
-                if (invoiceData.invoiceNumber) {
-                  setValue('invoiceNumber', invoiceData.invoiceNumber)
-                }
-                if (invoiceData.invoiceDate) {
-                  setValue('invoiceDate', invoiceData.invoiceDate.split('T')[0])
-                }
-              }
-
-              setShowScanModal(false)
-              toast.success('Invoice data loaded into form! You can review and edit before submitting.')
-            }}
-          />
-        )}
       </div>
     </ModernLayout>
   )

@@ -5,15 +5,13 @@ import {
   ShoppingBagIcon,
   EyeIcon,
   CheckIcon,
-  ArrowRightIcon,
-  TrashIcon
+  ArrowRightIcon
 } from '@heroicons/react/24/outline'
 
 const RecentOrdersSection = ({ 
   recentOrders, 
   onViewOrder, 
-  onConfirmOrder,
-  onDeleteOrder,
+  onConfirmOrder, 
   onViewAllOrders,
   getStatusBadge,
   getStatusIcon 
@@ -88,35 +86,9 @@ const RecentOrdersSection = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm text-gray-600">
                       <p><span className="font-semibold">Customer:</span> <span className="break-words">{formData['Customer Name'] || 'N/A'}</span></p>
                       <p><span className="font-semibold">Phone:</span> <span className="break-all">{formData['Mobile Number'] || 'N/A'}</span></p>
-                      {(() => {
-                        const claimedAmount = order.paymentAmount || 0
-                        const verifiedAmount = order.paymentVerified && order.verifiedPaymentAmount 
-                          ? order.verifiedPaymentAmount 
-                          : 0
-                        const hasUnverifiedClaim = claimedAmount > 0 && !order.paymentVerified
-                        
-                        return (
-                          <>
-                            {hasUnverifiedClaim && (
-                              <p>
-                                <span className="font-semibold">Claimed:</span>{' '}
-                                <span className="font-bold text-yellow-600">
-                                  Rs. {claimedAmount.toLocaleString()}
-                                </span>
-                                <span className="text-xs text-yellow-600 ml-1">(Not Verified)</span>
-                              </p>
-                            )}
-                            {verifiedAmount > 0 && (
-                              <p>
-                                <span className="font-semibold">Paid:</span>{' '}
-                                <span className="font-bold text-green-600">
-                                  Rs. {verifiedAmount.toLocaleString()}
-                                </span>
-                              </p>
-                            )}
-                          </>
-                        )
-                      })()}
+                      {formData['Payment Amount'] && (
+                        <p><span className="font-semibold">Amount:</span> <span className="font-bold text-green-600">Rs. {formData['Payment Amount']}</span></p>
+                      )}
                       <p><span className="font-semibold">Date:</span> {new Date(order.createdAt).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -132,27 +104,14 @@ const RecentOrdersSection = ({
                     </Button>
                     
                     {order.status === 'PENDING' && (
-                      <>
-                        <Button
-                          onClick={() => onConfirmOrder(order.id)}
-                          variant="success"
-                          className="w-full sm:w-auto text-sm font-semibold py-2.5 px-4 flex items-center justify-center"
-                        >
-                          <CheckIcon className="h-4 w-4 mr-2" />
-                          Confirm
-                        </Button>
-                        {onDeleteOrder && (
-                          <Button
-                            onClick={() => onDeleteOrder(order.id, order.orderNumber)}
-                            variant="outline"
-                            className="w-full sm:w-auto text-sm py-2.5 px-4 flex items-center justify-center text-red-600 hover:text-red-700 hover:bg-red-50 border-red-300"
-                            title="Delete Order"
-                          >
-                            <TrashIcon className="h-4 w-4 mr-2" />
-                            Delete
-                          </Button>
-                        )}
-                      </>
+                      <Button
+                        onClick={() => onConfirmOrder(order.id)}
+                        variant="success"
+                        className="w-full sm:w-auto text-sm font-semibold py-2.5 px-4 flex items-center justify-center"
+                      >
+                        <CheckIcon className="h-4 w-4 mr-2" />
+                        Confirm
+                      </Button>
                     )}
                   </div>
                 </div>

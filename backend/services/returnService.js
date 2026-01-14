@@ -572,16 +572,7 @@ class ReturnService {
       tenantId
     };
 
-    if (returnType) {
-      // Handle comma-separated returnType values (e.g., "CUSTOMER_FULL,CUSTOMER_PARTIAL")
-      if (typeof returnType === 'string' && returnType.includes(',')) {
-        where.returnType = {
-          in: returnType.split(',').map(t => t.trim())
-        };
-      } else {
-        where.returnType = returnType;
-      }
-    }
+    if (returnType) where.returnType = returnType;
     if (status) where.status = status;
     if (orderId) where.orderId = orderId;
 

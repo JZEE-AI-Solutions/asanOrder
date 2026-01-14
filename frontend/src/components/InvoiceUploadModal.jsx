@@ -121,32 +121,15 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
         }
       }
 
-      const extractedProducts = response.data.products
-      const extractedReturns = response.data.returns
-      const invoiceData = response.data.invoiceData
+      setExtractedProducts(response.data.products)
+      setExtractedReturns(response.data.returns)
+      setInvoiceData(response.data.invoiceData)
       
-      // Automatically populate the form instead of showing review screen
-      if (onProductsExtracted) {
-        onProductsExtracted(extractedProducts, extractedReturns, invoiceData)
-        handleClose()
-        
-        const message = response.data.hasReturns 
-          ? `Successfully loaded ${response.data.counts.products} products and ${response.data.counts.returns} returns into form!`
-          : `Successfully loaded ${response.data.counts.products} products into form!`
-        
-        toast.success(message)
-      } else {
-        // Fallback: show review screen if callback not provided
-        setExtractedProducts(extractedProducts)
-        setExtractedReturns(extractedReturns)
-        setInvoiceData(invoiceData)
-        
-        const message = response.data.hasReturns 
-          ? `Successfully extracted ${response.data.counts.products} products and ${response.data.counts.returns} returns!`
-          : `Successfully extracted ${response.data.counts.products} products!`
-        
-        toast.success(message)
-      }
+      const message = response.data.hasReturns 
+        ? `Successfully extracted ${response.data.counts.products} products and ${response.data.counts.returns} returns!`
+        : `Successfully extracted ${response.data.counts.products} products!`
+      
+      toast.success(message)
       
     } catch (error) {
       console.error('Error processing invoice:', error)
@@ -206,8 +189,7 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
         : `${extractedProducts.length} products saved successfully!`
       
       toast.success(message)
-      // Pass both products and returns to the callback
-      onProductsExtracted(extractedProducts, extractedReturns, invoiceData)
+      onProductsExtracted(extractedProducts, invoiceData)
     } catch (error) {
       console.error('Error saving products and returns:', error)
       console.error('Error response:', error.response?.data)
@@ -783,18 +765,6 @@ const InvoiceUploadModal = ({ onClose, onProductsExtracted }) => {
                 >
                   Back
                 </button>
-                {onProductsExtracted && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onProductsExtracted(extractedProducts, extractedReturns, invoiceData)
-                      handleClose()
-                    }}
-                    className="btn-primary flex items-center bg-blue-600 hover:bg-blue-700"
-                  >
-                    Use in Form
-                  </button>
-                )}
                 <button
                   onClick={saveProducts}
                   className="btn-primary flex items-center"

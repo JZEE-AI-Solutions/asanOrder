@@ -503,21 +503,10 @@ router.post('/', authenticateToken, async (req, res) => {
         
         if (order) {
           const currentPaymentAmount = order.paymentAmount || 0;
-          const currentVerifiedAmount = order.verifiedPaymentAmount || 0;
-          const paymentAmountToAdd = parseFloat(amount);
-          
-          // Update paymentAmount (total claimed + received)
-          // Update verifiedPaymentAmount (only verified/received payments count)
-          // Since this payment is being received by business owner, it's automatically verified
           await tx.order.update({
             where: { id: orderId },
             data: {
-              paymentAmount: currentPaymentAmount + paymentAmountToAdd,
-              verifiedPaymentAmount: currentVerifiedAmount + paymentAmountToAdd,
-              paymentVerified: true, // Payment received by business owner is automatically verified
-              paymentVerifiedAt: new Date(),
-              paymentVerifiedBy: req.user.id,
-              paymentAccountId: paymentAccountId || order.paymentAccountId
+              paymentAmount: currentPaymentAmount + parseFloat(amount)
             }
           });
         }
