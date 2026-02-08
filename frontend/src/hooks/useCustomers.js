@@ -35,9 +35,10 @@ export const useCustomers = (options = {}) => {
     }
   }, [])
 
-  const refreshCustomers = useCallback(() => {
-    return fetchCustomers(options)
-  }, [fetchCustomers]) // Remove options from dependencies
+  const refreshCustomers = useCallback((params) => {
+    return fetchCustomers(params !== undefined ? params : options)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- options intentionally excluded to keep refreshCustomers stable and avoid request loops
+  }, [fetchCustomers])
 
   const createCustomer = useMutation(
     (customerData) => api.post('/customer', customerData),

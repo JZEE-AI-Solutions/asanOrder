@@ -407,9 +407,10 @@ const OrdersScreen = () => {
                   }
                   
                   const shippingCharges = parseFloat(order.shippingCharges || 0)
+                  const codFee = order.codFeePaidBy === 'CUSTOMER' && order.codFee ? parseFloat(order.codFee) : 0
+                  const orderTotal = productsTotal + shippingCharges + codFee
                   const paymentAmount = parseFloat(order.paymentAmount || formData['Payment Amount'] || 0)
-                  const orderTotal = productsTotal + shippingCharges
-                  const receivedAmount = paymentAmount
+                  const receivedAmount = (order.totalPaid != null && order.totalPaid !== undefined) ? Number(order.totalPaid) : paymentAmount
                   const pendingAmount = Math.max(0, orderTotal - receivedAmount)
                   const displayTotal = orderTotal > 0 ? orderTotal : paymentAmount
                   
@@ -424,14 +425,22 @@ const OrdersScreen = () => {
                             <div className="flex -space-x-1">
                               {selectedProducts.slice(0, 3).map((product, idx) => {
                                 if (!product || !product.id) return null
+                                const variantId = product.productVariantId ?? product.variantId
+                                const productImageUrl = getImageUrl('product', product.id)
+                                const imageUrl = variantId ? getImageUrl('product-variant', variantId) : productImageUrl
                                 return (
                                   <img
-                                    key={product.id || idx}
-                                    src={getImageUrl('product', product.id)}
+                                    key={(product.id || '') + (variantId || '') + idx}
+                                    src={imageUrl}
                                     alt={product.name || 'Product'}
                                     className="w-8 h-8 rounded border border-gray-300 object-cover"
                                     onError={(e) => {
-                                      e.target.style.display = 'none'
+                                      if (variantId && e.target.src !== productImageUrl) {
+                                        e.target.src = productImageUrl
+                                        e.target.onerror = null
+                                      } else {
+                                        e.target.style.display = 'none'
+                                      }
                                     }}
                                   />
                                 )
@@ -473,7 +482,7 @@ const OrdersScreen = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex justify-end space-x-2">
+                        <div className="flex justify-end space-x-2 flex-wrap">
                           <button
                             onClick={() => navigate(`/business/orders/${order.id}`)}
                             className="text-brand-600 hover:text-brand-900 font-semibold"
@@ -486,6 +495,14 @@ const OrdersScreen = () => {
                               className="text-green-600 hover:text-green-900 font-semibold"
                             >
                               Confirm
+                            </button>
+                          )}
+                          {(order.status === 'CONFIRMED' || order.status === 'DISPATCHED' || order.status === 'COMPLETED') && (
+                            <button
+                              onClick={() => navigate(`/business/orders/${order.id}`, { state: { openReceivePayment: true } })}
+                              className="text-purple-600 hover:text-purple-900 font-semibold"
+                            >
+                              Receive Payment
                             </button>
                           )}
                         </div>
@@ -551,9 +568,10 @@ const OrdersScreen = () => {
                   }
             
             const shippingCharges = parseFloat(order.shippingCharges || 0)
+            const codFee = order.codFeePaidBy === 'CUSTOMER' && order.codFee ? parseFloat(order.codFee) : 0
+            const orderTotal = productsTotal + shippingCharges + codFee
             const paymentAmount = parseFloat(order.paymentAmount || formData['Payment Amount'] || 0)
-            const orderTotal = productsTotal + shippingCharges
-            const receivedAmount = paymentAmount
+            const receivedAmount = (order.totalPaid != null && order.totalPaid !== undefined) ? Number(order.totalPaid) : paymentAmount
             const pendingAmount = Math.max(0, orderTotal - receivedAmount)
             const displayTotal = orderTotal > 0 ? orderTotal : paymentAmount
             
@@ -580,24 +598,37 @@ const OrdersScreen = () => {
                         <span className="text-xs font-bold text-gray-700 uppercase tracking-wide">Products ({selectedProducts.length})</span>
                       </div>
                       <div className="space-y-2">
-                        {selectedProducts.slice(0, 3).map((product, idx) => (
-                          <div key={product.id || idx} className="flex items-center space-x-2 text-sm">
+                        {selectedProducts.slice(0, 3).map((product, idx) => {
+                          const variantId = product.productVariantId ?? product.variantId
+                          const lineKey = variantId ? `${product.id}_${variantId}` : product.id
+                          const productImageUrl = getImageUrl('product', product.id)
+                          const imageUrl = variantId ? getImageUrl('product-variant', variantId) : productImageUrl
+                          const qty = productQuantities[lineKey] ?? productQuantities[product.id] ?? product.quantity ?? 1
+                          const price = productPrices[lineKey] ?? productPrices[product.id] ?? product.price ?? 0
+                          return (
+                          <div key={lineKey || product.id || idx} className="flex items-center space-x-2 text-sm">
                             <img
-                              src={getImageUrl('product', product.id)}
+                              src={imageUrl}
                               alt={product.name}
                               className="w-8 h-8 rounded object-cover border border-gray-300 flex-shrink-0"
                               onError={(e) => {
-                                e.target.style.display = 'none'
+                                if (variantId && e.target.src !== productImageUrl) {
+                                  e.target.src = productImageUrl
+                                  e.target.onerror = null
+                                } else {
+                                  e.target.style.display = 'none'
+                                }
                               }}
                             />
                             <div className="flex-1 min-w-0">
                               <p className="font-semibold text-gray-900 truncate text-xs">{product.name}</p>
                               <p className="text-xs text-gray-600">
-                                Qty: {productQuantities[product.id] || 1} × Rs. {parseFloat(productPrices[product.id] || 0).toLocaleString()}
+                                Qty: {qty} × Rs. {parseFloat(price || 0).toLocaleString()}
                               </p>
                             </div>
                           </div>
-                        ))}
+                          )
+                        })}
                         {selectedProducts.length > 3 && (
                           <p className="text-xs text-gray-500 font-medium">+{selectedProducts.length - 3} more products</p>
                         )}
@@ -652,7 +683,7 @@ const OrdersScreen = () => {
 
                   {renderDressImages(order)}
 
-                  <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end gap-2">
+                  <div className="mt-6 pt-4 border-t border-gray-200 flex justify-end gap-2 flex-wrap">
                     <button
                       onClick={() => navigate(`/business/orders/${order.id}`)}
                       className="btn-secondary text-sm py-1.5 px-4"
@@ -665,6 +696,15 @@ const OrdersScreen = () => {
                         className="btn-primary text-sm py-1.5 px-4"
                       >
                         Confirm
+                      </button>
+                    )}
+                    {(order.status === 'CONFIRMED' || order.status === 'DISPATCHED' || order.status === 'COMPLETED') && (
+                      <button
+                        onClick={() => navigate(`/business/orders/${order.id}`, { state: { openReceivePayment: true } })}
+                        className="btn-primary text-sm py-1.5 px-4 bg-purple-600 hover:bg-purple-700"
+                      >
+                        <CurrencyDollarIcon className="h-4 w-4 mr-1 inline" />
+                        Receive Payment
                       </button>
                     )}
                   </div>

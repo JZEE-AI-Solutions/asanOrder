@@ -290,6 +290,15 @@ const ProductHistoryModal = ({ product, isOpen, onClose }) => {
                             </div>
                           )}
 
+                          {log.productVariant && (
+                            <div className="bg-gray-50 rounded-lg p-3">
+                              <div className="font-medium text-gray-900 mb-1">Variant</div>
+                              <div className="text-gray-600">
+                                {[log.productVariant.color, log.productVariant.size].filter(Boolean).join(' · ') || log.productVariant.sku || '—'}
+                              </div>
+                            </div>
+                          )}
+
                           {log.reference && (
                             <div className="bg-gray-50 rounded-lg p-3">
                               <div className="font-medium text-gray-900 mb-1">Reference</div>

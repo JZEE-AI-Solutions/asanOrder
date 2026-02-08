@@ -467,16 +467,26 @@ router.post('/', authenticateToken, async (req, res) => {
 
       // Create payment record (for both verified and unverified payments)
       // For customer payments, always create payment record
-      // For supplier payments, only create if there's actual cash/bank payment
+      // For supplier payments, create when there is any payment (cash and/or advance) so it appears on supplier dashboard
+      const totalSupplierPaymentAmount = type === 'SUPPLIER_PAYMENT' ? (cashPaymentAmount + actualAdvanceUsed) : 0;
+      const supplierPaymentMethod =
+        type === 'SUPPLIER_PAYMENT'
+          ? cashPaymentAmount > 0 && actualAdvanceUsed > 0
+            ? `${paymentMethod || 'Cash'} + Advance`
+            : actualAdvanceUsed > 0
+              ? 'Advance'
+              : (paymentMethod || 'Cash')
+          : null;
+
       let payment = null;
-      if (type === 'CUSTOMER_PAYMENT' || (type === 'SUPPLIER_PAYMENT' && cashPaymentAmount > 0)) {
+      if (type === 'CUSTOMER_PAYMENT' || (type === 'SUPPLIER_PAYMENT' && totalSupplierPaymentAmount > 0)) {
         payment = await tx.payment.create({
           data: {
             paymentNumber,
             date: new Date(date),
             type,
-            amount: type === 'CUSTOMER_PAYMENT' ? parseFloat(amount) : cashPaymentAmount,
-            paymentMethod: paymentMethod || (type === 'CUSTOMER_PAYMENT' ? 'Cash' : null),
+            amount: type === 'CUSTOMER_PAYMENT' ? parseFloat(amount) : totalSupplierPaymentAmount,
+            paymentMethod: type === 'CUSTOMER_PAYMENT' ? (paymentMethod || 'Cash') : supplierPaymentMethod,
             accountId: paymentAccountId || null,
             tenantId,
             customerId: type === 'CUSTOMER_PAYMENT' ? customerId : null,
@@ -495,22 +505,9 @@ router.post('/', authenticateToken, async (req, res) => {
         });
       }
 
-      // Update order payment amount if customer payment with order
-      if (type === 'CUSTOMER_PAYMENT' && orderId) {
-        const order = await tx.order.findUnique({
-          where: { id: orderId }
-        });
-        
-        if (order) {
-          const currentPaymentAmount = order.paymentAmount || 0;
-          await tx.order.update({
-            where: { id: orderId },
-            data: {
-              paymentAmount: currentPaymentAmount + parseFloat(amount)
-            }
-          });
-        }
-      }
+      // Do NOT update order.paymentAmount when recording a payment.
+      // order.paymentAmount = amount customer stated at order submission (may require verification).
+      // Payments recorded via "Receive Payment" are already confirmed; total paid = verified amount + sum(Payment records).
 
       // Update customer advance balance
       if (type === 'CUSTOMER_PAYMENT' && customerId) {
@@ -999,6 +996,100 @@ router.put('/:id', authenticateToken, async (req, res) => {
       error: {
         code: 'INTERNAL_ERROR',
         message: error.message || 'Failed to update payment'
+      }
+    });
+  }
+});
+
+// Associate direct payment with order (no accounting - amount already posted)
+router.patch('/:id/associate-order', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('orderId').notEmpty().withMessage('Order ID is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Validation failed',
+          details: errors.array()
+        }
+      });
+    }
+
+    const tenantId = req.user.tenant.id;
+    const { id } = req.params;
+    const { orderId } = req.body;
+
+    const payment = await prisma.payment.findFirst({
+      where: {
+        id,
+        tenantId,
+        type: 'CUSTOMER_PAYMENT'
+      },
+      include: { customer: true }
+    });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'NOT_FOUND',
+          message: 'Payment not found'
+        }
+      });
+    }
+
+    if (payment.orderId) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Payment is already associated with an order'
+        }
+      });
+    }
+
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        tenantId,
+        customerId: payment.customerId
+      }
+    });
+
+    if (!order) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Order not found or does not belong to this customer'
+        }
+      });
+    }
+
+    const updatedPayment = await prisma.payment.update({
+      where: { id },
+      data: { orderId },
+      include: {
+        order: { select: { orderNumber: true } },
+        account: true,
+        customer: { select: { name: true } }
+      }
+    });
+
+    return res.json({
+      success: true,
+      data: updatedPayment
+    });
+  } catch (error) {
+    console.error('Associate payment with order error:', error);
+    return res.status(500).json({
+      success: false,
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error.message || 'Failed to associate payment with order'
       }
     });
   }

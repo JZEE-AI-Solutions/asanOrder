@@ -48,16 +48,14 @@ api.interceptors.response.use(
   }
 )
 
-// Helper function to get the correct image URL with cache-busting
-export const getImageUrl = (entityType, entityId, bustCache = false) => {
+// Helper function to get the correct image URL with cache-busting and optional specific media (for product/variant galleries)
+export const getImageUrl = (entityType, entityId, bustCache = false, imageId = null) => {
   const baseUrl = import.meta.env.VITE_API_URL || ''
-  const url = `${baseUrl}/api/images/public/${entityType}/${entityId}`
-  
-  // Add cache-busting parameter if requested
-  if (bustCache) {
-    return `${url}?t=${Date.now()}`
-  }
-  
+  let url = `${baseUrl}/api/images/public/${entityType}/${entityId}`
+  const params = new URLSearchParams()
+  if (imageId) params.set('imageId', imageId)
+  if (bustCache) params.set('t', String(Date.now()))
+  if (params.toString()) url += `?${params.toString()}`
   return url
 }
 

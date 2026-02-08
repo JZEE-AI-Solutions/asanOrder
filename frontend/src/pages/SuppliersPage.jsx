@@ -64,8 +64,7 @@ const SuppliersPage = () => {
     };
 
     const handleSupplierClick = (supplier) => {
-        // For now, we'll just log. You can add a details page later
-        console.log('Supplier clicked:', supplier);
+        navigate(`/business/suppliers/${supplier.id}`);
     };
 
     const handleAddSupplier = () => {

@@ -143,6 +143,7 @@ model Order {
   transactions          Transaction[]
   payments              Payment[]
   orderReturns          Return[]
+  orderItems            OrderItem[]
 
   @@index([tenantId, status])
   @@index([customerId])
@@ -168,8 +169,10 @@ model PurchaseItem {
   tenantId          String
   purchaseInvoiceId String
   productId         String?
+  productVariantId  String?
   productLogs       ProductLog[]
   product           Product?        @relation(fields: [productId], references: [id], onUpdate: NoAction)
+  productVariant    ProductVariant? @relation(fields: [productVariantId], references: [id], onUpdate: NoAction)
   purchaseInvoice   PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id], onUpdate: NoAction)
   tenant            Tenant          @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
 
@@ -177,7 +180,7 @@ model PurchaseItem {
 }
 
 model Product {
-  id                            String         @id @default(cuid())
+  id                            String              @id @default(cuid())
   name                          String
   description                   String?
   category                      String?
@@ -185,29 +188,48 @@ model Product {
   image                         String?
   imageData                     Bytes?
   imageType                     String?
-  isActive                      Boolean        @default(true)
-  createdAt                     DateTime       @default(now())
-  updatedAt                     DateTime       @updatedAt
+  isActive                      Boolean             @default(true)
+  isStitched                    Boolean             @default(false)
+  hasVariants                   Boolean             @default(false)
+  createdAt                     DateTime            @default(now())
+  updatedAt                     DateTime            @updatedAt
   tenantId                      String
-  currentQuantity               Int            @default(0)
+  currentQuantity               Int                 @default(0)
   currentRetailPrice            Float?
   lastPurchasePrice             Float?
   lastSalePrice                 Float?
-  lastUpdated                   DateTime       @default(now())
+  lastUpdated                   DateTime            @default(now())
   maxStockLevel                 Int?
-  minStockLevel                 Int            @default(0)
-  shippingQuantityRules         String?        @db.Text
+  minStockLevel                 Int                 @default(0)
+  shippingQuantityRules         String?             @db.Text
   shippingDefaultQuantityCharge Float?
-  useDefaultShipping            Boolean        @default(true)
+  useDefaultShipping            Boolean             @default(true)
   productLogs                   ProductLog[]
-  tenant                        Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  productImages                 ProductImage[]
+  variants                      ProductVariant[]
+  orderItems                    OrderItem[]
+  tenant                        Tenant              @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
   purchaseItems                 PurchaseItem[]
 
   @@map("products")
 }
 
+model ProductImage {
+  id         String   @id @default(cuid())
+  productId  String
+  mediaData  Bytes
+  mediaType  String   // image/jpeg, image/png, video/mp4, etc.
+  isPrimary  Boolean  @default(false)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
+}
+
 model ProductLog {
-  id             String        @id @default(cuid())
+  id             String         @id @default(cuid())
   action         String
   quantity       Int?
   oldQuantity    Int?
@@ -217,13 +239,15 @@ model ProductLog {
   reason         String?
   reference      String?
   notes          String?
-  createdAt      DateTime      @default(now())
+  createdAt      DateTime       @default(now())
   tenantId       String
   productId      String?
+  productVariantId String?
   purchaseItemId String?
-  product        Product?      @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  purchaseItem   PurchaseItem? @relation(fields: [purchaseItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  tenant         Tenant        @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  product        Product?       @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  productVariant ProductVariant? @relation(fields: [productVariantId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  purchaseItem   PurchaseItem?  @relation(fields: [purchaseItemId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
 
   @@map("product_logs")
 }
@@ -295,16 +319,19 @@ model Return {
 }
 
 model ReturnItem {
-  id            String   @id @default(cuid())
-  productName   String
-  description   String?
-  purchasePrice Float
-  quantity      Int
-  reason        String?
-  sku           String?
-  createdAt     DateTime @default(now())
-  returnId      String
-  return        Return   @relation(fields: [returnId], references: [id], onUpdate: NoAction)
+  id              String         @id @default(cuid())
+  productName     String
+  description     String?
+  purchasePrice   Float
+  quantity        Int
+  reason          String?
+  sku             String?
+  productVariantId String?
+  color           String?
+  size            String?
+  createdAt       DateTime       @default(now())
+  returnId        String
+  return          Return         @relation(fields: [returnId], references: [id], onUpdate: NoAction)
 
   @@map("return_items")
 }
@@ -640,4 +667,63 @@ model Withdrawal {
   @@index([type, tenantId])
   @@index([investorId])
   @@map("withdrawals")
+}
+
+model ProductVariant {
+  id              String                @id @default(cuid())
+  productId       String
+  color           String
+  size            String?
+  sku             String?               @unique
+  currentQuantity Int                   @default(0)
+  minStockLevel   Int                   @default(0)
+  maxStockLevel   Int?
+  isActive        Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  product         Product               @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productLogs     ProductLog[]
+  purchaseItems   PurchaseItem[]
+  orderItems      OrderItem[]
+  images          ProductVariantImage[]
+
+  @@unique([productId, color, size])
+  @@index([productId])
+  @@index([sku])
+  @@map("product_variants")
+}
+
+model OrderItem {
+  id              String         @id @default(cuid())
+  orderId         String
+  productId       String?
+  productVariantId String?
+  productName     String
+  quantity        Int
+  price           Float
+  color           String?
+  size            String?
+  createdAt       DateTime       @default(now())
+  order           Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product         Product?       @relation(fields: [productId], references: [id], onUpdate: NoAction)
+  productVariant  ProductVariant? @relation(fields: [productVariantId], references: [id], onUpdate: NoAction)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([productVariantId])
+  @@map("order_items")
+}
+
+model ProductVariantImage {
+  id              String         @id @default(cuid())
+  productVariantId String
+  imageData       Bytes
+  imageType       String
+  isPrimary       Boolean        @default(false)
+  sortOrder       Int            @default(0)
+  createdAt       DateTime       @default(now())
+  productVariant  ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+
+  @@index([productVariantId])
+  @@map("product_variant_images")
 }

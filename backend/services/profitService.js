@@ -18,7 +18,6 @@ class ProfitService {
     if (fromDate) dateFilter.gte = new Date(fromDate);
     if (toDate) dateFilter.lte = new Date(toDate);
 
-    // Get revenue (Sales - Returns)
     const confirmedOrders = await prisma.order.findMany({
       where: {
         tenantId,
@@ -30,7 +29,8 @@ class ProfitService {
         productQuantities: true,
         productPrices: true,
         shippingCharges: true,
-        refundAmount: true
+        refundAmount: true,
+        orderItems: { select: { quantity: true, price: true } }
       }
     });
 
@@ -38,37 +38,30 @@ class ProfitService {
     let totalShippingRevenue = 0;
 
     for (const order of confirmedOrders) {
-      // Parse order data
-      let selectedProducts = [];
-      let productQuantities = {};
-      let productPrices = {};
-
-      try {
-        selectedProducts = typeof order.selectedProducts === 'string' 
-          ? JSON.parse(order.selectedProducts) 
-          : (order.selectedProducts || []);
-        productQuantities = typeof order.productQuantities === 'string'
-          ? JSON.parse(order.productQuantities)
-          : (order.productQuantities || {});
-        productPrices = typeof order.productPrices === 'string'
-          ? JSON.parse(order.productPrices)
-          : (order.productPrices || {});
-      } catch (e) {
-        continue;
-      }
-
-      // Calculate products revenue
-      if (Array.isArray(selectedProducts)) {
-        selectedProducts.forEach(product => {
-          const quantity = productQuantities[product.id] || product.quantity || 1;
-          const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
-          totalRevenue += price * quantity;
+      if (order.orderItems && order.orderItems.length > 0) {
+        order.orderItems.forEach(item => {
+          totalRevenue += (item.quantity || 0) * (item.price || 0);
         });
+      } else {
+        let selectedProducts = [];
+        let productQuantities = {};
+        let productPrices = {};
+        try {
+          selectedProducts = typeof order.selectedProducts === 'string' ? JSON.parse(order.selectedProducts) : (order.selectedProducts || []);
+          productQuantities = typeof order.productQuantities === 'string' ? JSON.parse(order.productQuantities) : (order.productQuantities || {});
+          productPrices = typeof order.productPrices === 'string' ? JSON.parse(order.productPrices) : (order.productPrices || {});
+        } catch (e) { continue; }
+        if (Array.isArray(selectedProducts)) {
+          selectedProducts.forEach(product => {
+            const vid = product.variantId || product.productVariantId;
+            const key = vid ? `${product.id}_${vid}` : product.id;
+            const quantity = productQuantities[key] ?? productQuantities[product.id] ?? product.quantity ?? 1;
+            const price = productPrices[key] ?? productPrices[product.id] ?? product.price ?? product.currentRetailPrice ?? 0;
+            totalRevenue += price * quantity;
+          });
+        }
       }
-
-      // Add shipping revenue
-      const shippingCharges = order.shippingCharges || 0;
-      totalShippingRevenue += shippingCharges;
+      totalShippingRevenue += order.shippingCharges || 0;
     }
 
     // Subtract returns
@@ -499,7 +492,7 @@ class ProfitService {
       whereClause.createdAt = dateFilter;
     }
 
-    // Get orders
+    // Get orders (include orderItems for variant-correct revenue/cost)
     const orders = await prisma.order.findMany({
       where: whereClause,
       select: {
@@ -514,7 +507,15 @@ class ProfitService {
         shippingVariance: true,
         actualShippingCost: true,
         codFee: true,
-        codFeePaidBy: true
+        codFeePaidBy: true,
+        orderItems: {
+          select: {
+            quantity: true,
+            price: true,
+            productId: true,
+            product: { select: { lastPurchasePrice: true } }
+          }
+        }
       },
       orderBy: {
         createdAt: 'desc'
@@ -528,70 +529,61 @@ class ProfitService {
     // Calculate profit for each order
     for (const order of orders) {
       try {
-        // Parse order data
-        let selectedProducts = [];
-        let productQuantities = {};
-        let productPrices = {};
-
-        selectedProducts = typeof order.selectedProducts === 'string' 
-          ? JSON.parse(order.selectedProducts) 
-          : (order.selectedProducts || []);
-        productQuantities = typeof order.productQuantities === 'string'
-          ? JSON.parse(order.productQuantities)
-          : (order.productQuantities || {});
-        productPrices = typeof order.productPrices === 'string'
-          ? JSON.parse(order.productPrices)
-          : (order.productPrices || {});
-
-        // Calculate revenue (products + shipping)
         let orderRevenue = 0;
-        if (Array.isArray(selectedProducts)) {
-          selectedProducts.forEach(product => {
-            const quantity = productQuantities[product.id] || product.quantity || 1;
-            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
-            orderRevenue += price * quantity;
+        let orderCost = 0;
+
+        if (order.orderItems && order.orderItems.length > 0) {
+          order.orderItems.forEach(item => {
+            orderRevenue += (item.quantity || 0) * (item.price || 0);
+            const purchasePrice = item.product?.lastPurchasePrice ?? 0;
+            orderCost += (item.quantity || 0) * purchasePrice;
           });
+        } else {
+          let selectedProducts = [];
+          let productQuantities = {};
+          let productPrices = {};
+          selectedProducts = typeof order.selectedProducts === 'string' ? JSON.parse(order.selectedProducts) : (order.selectedProducts || []);
+          productQuantities = typeof order.productQuantities === 'string' ? JSON.parse(order.productQuantities) : (order.productQuantities || {});
+          productPrices = typeof order.productPrices === 'string' ? JSON.parse(order.productPrices) : (order.productPrices || {});
+
+          if (Array.isArray(selectedProducts)) {
+            selectedProducts.forEach(product => {
+              const vid = product.variantId || product.productVariantId;
+              const key = vid ? `${product.id}_${vid}` : product.id;
+              const quantity = productQuantities[key] ?? productQuantities[product.id] ?? product.quantity ?? 1;
+              const price = productPrices[key] ?? productPrices[product.id] ?? product.price ?? product.currentRetailPrice ?? 0;
+              orderRevenue += price * quantity;
+            });
+            for (const product of selectedProducts) {
+              const vid = product.variantId || product.productVariantId;
+              const key = vid ? `${product.id}_${vid}` : product.id;
+              const quantity = productQuantities[key] ?? productQuantities[product.id] ?? product.quantity ?? 1;
+              let purchasePrice = product.purchasePrice || product.currentPurchasePrice || product.lastPurchasePrice || 0;
+              if (!purchasePrice && product.id) {
+                try {
+                  const dbProduct = await prisma.product.findUnique({
+                    where: { id: product.id },
+                    select: { lastPurchasePrice: true }
+                  });
+                  purchasePrice = dbProduct?.lastPurchasePrice || 0;
+                } catch (e) {
+                  purchasePrice = 0;
+                }
+              }
+              orderCost += purchasePrice * quantity;
+            }
+          }
         }
+
         orderRevenue += (order.shippingCharges || 0);
-        
-        // Add COD fee revenue if customer pays
         if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
           orderRevenue += order.codFee;
         }
 
-        // Calculate cost (COGS + actual shipping cost)
-        let orderCost = 0;
-        if (Array.isArray(selectedProducts)) {
-          for (const product of selectedProducts) {
-            const quantity = productQuantities[product.id] || product.quantity || 1;
-            // Try to get purchase price from product data first
-            let purchasePrice = product.purchasePrice || product.currentPurchasePrice || product.lastPurchasePrice || 0;
-            
-            // If not found, fetch from database
-            if (!purchasePrice && product.id) {
-              try {
-                const dbProduct = await prisma.product.findUnique({
-                  where: { id: product.id },
-                  select: { lastPurchasePrice: true }
-                });
-                purchasePrice = dbProduct?.lastPurchasePrice || 0;
-              } catch (e) {
-                // If product not found, use 0
-                purchasePrice = 0;
-              }
-            }
-            orderCost += purchasePrice * quantity;
-          }
-        }
-        
-        // Add actual shipping cost to order cost
-        // If actualShippingCost is not set, use shippingCharges as fallback
         const actualShippingCost = order.actualShippingCost !== null && order.actualShippingCost !== undefined
           ? order.actualShippingCost
           : (order.shippingCharges || 0);
         orderCost += actualShippingCost;
-
-        // Add COD fee expense (business always pays logistics company, regardless of who pays customer)
         if (order.codFee && order.codFee > 0) {
           orderCost += order.codFee;
         }
@@ -648,6 +640,100 @@ class ProfitService {
         net: shippingVarianceNet
       }
     };
+  }
+
+  /**
+   * Calculate profit for a single order (for order details page).
+   * Uses orderItems when present; otherwise falls back to selectedProducts + productQuantities/productPrices with composite key.
+   * @param {Object} order - Order with optional orderItems, selectedProducts, productQuantities, productPrices
+   * @returns {Object} { orderRevenue, orderCost, profit, profitMargin } or null on error
+   */
+  async calculateOrderProfit(order) {
+    if (!order) return null;
+    try {
+      let orderRevenue = 0;
+      let orderCost = 0;
+
+      if (order.orderItems && order.orderItems.length > 0) {
+        for (const item of order.orderItems) {
+          orderRevenue += (item.quantity || 0) * (item.price || 0);
+          let purchasePrice = item.product?.lastPurchasePrice ?? 0;
+          if ((!purchasePrice || purchasePrice === 0) && (item.productId || item.productVariantId)) {
+            const whereClause = { tenantId: order.tenantId };
+            if (item.productVariantId) whereClause.productVariantId = item.productVariantId;
+            else if (item.productId) whereClause.productId = item.productId;
+            const latest = await prisma.purchaseItem.findFirst({
+              where: whereClause,
+              orderBy: { createdAt: 'desc' }
+            });
+            if (latest) purchasePrice = latest.purchasePrice;
+          }
+          orderCost += (item.quantity || 0) * purchasePrice;
+        }
+      } else {
+        let selectedProducts = [];
+        let productQuantities = {};
+        let productPrices = {};
+        try {
+          selectedProducts = typeof order.selectedProducts === 'string' ? JSON.parse(order.selectedProducts) : (order.selectedProducts || []);
+          productQuantities = typeof order.productQuantities === 'string' ? JSON.parse(order.productQuantities) : (order.productQuantities || {});
+          productPrices = typeof order.productPrices === 'string' ? JSON.parse(order.productPrices) : (order.productPrices || {});
+        } catch (e) {
+          return null;
+        }
+        if (Array.isArray(selectedProducts)) {
+          selectedProducts.forEach(product => {
+            const vid = product.variantId || product.productVariantId;
+            const key = vid ? `${product.id}_${vid}` : product.id;
+            const quantity = productQuantities[key] ?? productQuantities[product.id] ?? product.quantity ?? 1;
+            const price = productPrices[key] ?? productPrices[product.id] ?? product.price ?? product.currentRetailPrice ?? 0;
+            orderRevenue += price * quantity;
+          });
+          for (const product of selectedProducts) {
+            const vid = product.variantId || product.productVariantId;
+            const key = vid ? `${product.id}_${vid}` : product.id;
+            const quantity = productQuantities[key] ?? productQuantities[product.id] ?? product.quantity ?? 1;
+            let purchasePrice = product.purchasePrice || product.currentPurchasePrice || product.lastPurchasePrice || 0;
+            if (!purchasePrice && product.id) {
+              try {
+                const dbProduct = await prisma.product.findUnique({
+                  where: { id: product.id },
+                  select: { lastPurchasePrice: true }
+                });
+                purchasePrice = dbProduct?.lastPurchasePrice || 0;
+              } catch (e) {
+                purchasePrice = 0;
+              }
+            }
+            orderCost += purchasePrice * quantity;
+          }
+        }
+      }
+
+      orderRevenue += (order.shippingCharges || 0);
+      if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
+        orderRevenue += order.codFee;
+      }
+      const actualShippingCost = order.actualShippingCost != null ? order.actualShippingCost : (order.shippingCharges || 0);
+      orderCost += actualShippingCost;
+      if (order.codFee && order.codFee > 0) {
+        orderCost += order.codFee;
+      }
+
+      const profit = orderRevenue - orderCost;
+      const profitMargin = orderRevenue > 0 ? (profit / orderRevenue) * 100 : 0;
+      return {
+        orderRevenue,
+        orderCost,
+        totalRevenue: orderRevenue,
+        totalCost: orderCost,
+        profit,
+        profitMargin,
+      };
+    } catch (error) {
+      console.error('calculateOrderProfit error:', error);
+      return null;
+    }
   }
 }
 

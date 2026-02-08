@@ -12,7 +12,7 @@ class BalanceService {
       include: {
         orders: {
           where: {
-            status: 'CONFIRMED'
+            status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] }
           },
           select: {
             id: true,
@@ -28,7 +28,8 @@ class BalanceService {
             codFee: true,
             codFeePaidBy: true,
             createdAt: true,
-            updatedAt: true
+            updatedAt: true,
+            orderItems: { select: { quantity: true, price: true } }
           }
         }
       }
@@ -126,52 +127,49 @@ class BalanceService {
     const orderBalances = [];
 
     for (const order of customer.orders) {
-      // Parse order data
-      let selectedProducts = [];
-      let productQuantities = {};
-      let productPrices = {};
-
-      try {
-        selectedProducts = typeof order.selectedProducts === 'string'
-          ? JSON.parse(order.selectedProducts)
-          : (order.selectedProducts || []);
-        productQuantities = typeof order.productQuantities === 'string'
-          ? JSON.parse(order.productQuantities)
-          : (order.productQuantities || {});
-        productPrices = typeof order.productPrices === 'string'
-          ? JSON.parse(order.productPrices)
-          : (order.productPrices || {});
-      } catch (e) {
-        console.error('Error parsing order data:', e);
-        continue;
-      }
-
-      // Calculate order total (products + shipping)
+      // Calculate order total: prefer normalized orderItems when present, else legacy selectedProducts
       let orderTotal = 0;
-      if (Array.isArray(selectedProducts)) {
-        selectedProducts.forEach(product => {
-          const quantity = productQuantities[product.id] || product.quantity || 1;
-          const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
-          orderTotal += price * quantity;
-        });
+      if (order.orderItems && order.orderItems.length > 0) {
+        orderTotal = order.orderItems.reduce((sum, item) => sum + (item.quantity || 0) * (item.price || 0), 0);
+      } else {
+        let selectedProducts = [];
+        let productQuantities = {};
+        let productPrices = {};
+        try {
+          selectedProducts = typeof order.selectedProducts === 'string'
+            ? JSON.parse(order.selectedProducts)
+            : (order.selectedProducts || []);
+          productQuantities = typeof order.productQuantities === 'string'
+            ? JSON.parse(order.productQuantities)
+            : (order.productQuantities || {});
+          productPrices = typeof order.productPrices === 'string'
+            ? JSON.parse(order.productPrices)
+            : (order.productPrices || {});
+        } catch (e) {
+          console.error('Error parsing order data:', e);
+          continue;
+        }
+        if (Array.isArray(selectedProducts)) {
+          selectedProducts.forEach(product => {
+            const quantity = productQuantities[product.id] || product.quantity || 1;
+            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+            orderTotal += price * quantity;
+          });
+        }
       }
 
-      // Add shipping charges
       const shippingCharges = order.shippingCharges || 0;
       orderTotal += shippingCharges;
 
-      // Add COD fee if customer pays
       if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
         orderTotal += order.codFee;
       }
 
       totalOrderValue += orderTotal;
 
-      // Calculate pending amount
-      // Use verified payment amount if payment is verified, otherwise use 0 (unverified payments don't count)
-      const paidAmount = order.paymentVerified && order.verifiedPaymentAmount !== null && order.verifiedPaymentAmount !== undefined
-        ? order.verifiedPaymentAmount
-        : 0;
+      // Paid = sum of Payment records for this order (verify-payment and Receive Payment both create records; do not add order.verifiedPaymentAmount or we double-count)
+      const orderPayments = allPayments.filter(p => p.orderId === order.id);
+      const paidAmount = orderPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
       totalVerifiedPayments += paidAmount;
       const refundAmount = order.refundAmount || 0;
       const pending = Math.max(0, orderTotal - paidAmount - refundAmount);
@@ -202,9 +200,12 @@ class BalanceService {
     const totalRefunds = allReturns.reduce((sum, r) => sum + (r.refundAmount || 0), 0);
 
     // Net balance calculation:
-    // Opening AR + Order Totals - Verified Payments - Direct Payments - Returns + Opening Advance
+    // Opening AR + Order Totals - Verified Payments - Direct Payments - Returns
     const netARBalance = openingARBalance + totalOrderValue - totalVerifiedPayments - totalDirectPayments - totalReturns;
-    const netBalance = netARBalance - openingAdvanceBalance; // Positive = customer owes, Negative = customer has advance
+    // When no explicit opening transaction, openingAdvanceBalance = customer.advanceBalance (from direct payments already in totalDirectPayments). Don't subtract again or we double-count.
+    const netBalance = openingBalanceTransaction
+      ? netARBalance - openingAdvanceBalance
+      : netARBalance; // Positive = customer owes, Negative = customer has advance
 
     return {
       customerId: customer.id,

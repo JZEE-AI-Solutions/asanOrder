@@ -45,6 +45,12 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   const [paymentReceipt, setPaymentReceipt] = useState(null)
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
   const [customerFormData, setCustomerFormData] = useState(null) // Store customer form data
+  const [variantSelectionModal, setVariantSelectionModal] = useState({ isOpen: false, product: null })
+  const [selectedVariant, setSelectedVariant] = useState(null) // For variant selection modal
+  const [productVariants, setProductVariants] = useState({}) // productId -> variants[]
+  const [galleryModal, setGalleryModal] = useState({ isOpen: false, product: null, selectedIndex: 0, selectedVariant: null, selectedVariantMediaIndex: 0 })
+  // Per-card variant selection: when user clicks a variant thumbnail on a product card, we store it so main image and Add to Cart use it
+  const [cardSelectedVariant, setCardSelectedVariant] = useState({}) // { [productId]: variant }
 
   const {
     register,
@@ -208,53 +214,133 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     }
   }
 
+  // Available quantity for display: use variant total when product has variants, else product-level stock
+  const getProductAvailableQty = (product) => {
+    if (product.hasVariants && product.totalVariantStock != null) {
+      return product.totalVariantStock
+    }
+    return product.currentQuantity ?? product.quantity ?? 0
+  }
+
+  // Fetch variants for a product
+  const fetchProductVariants = async (productId) => {
+    if (!productId || productVariants[productId]) {
+      return // Already fetched or no product ID
+    }
+
+    try {
+      const response = await api.get(`/product/${productId}/variants`)
+      if (response.data.variants) {
+        setProductVariants(prev => ({
+          ...prev,
+          [productId]: response.data.variants || []
+        }))
+      }
+    } catch (error) {
+      console.error('Error fetching variants:', error)
+      setProductVariants(prev => ({
+        ...prev,
+        [productId]: []
+      }))
+    }
+  }
+
   const addToCart = (product) => {
-    // Check if product is in stock
-    const stock = product.currentQuantity || product.quantity || 0
-    if (stock <= 0) {
-      toast.error(`${product.name} is out of stock`)
+    // If product has variants, use card-selected variant if one is chosen and in stock; otherwise show popup
+    if (product.hasVariants) {
+      const selectedOnCard = cardSelectedVariant[product.id]
+      if (selectedOnCard && (selectedOnCard.currentQuantity ?? 0) > 0) {
+        addProductToCart(product, selectedOnCard)
+        return
+      }
+      // No selection or selected variant out of stock – open variant selection modal
+      if (product.variants?.length && !productVariants[product.id]) {
+        setProductVariants(prev => ({ ...prev, [product.id]: product.variants }))
+      } else if (!product.variants?.length && !productVariants[product.id]) {
+        fetchProductVariants(product.id)
+      }
+      setVariantSelectionModal({ isOpen: true, product })
+      setSelectedVariant(null)
       return
     }
-    
-    const existingItem = cart.find(item => item.id === product.id)
+
+    // For non-variant products, add directly to cart
+    addProductToCart(product, null)
+  }
+
+  const addProductToCart = (product, variant) => {
+    // Check stock (variant stock or product stock)
+    let stock = 0
+    if (variant) {
+      stock = variant.currentQuantity || 0
+    } else {
+      stock = product.currentQuantity || product.quantity || 0
+      if (product.hasVariants && product.totalVariantStock !== null) {
+        stock = product.totalVariantStock || 0
+      }
+    }
+
+    if (stock <= 0) {
+      toast.error(`${product.name}${variant ? ` (${variant.color}${variant.size ? `, ${variant.size}` : ''})` : ''} is out of stock`)
+      return
+    }
+
+    // Create cart item key (productId + variantId for uniqueness)
+    const cartItemKey = variant ? `${product.id}-${variant.id}` : product.id
+    const existingItem = cart.find(item => {
+      const itemKey = item.variantId ? `${item.id}-${item.variantId}` : item.id
+      return itemKey === cartItemKey
+    })
     
     if (existingItem) {
-      setCart(cart.map(item =>
-        item.id === product.id
+      setCart(cart.map(item => {
+        const itemKey = item.variantId ? `${item.id}-${item.variantId}` : item.id
+        return itemKey === cartItemKey
           ? { ...item, quantity: item.quantity + 1 }
           : item
-      ))
+      }))
     } else {
       // Use product.price (from form's selectedProducts) if available, otherwise use currentRetailPrice
       const productPrice = product.price !== undefined && product.price !== null
         ? (typeof product.price === 'number' ? product.price : parseFloat(product.price) || 0)
         : (product.currentRetailPrice ? parseFloat(product.currentRetailPrice) || 0 : 0)
-      console.log('🛒 Adding to cart:', product.name, 'Price:', productPrice, 'From product.price:', product.price, 'From currentRetailPrice:', product.currentRetailPrice)
-      setCart([...cart, { 
-        ...product, 
+      
+      const primaryMediaType = variant?.images?.[0]?.imageType ?? product.productImages?.[0]?.mediaType ?? null
+      const cartItem = {
+        ...product,
         quantity: 1,
         price: productPrice,
-        hasImage: product.hasImage
-      }])
+        hasImage: product.hasImage,
+        variantId: variant?.id || null,
+        productVariantId: variant?.id || null,
+        color: variant?.color || null,
+        size: variant?.size || null,
+        primaryMediaType: primaryMediaType || undefined
+      }
+      
+      setCart([...cart, cartItem])
     }
-    toast.success(`${product.name} added to cart`)
+    
+    const variantText = variant ? ` (${variant.color}${variant.size ? `, ${variant.size}` : ''})` : ''
+    toast.success(`${product.name}${variantText} added to cart`)
+    setVariantSelectionModal({ isOpen: false, product: null })
+    setSelectedVariant(null)
   }
 
-  const removeFromCart = (productId) => {
-    setCart(cart.filter(item => item.id !== productId))
+  const getCartLineKey = (item) => (item.variantId || item.productVariantId) ? `${item.id}-${item.variantId || item.productVariantId}` : item.id
+
+  const removeFromCart = (lineKey) => {
+    setCart(cart.filter(item => getCartLineKey(item) !== lineKey))
     toast.success('Item removed from cart')
   }
 
-  const updateQuantity = (productId, quantity) => {
+  const updateQuantity = (lineKey, quantity) => {
     if (quantity <= 0) {
-      removeFromCart(productId)
+      removeFromCart(lineKey)
       return
     }
-    
     setCart(cart.map(item =>
-      item.id === productId
-        ? { ...item, quantity }
-        : item
+      getCartLineKey(item) === lineKey ? { ...item, quantity } : item
     ))
   }
 
@@ -365,6 +451,10 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
       if (data.City) {
         formData.City = data.City
       }
+      // CNIC (optional) - include when provided
+      if (data.CNIC !== undefined && data.CNIC !== null && String(data.CNIC).trim() !== '') {
+        formData.CNIC = String(data.CNIC).trim()
+      }
 
       // Calculate payment amount based on payment method
       let finalPaymentAmount = null
@@ -384,14 +474,22 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
           id: item.id,
           name: item.name,
           price: item.price,
-          quantity: item.quantity
+          quantity: item.quantity,
+          variantId: item.variantId || item.productVariantId || null,
+          productVariantId: item.variantId || item.productVariantId || null,
+          color: item.color || null,
+          size: item.size || null
         }))) : null,
         productQuantities: JSON.stringify(cart.reduce((acc, item) => {
-          acc[item.id] = item.quantity
+          const vid = item.variantId || item.productVariantId
+          const key = vid ? `${item.id}_${vid}` : item.id
+          acc[key] = item.quantity
           return acc
         }, {})),
         productPrices: JSON.stringify(cart.reduce((acc, item) => {
-          acc[item.id] = item.price
+          const vid = item.variantId || item.productVariantId
+          const key = vid ? `${item.id}_${vid}` : item.id
+          acc[key] = item.price
           return acc
         }, {}))
       }
@@ -446,168 +544,189 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     }
   }
 
+  // Desired order for customer info: Customer Name, Phone Number, Shipping Address, City, CNIC, Email
+  const CUSTOMER_FIELD_ORDER = ['Customer Name', 'Phone Number', 'Shipping Address', 'City', 'CNIC', 'Email Address']
+
+  /** Pakistan CNIC: 13 digits, format XXXXX-XXXXXXX-X (5-7-1). Optional field. */
+  const validateCNIC = (value) => {
+    const s = (value || '').toString().trim()
+    if (!s) return true
+    const digitsOnly = s.replace(/\D/g, '')
+    if (digitsOnly.length === 13 && /^\d{13}$/.test(digitsOnly)) return true
+    if (/^\d{5}-\d{7}-\d{1}$/.test(s)) return true
+    return 'Enter a valid Pakistan CNIC (13 digits, e.g. 12345-1234567-1)'
+  }
+
   const renderCustomerFields = () => {
     if (!form.fields) return null
 
-    const customerFields = form.fields.filter(field => 
+    const customerFields = form.fields.filter(field =>
       ['TEXT', 'EMAIL', 'PHONE', 'ADDRESS', 'TEXTAREA'].includes(field.fieldType)
     )
+    const fieldByLabel = {}
+    customerFields.forEach(f => { fieldByLabel[f.label] = f })
 
-    return customerFields.map((field, index) => {
+    const elements = []
+    CUSTOMER_FIELD_ORDER.forEach((label, index) => {
+      if (label === 'City') {
+        elements.push(
+          <div key="City" className="space-y-2">
+            <label className="block text-sm font-medium text-gray-700">
+              City <span className="text-red-500">*</span>
+            </label>
+            <CityAutocomplete
+              name="City"
+              value={watch('City') || ''}
+              onChange={(e) => {
+                setValue('City', e.target.value, { shouldValidate: true })
+                trigger('City')
+              }}
+              onBlur={() => trigger('City')}
+              required={true}
+              error={errors.City?.message}
+              placeholder="Select or type city name"
+            />
+            <input
+              type="hidden"
+              {...register('City', {
+                required: { value: true, message: 'City is required' },
+                validate: (value) => (!value || value.trim() === '') ? 'City is required' : true
+              })}
+            />
+          </div>
+        )
+        return
+      }
+      if (label === 'CNIC') {
+        const hasError = errors.CNIC
+        const errorMessage = hasError?.message || null
+        elements.push(
+          <div key="CNIC" className="space-y-2">
+            <label className={`block text-sm font-medium ${hasError ? 'text-red-700' : 'text-gray-700'}`}>
+              CNIC <span className="text-gray-400 text-xs">(optional)</span>
+            </label>
+            <div className="relative">
+              <DocumentIcon className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${hasError ? 'text-red-400' : 'text-gray-400'}`} />
+              <input
+                type="text"
+                {...register('CNIC', {
+                  required: false,
+                  validate: validateCNIC
+                })}
+                placeholder="e.g. 12345-1234567-1"
+                maxLength={15}
+                className={`w-full pl-10 pr-3 py-2 border-2 rounded-md focus:outline-none focus:ring-2 bg-white text-gray-900 transition-colors ${
+                  hasError ? 'border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50' : 'border-gray-300 focus:ring-pink-500 focus:border-pink-500'
+                }`}
+              />
+            </div>
+            {errorMessage && (
+              <p className="mt-1 text-red-600 text-sm font-medium flex items-center gap-1.5">
+                <span className="text-red-500">●</span>
+                <span>{errorMessage}</span>
+              </p>
+            )}
+          </div>
+        )
+        return
+      }
+      const field = fieldByLabel[label]
+      if (!field) return
+
       const Icon = getFieldIcon(field.fieldType)
-      // Use field.label as the form field name (consistent with react-hook-form)
       const fieldName = field.label
       const hasError = errors[fieldName]
       const errorMessage = hasError?.message || (hasError ? `${field.label} is required` : null)
-      
-      return (
-        <div key={index} className="space-y-2">
+
+      elements.push(
+        <div key={fieldName} className="space-y-2">
           <label className={`block text-sm font-medium ${hasError ? 'text-red-700' : 'text-gray-700'}`}>
             {field.label} {field.isRequired && <span className="text-red-500">*</span>}
           </label>
-          {field.fieldType === 'TEXTAREA' ? (
-            <div>
-              <textarea
-                {...register(fieldName, { 
-                  required: field.isRequired ? `${field.label} is required` : false,
-                  validate: (value) => {
-                    if (field.isRequired && (!value || value.trim() === '')) {
-                      return `${field.label} is required`
-                    }
-                    return true
-                  }
-                })}
-                placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-                className={`w-full px-3 py-2 border-2 rounded-md focus:outline-none focus:ring-2 bg-white text-gray-900 transition-colors ${
-                  hasError
-                    ? 'border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50' 
-                    : 'border-gray-300 focus:ring-pink-500 focus:border-pink-500'
-                }`}
-                rows={3}
-              />
-              {errorMessage && (
-                <p className="mt-1 text-red-600 text-sm font-medium flex items-center gap-1.5">
-                  <span className="text-red-500">●</span>
-                  <span>{errorMessage}</span>
-                </p>
-              )}
-            </div>
-          ) : (
-            <div>
-              <div className="relative">
-                <Icon className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${hasError ? 'text-red-400' : 'text-gray-400'}`} />
-                <input
-                  type={field.fieldType === 'EMAIL' ? 'email' : field.fieldType === 'PHONE' ? 'tel' : 'text'}
-                  {...register(fieldName, { 
-                    required: field.isRequired ? {
-                      value: true,
-                      message: `${field.label} is required`
-                    } : false,
-                    pattern: field.fieldType === 'EMAIL' ? {
-                      value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                      message: 'Please enter a valid email address'
-                    } : undefined,
-                    validate: (value) => {
-                      // Convert to string and trim
-                      const stringValue = value ? String(value).trim() : ''
-                      
-                      // Handle empty values for required fields
-                      if (field.isRequired && (!stringValue || stringValue === '')) {
-                        return `${field.label} is required`
-                      }
-                      
-                      // Skip validation for empty non-required fields
-                      if (!stringValue || stringValue === '') {
-                        return true
-                      }
-                      
-                      // Pakistan mobile phone number validation
-                      if (field.fieldType === 'PHONE') {
-                        // Remove spaces, dashes, plus signs, and parentheses
-                        const cleanedValue = stringValue.replace(/[\s\-+()]/g, '')
-                        
-                        // Must be all digits
-                        if (!/^\d+$/.test(cleanedValue)) {
-                          return 'Phone number should contain only digits'
-                        }
-                        
-                        // Pakistan mobile number patterns:
-                        // 1. 03XXXXXXXXX (11 digits starting with 03) - local format
-                        // 2. 923XXXXXXXXX (12 digits starting with 923) - international format
-                        // 3. 00923XXXXXXXXX (13 digits starting with 00923) - alternative format
-                        
-                        // For numbers starting with 03, should be 11 digits total
-                        if (cleanedValue.startsWith('03')) {
-                          if (cleanedValue.length !== 11) {
-                            return 'Pakistan mobile number should be 11 digits (e.g., 03001234567)'
-                          }
-                          // Check if it's all digits and valid format
-                          if (!/^03[0-9]{9}$/.test(cleanedValue)) {
-                            return 'Please enter a valid Pakistan mobile number'
-                          }
-                          return true
-                        }
-                        
-                        // For numbers starting with 923, should be 12 digits (923XXXXXXXXX)
-                        if (cleanedValue.startsWith('923')) {
-                          if (cleanedValue.length !== 12) {
-                            return 'Pakistan mobile number with country code should be 12 digits (e.g., 923001234567)'
-                          }
-                          // Check if it's all digits - 923 followed by 9 digits
-                          if (!/^923[0-9]{9}$/.test(cleanedValue)) {
-                            return 'Please enter a valid Pakistan mobile number'
-                          }
-                          return true
-                        }
-                        
-                        // For numbers starting with 92 but not 923
-                        if (cleanedValue.startsWith('92') && !cleanedValue.startsWith('923')) {
-                          return 'Pakistan mobile number should start with 923 (e.g., 923001234567)'
-                        }
-                        
-                        // For numbers starting with 0092 (alternative format)
-                        if (cleanedValue.startsWith('0092')) {
-                          if (cleanedValue.length !== 13) {
-                            return 'Invalid Pakistan mobile number format'
-                          }
-                          if (!cleanedValue.startsWith('00923')) {
-                            return 'Pakistan mobile number should start with 00923'
-                          }
-                          return true
-                        }
-                        
-                        // If it doesn't match any pattern, show helpful error
-                        if (cleanedValue.length < 11) {
-                          return 'Phone number is too short'
-                        }
-                        if (cleanedValue.length > 13) {
-                          return 'Phone number is too long'
-                        }
-                        return 'Please enter a valid Pakistan mobile number (e.g., 03001234567 or 923001234567)'
-                      }
-                      
+      {field.fieldType === 'TEXTAREA' ? (
+        <div>
+          <textarea
+            {...register(fieldName, {
+              required: field.isRequired ? `${field.label} is required` : false,
+              validate: (value) => {
+                if (field.isRequired && (!value || value.trim() === '')) return `${field.label} is required`
+                return true
+              }
+            })}
+            placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+            className={`w-full px-3 py-2 border-2 rounded-md focus:outline-none focus:ring-2 bg-white text-gray-900 transition-colors ${
+              hasError ? 'border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50' : 'border-gray-300 focus:ring-pink-500 focus:border-pink-500'
+            }`}
+            rows={3}
+          />
+          {errorMessage && (
+            <p className="mt-1 text-red-600 text-sm font-medium flex items-center gap-1.5">
+              <span className="text-red-500">●</span>
+              <span>{errorMessage}</span>
+            </p>
+          )}
+        </div>
+      ) : (
+        <div>
+          <div className="relative">
+            <Icon className={`absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 ${hasError ? 'text-red-400' : 'text-gray-400'}`} />
+            <input
+              type={field.fieldType === 'EMAIL' ? 'email' : field.fieldType === 'PHONE' ? 'tel' : 'text'}
+              {...register(fieldName, {
+                required: field.isRequired ? { value: true, message: `${field.label} is required` } : false,
+                pattern: field.fieldType === 'EMAIL' ? {
+                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
+                  message: 'Please enter a valid email address'
+                } : undefined,
+                validate: (value) => {
+                  const stringValue = value ? String(value).trim() : ''
+                  if (field.isRequired && (!stringValue || stringValue === '')) return `${field.label} is required`
+                  if (!stringValue || stringValue === '') return true
+                  if (field.fieldType === 'PHONE') {
+                    const cleanedValue = stringValue.replace(/[\s\-+()]/g, '')
+                    if (!/^\d+$/.test(cleanedValue)) return 'Phone number should contain only digits'
+                    if (cleanedValue.startsWith('03')) {
+                      if (cleanedValue.length !== 11) return 'Pakistan mobile number should be 11 digits (e.g., 03001234567)'
+                      if (!/^03[0-9]{9}$/.test(cleanedValue)) return 'Please enter a valid Pakistan mobile number'
                       return true
                     }
-                  })}
-                  placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
-                  className={`w-full pl-10 pr-3 py-2 border-2 rounded-md focus:outline-none focus:ring-2 bg-white text-gray-900 transition-colors ${
-                    hasError
-                      ? 'border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50' 
-                      : 'border-gray-300 focus:ring-pink-500 focus:border-pink-500'
-                  }`}
-                />
-              </div>
-              {errorMessage && (
-                <p className="mt-1 text-red-600 text-sm font-medium flex items-center gap-1.5">
-                  <span className="text-red-500">●</span>
-                  <span>{errorMessage}</span>
-                </p>
-              )}
-            </div>
+                    if (cleanedValue.startsWith('923')) {
+                      if (cleanedValue.length !== 12) return 'Pakistan mobile number with country code should be 12 digits (e.g., 923001234567)'
+                      if (!/^923[0-9]{9}$/.test(cleanedValue)) return 'Please enter a valid Pakistan mobile number'
+                      return true
+                    }
+                    if (cleanedValue.startsWith('92') && !cleanedValue.startsWith('923')) return 'Pakistan mobile number should start with 923 (e.g., 923001234567)'
+                    if (cleanedValue.startsWith('0092')) {
+                      if (cleanedValue.length !== 13) return 'Invalid Pakistan mobile number format'
+                      if (!cleanedValue.startsWith('00923')) return 'Pakistan mobile number should start with 00923'
+                      return true
+                    }
+                    if (cleanedValue.length < 11) return 'Phone number is too short'
+                    if (cleanedValue.length > 13) return 'Phone number is too long'
+                    return 'Please enter a valid Pakistan mobile number (e.g., 03001234567 or 923001234567)'
+                  }
+                  return true
+                }
+              })}
+              placeholder={field.placeholder || `Enter ${field.label.toLowerCase()}`}
+              className={`w-full pl-10 pr-3 py-2 border-2 rounded-md focus:outline-none focus:ring-2 bg-white text-gray-900 transition-colors ${
+                hasError ? 'border-red-500 focus:ring-red-500 focus:border-red-500 bg-red-50' : 'border-gray-300 focus:ring-pink-500 focus:border-pink-500'
+              }`}
+            />
+          </div>
+          {errorMessage && (
+            <p className="mt-1 text-red-600 text-sm font-medium flex items-center gap-1.5">
+              <span className="text-red-500">●</span>
+              <span>{errorMessage}</span>
+            </p>
           )}
+        </div>
+      )}
         </div>
       )
     })
+
+    return elements
   }
 
   const getFieldIcon = (fieldType) => {
@@ -717,29 +836,52 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
 
           {/* Products Grid - E-commerce Style */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 md:gap-8">
-            {filteredProducts.map((product) => (
+            {filteredProducts.map((product) => {
+              const availableQty = getProductAvailableQty(product)
+              const selectedVariantOnCard = product.hasVariants ? cardSelectedVariant[product.id] : null
+              // When a variant is selected on card, show its primary image and its stock for display
+              const displayVariant = selectedVariantOnCard
+              const mainMediaIsVariant = displayVariant != null
+              const mainMediaUrl = mainMediaIsVariant && displayVariant.images?.[0]
+                ? getImageUrl('product-variant', displayVariant.id, true, displayVariant.images[0]?.id)
+                : getImageUrl('product', product.id, true, product.productImages?.[0]?.id)
+              const mainMediaIsVideo = mainMediaIsVariant
+                ? displayVariant.images?.[0]?.imageType?.startsWith('video/')
+                : product.productImages?.[0]?.mediaType?.startsWith('video/')
+              const variantStock = displayVariant != null ? (displayVariant.currentQuantity ?? 0) : null
+              const displayQty = variantStock != null ? variantStock : availableQty
+              const hasGallery = (product.productImages?.length > 1) || (product.hasVariants && product.variants?.some(v => v.images?.length))
+              return (
               <div 
                 key={product.id} 
-                className={`group bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300 border border-gray-100 ${(product.currentQuantity || product.quantity || 0) <= 0 ? 'opacity-75' : ''}`}
+                className={`group bg-white rounded-xl shadow-md overflow-hidden hover:shadow-xl transition-all duration-300 border border-gray-100 ${availableQty <= 0 ? 'opacity-75' : ''}`}
               >
-                {/* Product Image */}
+                {/* Product or selected variant primary image / video */}
                 <div className="relative overflow-hidden bg-gray-100 aspect-square">
-                  <img
-                    src={getImageUrl('product', product.id, true)}
-                    alt={product.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                    onError={(e) => {
-                      e.target.style.display = 'none'
-                      if (e.target.nextElementSibling) {
-                        e.target.nextElementSibling.style.display = 'flex'
-                      }
-                    }}
-                    onLoad={(e) => {
-                      if (e.target.nextElementSibling) {
-                        e.target.nextElementSibling.style.display = 'none'
-                      }
-                    }}
-                  />
+                  {mainMediaIsVideo ? (
+                    <video
+                      src={mainMediaUrl}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      muted
+                      playsInline
+                      autoPlay
+                      loop
+                      preload="metadata"
+                    />
+                  ) : (
+                    <img
+                      src={mainMediaUrl}
+                      alt={product.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = 'flex'
+                      }}
+                      onLoad={(e) => {
+                        if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = 'none'
+                      }}
+                    />
+                  )}
                   <div className="w-full h-full bg-gray-100 flex items-center justify-center absolute inset-0" style={{display: 'none'}}>
                     <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -747,17 +889,33 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                   </div>
                   
                   {/* Sold Out Badge */}
-                  {(product.currentQuantity || product.quantity || 0) <= 0 && (
+                  {displayQty <= 0 && (
                     <div className="absolute top-3 right-3 bg-red-500 text-white px-3 py-1 rounded-full text-xs font-semibold">
                       Sold Out
                     </div>
                   )}
 
                   {/* Stock Badge */}
-                  {(product.currentQuantity || product.quantity || 0) > 0 && (product.currentQuantity || product.quantity || 0) < 10 && (
+                  {displayQty > 0 && displayQty < 10 && (
                     <div className="absolute top-3 right-3 bg-yellow-500 text-white px-3 py-1 rounded-full text-xs font-semibold">
                       Low Stock
                     </div>
+                  )}
+
+                  {/* View gallery – when variant selected, gallery opens with that variant so user sees its photos/videos */}
+                  {hasGallery && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setGalleryModal({ isOpen: true, product, selectedIndex: 0, selectedVariant: selectedVariantOnCard ?? null, selectedVariantMediaIndex: 0 })
+                      }}
+                      className="absolute bottom-3 left-3 px-2 py-1.5 bg-black/60 hover:bg-black/80 text-white text-xs font-medium rounded-lg flex items-center gap-1 transition-colors"
+                      title={displayVariant ? `View all photos & videos for ${displayVariant.color}${displayVariant.size ? `, ${displayVariant.size}` : ''}` : 'View all photos & videos'}
+                    >
+                      <PhotoIcon className="h-4 w-4" />
+                      View gallery
+                    </button>
                   )}
                 </div>
                 
@@ -767,6 +925,51 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                     {product.name}
                   </h3>
                   
+                  {/* Variants strip – clickable to select variant; selected variant’s image shows above and Add to Cart uses it */}
+                  {product.hasVariants && product.variants?.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-xs font-medium text-gray-500 mb-1.5">Variants – click to choose</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {product.variants.filter(v => v.isActive !== false).map((v) => {
+                          const isVid = v.images?.[0]?.imageType?.startsWith('video/')
+                          const thumbUrl = getImageUrl('product-variant', v.id, true, v.images?.[0]?.id)
+                          const isSelected = selectedVariantOnCard?.id === v.id
+                          return (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => setCardSelectedVariant(prev => ({ ...prev, [product.id]: v }))}
+                              className={`flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden border-2 bg-gray-100 transition-all focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-offset-1 ${isSelected ? 'border-pink-500 ring-2 ring-pink-200 ring-offset-1' : 'border-gray-200 hover:border-pink-300'}`}
+                              title={`${v.color}${v.size ? `, ${v.size}` : ''}${v.currentQuantity != null ? ` · ${v.currentQuantity} in stock` : ''}`}
+                            >
+                              {isVid ? (
+                                <video src={thumbUrl} className="w-full h-full object-cover" muted playsInline autoPlay loop preload="metadata" />
+                              ) : (
+                                <img
+                                  src={thumbUrl}
+                                  alt={`${v.color}${v.size ? ` ${v.size}` : ''}`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    e.target.style.display = 'none'
+                                    if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = 'flex'
+                                  }}
+                                />
+                              )}
+                              <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs font-medium bg-gray-100" style={{ display: 'none' }}>
+                                {v.color?.[0] || 'V'}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {selectedVariantOnCard && (
+                        <p className="text-xs text-pink-600 mt-1">
+                          Selected: {selectedVariantOnCard.color}{selectedVariantOnCard.size ? `, ${selectedVariantOnCard.size}` : ''}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   {/* Price and Stock */}
                   <div className="mb-4 space-y-2">
                     <div className="flex items-center justify-between">
@@ -776,16 +979,16 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                           : (product.currentRetailPrice ? parseFloat(product.currentRetailPrice) || 0 : 0)
                         ).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                       </span>
-                      {(product.currentQuantity || product.quantity || 0) > 0 && (
+                      {displayQty > 0 && (
                         <span className="text-xs md:text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                          {product.currentQuantity || product.quantity || 0} in stock
+                          {displayQty} in stock
                         </span>
                       )}
                     </div>
                   </div>
 
-                  {/* Add to Cart Button */}
-                  {(product.currentQuantity || product.quantity || 0) > 0 ? (
+                  {/* Add to Cart – uses card-selected variant when set; otherwise opens variant popup */}
+                  {displayQty > 0 ? (
                     <button
                       onClick={() => addToCart(product)}
                       className="w-full bg-gradient-to-r from-pink-600 to-pink-700 hover:from-pink-700 hover:to-pink-800 text-white py-3 px-4 rounded-lg transition-all flex items-center justify-center space-x-2 font-semibold text-sm md:text-base shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
@@ -800,7 +1003,8 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                   )}
                 </div>
               </div>
-            ))}
+            )
+            })}
           </div>
 
           {filteredProducts.length === 0 && (
@@ -983,42 +1187,6 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                   noValidate
                 >
                   {renderCustomerFields()}
-                  
-                  {/* City Field - Always Required */}
-                  <div className="space-y-2">
-                    <label className="block text-sm font-medium text-gray-700">
-                      City <span className="text-red-500">*</span>
-                    </label>
-                    <CityAutocomplete
-                      name="City"
-                      value={watch('City') || ''}
-                      onChange={(e) => {
-                        setValue('City', e.target.value, { shouldValidate: true })
-                        trigger('City')
-                      }}
-                      onBlur={() => {
-                        trigger('City')
-                      }}
-                      required={true}
-                      error={errors.City?.message}
-                      placeholder="Select or type city name"
-                    />
-                    <input
-                      type="hidden"
-                      {...register('City', {
-                        required: {
-                          value: true,
-                          message: 'City is required'
-                        },
-                        validate: (value) => {
-                          if (!value || value.trim() === '') {
-                            return 'City is required'
-                          }
-                          return true
-                        }
-                      })}
-                    />
-                  </div>
                 </form>
               </div>
 
@@ -1429,6 +1597,318 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
             </div>
           </div>
         </>
+      )}
+
+      {/* Variant Selection Modal */}
+      {variantSelectionModal.isOpen && variantSelectionModal.product && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Select Variant - {variantSelectionModal.product.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setVariantSelectionModal({ isOpen: false, product: null })
+                  setSelectedVariant(null)
+                }}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            {(() => {
+              const variants = variantSelectionModal.product.variants?.length
+                ? variantSelectionModal.product.variants
+                : (productVariants[variantSelectionModal.product.id] || [])
+              if (variants.length === 0) {
+                return (
+                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p className="text-sm text-yellow-800">
+                      No variants available. You can create a variant after adding to cart, or add the product without variants.
+                    </p>
+                  </div>
+                )
+              }
+              return (
+              <div className="space-y-3 mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Choose variant
+                </label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {variants
+                    .filter(v => v.isActive !== false)
+                    .map(variant => (
+                      <div
+                        key={variant.id}
+                        onClick={() => setSelectedVariant(variant)}
+                        className={`p-3 border-2 rounded-lg cursor-pointer transition-colors flex items-center gap-3 ${
+                          selectedVariant?.id === variant.id
+                            ? 'border-pink-500 bg-pink-50'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        <div className="w-14 h-14 rounded-lg border border-gray-200 overflow-hidden flex-shrink-0 bg-gray-100">
+                          {variant.images?.[0]?.imageType?.startsWith('video/') ? (
+                            <video
+                              src={getImageUrl('product-variant', variant.id, true, variant.images[0]?.id)}
+                              className="w-full h-full object-cover"
+                              muted
+                              playsInline
+                              autoPlay
+                              loop
+                              preload="metadata"
+                            />
+                          ) : (
+                            <img
+                              src={getImageUrl('product-variant', variant.id, true)}
+                              alt={`${variant.color}${variant.size ? ` ${variant.size}` : ''}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.target.style.display = 'none'
+                                if (e.target.nextElementSibling) e.target.nextElementSibling.style.display = 'flex'
+                              }}
+                            />
+                          )}
+                          <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm font-medium bg-gray-100" style={{ display: 'none' }}>
+                            {variant.color?.[0] || 'V'}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-gray-900">
+                            {variant.color}{variant.size ? `, ${variant.size}` : ''}
+                          </div>
+                          {variant.sku && (
+                            <div className="text-xs text-gray-500">SKU: {variant.sku}</div>
+                          )}
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className={`text-sm font-semibold ${
+                            variant.currentQuantity > 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {variant.currentQuantity > 0 ? `${variant.currentQuantity} in stock` : 'Out of stock'}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+              )
+            })()}
+
+            <div className="flex justify-end space-x-3 pt-4 border-t">
+              <button
+                type="button"
+                onClick={() => {
+                  setVariantSelectionModal({ isOpen: false, product: null })
+                  setSelectedVariant(null)
+                }}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedVariant && selectedVariant.currentQuantity > 0) {
+                    addProductToCart(variantSelectionModal.product, selectedVariant)
+                  } else if (!selectedVariant && !variantSelectionModal.product.hasVariants) {
+                    // Allow adding product without variant if it doesn't require variants
+                    addProductToCart(variantSelectionModal.product, null)
+                  } else {
+                    toast.error('Please select a variant with available stock')
+                  }
+                }}
+                disabled={!selectedVariant || selectedVariant.currentQuantity <= 0}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                Add to Cart
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product gallery modal - view all photos & videos */}
+      {galleryModal.isOpen && galleryModal.product && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => setGalleryModal(prev => ({ ...prev, isOpen: false }))}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+              <h3 className="text-lg font-bold text-gray-900 truncate pr-2">{galleryModal.product.name} – Photos & videos</h3>
+              <button type="button" onClick={() => setGalleryModal(prev => ({ ...prev, isOpen: false }))} className="p-2 text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {/* Main product media */}
+              {(galleryModal.product.productImages?.length ?? 0) > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Product</p>
+                  <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden mb-3">
+                    {(() => {
+                      const mediaList = galleryModal.product.productImages || []
+                      const active = mediaList[galleryModal.selectedIndex] || mediaList[0]
+                      if (!active) return null
+                      const url = getImageUrl('product', galleryModal.product.id, true, active.id)
+                      const isVid = active.mediaType?.startsWith('video/')
+                      return isVid ? (
+                        <video src={url} className="w-full h-full object-contain" muted playsInline autoPlay loop preload="metadata" controls />
+                      ) : (
+                        <img src={url} alt="" className="w-full h-full object-contain" />
+                      )
+                    })()}
+                  </div>
+                  {(galleryModal.product.productImages?.length ?? 0) > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {(galleryModal.product.productImages || []).map((m, idx) => {
+                        const thumbUrl = getImageUrl('product', galleryModal.product.id, true, m.id)
+                        const isVid = m.mediaType?.startsWith('video/')
+                        return (
+                          <button key={m.id} type="button" onClick={() => setGalleryModal(prev => ({ ...prev, selectedIndex: idx }))} className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 ${galleryModal.selectedIndex === idx ? 'border-pink-500 ring-2 ring-pink-200' : 'border-gray-200'}`}>
+                            {isVid ? <video src={thumbUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" /> : <img src={thumbUrl} alt="" className="w-full h-full object-cover" />}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(!galleryModal.product.productImages?.length && galleryModal.product.hasVariants && galleryModal.product.variants?.length > 0) && <p className="text-sm font-medium text-gray-700 mb-2">Product</p>}
+              {(!galleryModal.product.productImages?.length) && (
+                <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden mb-3">
+                  <img src={getImageUrl('product', galleryModal.product.id, true)} alt="" className="w-full h-full object-contain" onError={e => { e.target.style.display = 'none' }} />
+                </div>
+              )}
+              {/* Variants section - clickable to select variant */}
+              {galleryModal.product.hasVariants && galleryModal.product.variants?.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Variants – click to select</p>
+                  <div className="flex flex-wrap gap-2">
+                    {galleryModal.product.variants.filter(v => v.isActive !== false).map(v => {
+                      const isVid = v.images?.[0]?.imageType?.startsWith('video/')
+                      const thumbUrl = getImageUrl('product-variant', v.id, true, v.images?.[0]?.id)
+                      const isSelected = galleryModal.selectedVariant?.id === v.id
+                      const inStock = (v.currentQuantity ?? 0) > 0
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setGalleryModal(prev => ({ ...prev, selectedVariant: v, selectedVariantMediaIndex: 0 }))}
+                          className={`flex flex-col items-center rounded-xl p-1 transition-all focus:outline-none focus:ring-2 focus:ring-pink-500 focus:ring-offset-2 ${isSelected ? 'ring-2 ring-pink-500 ring-offset-2 bg-pink-50' : 'hover:bg-gray-50'} ${!inStock ? 'opacity-60' : ''}`}
+                          title={`${v.color}${v.size ? `, ${v.size}` : ''}${inStock ? ` · ${v.currentQuantity} in stock` : ' · Out of stock'}`}
+                        >
+                          <div className={`w-20 h-20 rounded-lg overflow-hidden border-2 bg-gray-100 ${isSelected ? 'border-pink-500' : 'border-gray-200'}`}>
+                            {isVid ? <video src={thumbUrl} className="w-full h-full object-cover" muted playsInline autoPlay loop preload="metadata" /> : <img src={thumbUrl} alt="" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none' }} />}
+                          </div>
+                          <span className="text-xs text-gray-600 mt-1 truncate max-w-[5rem]">{v.color}{v.size ? `, ${v.size}` : ''}</span>
+                          {!inStock && <span className="text-xs text-red-600">Out of stock</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Selected variant – full media gallery (all photos & videos for this variant) */}
+              {galleryModal.selectedVariant && (
+                <div className="border-t border-gray-200 pt-4">
+                  <p className="text-sm font-medium text-gray-700 mb-2">
+                    {galleryModal.selectedVariant.color}{galleryModal.selectedVariant.size ? `, ${galleryModal.selectedVariant.size}` : ''} – all photos & videos
+                  </p>
+                  {(() => {
+                    const v = galleryModal.selectedVariant
+                    const variantMediaList = v.images || []
+                    const hasVariantGallery = variantMediaList.length > 0
+                    const activeVariantMedia = hasVariantGallery ? variantMediaList[galleryModal.selectedVariantMediaIndex] || variantMediaList[0] : null
+                    const variantMainUrl = hasVariantGallery && activeVariantMedia
+                      ? getImageUrl('product-variant', v.id, true, activeVariantMedia.id)
+                      : getImageUrl('product-variant', v.id, true)
+                    const isVariantVid = activeVariantMedia?.imageType?.startsWith('video/')
+                    return (
+                      <>
+                        <div className="aspect-square max-h-64 bg-gray-100 rounded-xl overflow-hidden mb-2">
+                          {hasVariantGallery && activeVariantMedia ? (
+                            isVariantVid ? (
+                              <video src={variantMainUrl} className="w-full h-full object-contain" muted playsInline autoPlay loop preload="metadata" controls />
+                            ) : (
+                              <img src={variantMainUrl} alt="" className="w-full h-full object-contain" onError={e => { e.target.style.display = 'none' }} />
+                            )
+                          ) : (
+                            <img src={variantMainUrl} alt="" className="w-full h-full object-contain" onError={e => { e.target.style.display = 'none' }} />
+                          )}
+                        </div>
+                        {hasVariantGallery && variantMediaList.length > 1 && (
+                          <div className="flex gap-2 overflow-x-auto pb-1">
+                            {variantMediaList.map((m, idx) => {
+                              const thumbUrl = getImageUrl('product-variant', v.id, true, m.id)
+                              const isThumbVid = m.imageType?.startsWith('video/')
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => setGalleryModal(prev => ({ ...prev, selectedVariantMediaIndex: idx }))}
+                                  className={`flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 ${galleryModal.selectedVariantMediaIndex === idx ? 'border-pink-500 ring-2 ring-pink-200' : 'border-gray-200'}`}
+                                >
+                                  {isThumbVid ? <video src={thumbUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" /> : <img src={thumbUrl} alt="" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none' }} />}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
+                        {hasVariantGallery && variantMediaList.length === 1 && (
+                          <p className="text-xs text-gray-500">1 photo/video for this variant</p>
+                        )}
+                        {!hasVariantGallery && (
+                          <p className="text-xs text-gray-500">No extra media for this variant</p>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* Add to cart from gallery */}
+              <div className="sticky bottom-0 pt-4 pb-2 -mb-2 bg-white border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+                {galleryModal.product.hasVariants && galleryModal.product.variants?.length > 0 && !galleryModal.selectedVariant && (
+                  <p className="text-sm text-amber-700">Select a variant above to add to cart</p>
+                )}
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setGalleryModal(prev => ({ ...prev, isOpen: false }))}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const product = galleryModal.product
+                      const variant = galleryModal.selectedVariant
+                      if (product.hasVariants && product.variants?.length > 0 && !variant) {
+                        toast.error('Please select a variant first')
+                        return
+                      }
+                      if (variant && (variant.currentQuantity ?? 0) <= 0) {
+                        toast.error('Selected variant is out of stock')
+                        return
+                      }
+                      addProductToCart(product, product.hasVariants ? variant : null)
+                      setGalleryModal(prev => ({ ...prev, isOpen: false }))
+                    }}
+                    disabled={galleryModal.product.hasVariants && galleryModal.product.variants?.length > 0 && !galleryModal.selectedVariant}
+                    className="px-4 py-2 text-sm font-medium text-white bg-pink-600 hover:bg-pink-700 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-lg transition-colors flex items-center gap-2"
+                  >
+                    <ShoppingCartIcon className="h-5 w-5" />
+                    Add to cart
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* WhatsApp Confirmation Modal */}

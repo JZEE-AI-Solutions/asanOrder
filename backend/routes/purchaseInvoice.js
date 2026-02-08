@@ -262,19 +262,96 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
       // Create purchase items using createMany for better performance (only if products exist)
       let purchaseItems = [];
       if (products && products.length > 0) {
-        const purchaseItemsData = products.map((product) => ({
-          name: product.name,
-          description: product.description || null,
-          purchasePrice: product.purchasePrice,
-          quantity: product.quantity,
-          category: product.category || null,
-          sku: product.sku || null,
-          image: product.image || null,
-          imageData: product.imageData || null,
-          imageType: product.imageType || null,
-          tenantId: tenant.id,
-          purchaseInvoiceId: purchaseInvoice.id
-        }));
+        // Process each product item to handle variants
+        const purchaseItemsData = [];
+        
+        for (let i = 0; i < products.length; i++) {
+          const product = products[i];
+          let productId = product.productId || null;
+          let productVariantId = product.productVariantId || null;
+          const productColor = product.color != null ? String(product.color).trim() : '';
+          const productSize = product.size != null ? String(product.size).trim() : null;
+          if (productId && productColor) {
+            console.log(`   [Create] Product ${i + 1}/${products.length}: color="${productColor}", size=${productSize ?? 'null'}`);
+          }
+          if (productId && productColor) {
+            const productRecord = await tx.product.findFirst({
+              where: {
+                id: productId,
+                tenantId: tenant.id
+              }
+            });
+
+            if (productRecord) {
+              let variant = null;
+              
+              if (productVariantId) {
+                variant = await tx.productVariant.findFirst({
+                  where: {
+                    id: productVariantId,
+                    productId: productId
+                  }
+                });
+              }
+              
+              if (!variant) {
+                variant = await tx.productVariant.findFirst({
+                  where: {
+                    productId: productId,
+                    color: productColor,
+                    size: productSize || null
+                  }
+                });
+              }
+              
+              if (!variant) {
+                if (productRecord.isStitched && !productSize) {
+                  throw new Error(`Size is required for stitched product "${productRecord.name}"`);
+                }
+                // Always generate unique variant SKU from product + color + size so multiple lines get distinct SKUs
+                const variantSku = productRecord.sku
+                  ? (productSize
+                    ? `${productRecord.sku}-${productColor}-${productSize}`.toUpperCase()
+                    : `${productRecord.sku}-${productColor}`.toUpperCase())
+                  : (product.variantSku || product.sku || null);
+                variant = await tx.productVariant.create({
+                  data: {
+                    productId: productId,
+                    color: productColor,
+                    size: productSize || null,
+                    sku: variantSku || null,
+                    currentQuantity: 0,
+                    minStockLevel: 0,
+                    isActive: true
+                  }
+                });
+                await tx.product.update({
+                  where: { id: productId },
+                  data: { hasVariants: true }
+                });
+                console.log(`   🆕 Created variant: ${productRecord.name} - ${productColor}${productSize ? `, ${productSize}` : ''}`);
+              }
+              
+              productVariantId = variant.id;
+            }
+          }
+          
+          purchaseItemsData.push({
+            name: product.name,
+            description: product.description || null,
+            purchasePrice: product.purchasePrice,
+            quantity: product.quantity,
+            category: product.category || null,
+            sku: product.sku || null,
+            image: product.image || null,
+            imageData: product.imageData || null,
+            imageType: product.imageType || null,
+            tenantId: tenant.id,
+            purchaseInvoiceId: purchaseInvoice.id,
+            productId: productId,
+            productVariantId: productVariantId
+          });
+        }
 
         // Use createMany instead of individual creates
         await tx.purchaseItem.createMany({
@@ -317,6 +394,9 @@ router.post('/with-products', authenticateToken, requireRole(['BUSINESS_OWNER'])
           quantity: item.quantity,
           reason: item.reason || 'Purchase invoice return',
           sku: item.sku || null,
+          productVariantId: item.productVariantId || null,
+          color: item.color || null,
+          size: item.size || null,
           returnId: returnRecord.id
         }));
 
@@ -908,6 +988,8 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
       },
       include: {
         purchaseItems: {
+          where: { isDeleted: false },
+          orderBy: { id: 'asc' },
           select: {
             id: true,
             name: true,
@@ -917,14 +999,17 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
             category: true,
             sku: true,
             image: true,
-            // Exclude imageData and imageType - frontend uses getImageUrl() to fetch images
             isDeleted: true,
             deletedAt: true,
             createdAt: true,
             updatedAt: true,
             tenantId: true,
             purchaseInvoiceId: true,
-            productId: true
+            productId: true,
+            productVariantId: true,
+            productVariant: {
+              select: { color: true, size: true }
+            }
           }
         },
         returns: {
@@ -1235,16 +1320,23 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           }
         });
 
-        // Create products for each purchase item using createMany
-        const productsData = items.map(item => ({
-          name: item.name,
-          description: item.description || null,
-          category: item.category || null,
-          sku: item.sku || null,
-          currentQuantity: parseInt(item.quantity),
-          lastPurchasePrice: parseFloat(item.purchasePrice),
-          tenantId: tenant.id
-        }));
+        // Create products for each purchase item using createMany (default retail/sale = 50% markup on purchase price)
+        const purchasePriceMultiplier = 1.5; // 50% increase
+        const productsData = items.map(item => {
+          const purchasePrice = parseFloat(item.purchasePrice);
+          const defaultRetail = purchasePrice * purchasePriceMultiplier;
+          return {
+            name: item.name,
+            description: item.description || null,
+            category: item.category || null,
+            sku: item.sku || null,
+            currentQuantity: parseInt(item.quantity),
+            lastPurchasePrice: purchasePrice,
+            currentRetailPrice: defaultRetail,
+            lastSalePrice: defaultRetail,
+            tenantId: tenant.id
+          };
+        });
 
         await tx.product.createMany({
           data: productsData
@@ -1700,6 +1792,72 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
         const itemsToDelete = [];
 
         for (const product of products) {
+          let productId = product.productId || null;
+          let productVariantId = product.productVariantId || null;
+          const productColor = product.color != null ? String(product.color).trim() : '';
+          const productSize = product.size != null ? String(product.size).trim() : null;
+
+          if (productId && productColor) {
+            const productRecord = await tx.product.findFirst({
+              where: {
+                id: productId,
+                tenantId: tenant.id
+              }
+            });
+
+            if (productRecord) {
+              let variant = null;
+              
+              if (productVariantId) {
+                variant = await tx.productVariant.findFirst({
+                  where: {
+                    id: productVariantId,
+                    productId: productId
+                  }
+                });
+              }
+              
+              if (!variant) {
+                variant = await tx.productVariant.findFirst({
+                  where: {
+                    productId: productId,
+                    color: productColor,
+                    size: productSize || null
+                  }
+                });
+              }
+              
+              if (!variant) {
+                if (productRecord.isStitched && !productSize) {
+                  throw new Error(`Size is required for stitched product "${productRecord.name}"`);
+                }
+                // Always generate unique variant SKU from product + color + size so multiple lines get distinct SKUs
+                const variantSku = productRecord.sku
+                  ? (productSize
+                    ? `${productRecord.sku}-${productColor}-${productSize}`.toUpperCase()
+                    : `${productRecord.sku}-${productColor}`.toUpperCase())
+                  : (product.variantSku || product.sku || null);
+                variant = await tx.productVariant.create({
+                  data: {
+                    productId: productId,
+                    color: productColor,
+                    size: productSize || null,
+                    sku: variantSku || null,
+                    currentQuantity: 0,
+                    minStockLevel: 0,
+                    isActive: true
+                  }
+                });
+                await tx.product.update({
+                  where: { id: productId },
+                  data: { hasVariants: true }
+                });
+              }
+              
+              productVariantId = variant.id;
+            }
+          }
+          
           if (product.id && existingItemsMap.has(product.id)) {
             // Update existing item
             itemsToUpdate.push({
@@ -1710,7 +1868,9 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
                 purchasePrice: parseFloat(product.purchasePrice),
                 sku: product.sku?.trim() || null,
                 category: product.category?.trim() || null,
-                description: product.description?.trim() || null
+                description: product.description?.trim() || null,
+                productId: productId,
+                productVariantId: productVariantId
               }
             });
             existingItemsMap.delete(product.id);
@@ -1724,7 +1884,9 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
               category: product.category?.trim() || null,
               description: product.description?.trim() || null,
               tenantId: tenant.id,
-              purchaseInvoiceId: id
+              purchaseInvoiceId: id,
+              productId: productId,
+              productVariantId: productVariantId
             });
           }
         }
@@ -1803,7 +1965,10 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
                   purchasePrice: parseFloat(returnItem.purchasePrice),
                   quantity: parseInt(returnItem.quantity),
                   reason: returnItem.reason || 'Purchase invoice return',
-                  sku: returnItem.sku || null
+                  sku: returnItem.sku || null,
+                  productVariantId: returnItem.productVariantId || null,
+                  color: returnItem.color || null,
+                  size: returnItem.size || null
                 }
               });
               existingReturnItemsMap.delete(returnItem.id);
@@ -1842,6 +2007,9 @@ router.put('/:id/with-products', authenticateToken, requireRole(['BUSINESS_OWNER
                 purchasePrice: parseFloat(returnItem.purchasePrice),
                 quantity: parseInt(returnItem.quantity),
                 reason: returnItem.reason || 'Purchase invoice return',
+                productVariantId: returnItem.productVariantId || null,
+                color: returnItem.color || null,
+                size: returnItem.size || null,
                 sku: returnItem.sku || null,
                 returnId: returnRecord.id
               });

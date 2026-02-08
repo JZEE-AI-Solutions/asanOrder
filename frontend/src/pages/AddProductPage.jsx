@@ -34,7 +34,9 @@ const AddProductPage = () => {
       lastSalePrice: 0,
       minStockLevel: 0,
       maxStockLevel: '',
-      isActive: true
+      isActive: true,
+      hasVariants: false,
+      isStitched: false
     }
   })
 
@@ -84,8 +86,10 @@ const AddProductPage = () => {
       const productData = {
         ...data,
         category: categoryValue || null,
-        newCategory: undefined, // Remove from submission
-        currentQuantity: 0 // Always set to 0 for new products - quantity should be added via purchase invoices
+        newCategory: undefined,
+        currentQuantity: 0,
+        hasVariants: !!data.hasVariants,
+        isStitched: !!data.isStitched
       }
       
       const response = await api.post('/product', productData)
@@ -163,18 +167,6 @@ const AddProductPage = () => {
                 />
               </div>
 
-              <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-gray-900 mb-1">
-                  Description
-                </label>
-                <textarea
-                  {...register('description')}
-                  rows={3}
-                  className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-                  placeholder="Enter product description"
-                />
-              </div>
-
               <div>
                 <label className="block text-sm font-bold text-gray-900 mb-1">
                   Category
@@ -233,6 +225,18 @@ const AddProductPage = () => {
                     )}
                   </>
                 )}
+              </div>
+
+              <div className="md:col-span-2 flex flex-wrap gap-6 items-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" {...register('hasVariants')} className="w-4 h-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500" />
+                  <span className="text-sm font-medium text-gray-900">Has variants (e.g. color/size)</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" {...register('isStitched')} className="w-4 h-4 rounded border-gray-300 text-pink-600 focus:ring-pink-500" />
+                  <span className="text-sm font-medium text-gray-900">Is stitched</span>
+                </label>
+                <p className="text-xs text-gray-500 w-full">Variants can be added after saving on the Edit Product page.</p>
               </div>
             </div>
           </div>
@@ -401,6 +405,19 @@ const AddProductPage = () => {
                 <span className="ml-2 text-sm font-medium text-gray-900">Product is active</span>
               </label>
             </div>
+          </div>
+
+          {/* Description – at bottom of page */}
+          <div className="card p-6">
+            <label className="block text-sm font-bold text-gray-900 mb-1">
+              Description
+            </label>
+            <textarea
+              {...register('description')}
+              rows={3}
+              className="w-full px-3 py-2 bg-white text-gray-900 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+              placeholder="Enter product description"
+            />
           </div>
 
           {/* Actions */}

@@ -1,4 +1,5 @@
 const prisma = require('../lib/db');
+const balanceService = require('./balanceService');
 
 class CustomerService {
   /**
@@ -284,7 +285,9 @@ class CustomerService {
   }
 
   /**
-   * Calculate pending payment for a customer
+   * Calculate pending payment for a customer.
+   * Matches balanceService / customer detail: CONFIRMED, DISPATCHED, COMPLETED orders;
+   * paid amount = sum of Payment records (CUSTOMER_PAYMENT) per order, not order.verifiedPaymentAmount.
    * @param {string} customerId - Customer ID
    * @returns {number} Total pending payment amount
    */
@@ -293,7 +296,7 @@ class CustomerService {
       const orders = await prisma.order.findMany({
         where: {
           customerId: customerId,
-          status: 'CONFIRMED' // Only include confirmed orders for pending payment calculation
+          status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] }
         },
         select: {
           id: true,
@@ -305,58 +308,71 @@ class CustomerService {
           paymentVerified: true,
           shippingCharges: true,
           codFee: true,
-          codFeePaidBy: true
+          codFeePaidBy: true,
+          refundAmount: true,
+          orderItems: { select: { quantity: true, price: true } }
         }
       });
+
+      const paymentsByOrder = await prisma.payment
+        .findMany({
+          where: {
+            customerId: customerId,
+            type: 'CUSTOMER_PAYMENT',
+            orderId: { not: null }
+          },
+          select: { orderId: true, amount: true }
+        })
+        .then((payments) => {
+          const byOrder = {};
+          for (const p of payments) {
+            byOrder[p.orderId] = (byOrder[p.orderId] || 0) + (p.amount || 0);
+          }
+          return byOrder;
+        });
 
       let totalPending = 0;
 
       for (const order of orders) {
-        // Parse order data
-        let selectedProducts = [];
-        let productQuantities = {};
-        let productPrices = {};
-
-        try {
-          selectedProducts = typeof order.selectedProducts === 'string' 
-            ? JSON.parse(order.selectedProducts) 
-            : (order.selectedProducts || []);
-          productQuantities = typeof order.productQuantities === 'string'
-            ? JSON.parse(order.productQuantities)
-            : (order.productQuantities || {});
-          productPrices = typeof order.productPrices === 'string'
-            ? JSON.parse(order.productPrices)
-            : (order.productPrices || {});
-        } catch (e) {
-          console.error('Error parsing order data:', e);
-          continue;
-        }
-
-        // Calculate order total (products + shipping)
         let orderTotal = 0;
-        if (Array.isArray(selectedProducts)) {
-          selectedProducts.forEach(product => {
-            const quantity = productQuantities[product.id] || product.quantity || 1;
-            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
-            orderTotal += price * quantity;
-          });
+        if (order.orderItems && order.orderItems.length > 0) {
+          orderTotal = order.orderItems.reduce((sum, item) => sum + (item.quantity || 0) * (item.price || 0), 0);
+        } else {
+          let selectedProducts = [];
+          let productQuantities = {};
+          let productPrices = {};
+          try {
+            selectedProducts = typeof order.selectedProducts === 'string'
+              ? JSON.parse(order.selectedProducts)
+              : (order.selectedProducts || []);
+            productQuantities = typeof order.productQuantities === 'string'
+              ? JSON.parse(order.productQuantities)
+              : (order.productQuantities || {});
+            productPrices = typeof order.productPrices === 'string'
+              ? JSON.parse(order.productPrices)
+              : (order.productPrices || {});
+          } catch (e) {
+            console.error('Error parsing order data:', e);
+            continue;
+          }
+          if (Array.isArray(selectedProducts)) {
+            selectedProducts.forEach(product => {
+              const quantity = productQuantities[product.id] || product.quantity || 1;
+              const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+              orderTotal += price * quantity;
+            });
+          }
         }
-        
-        // Add shipping charges
+
         const shippingCharges = order.shippingCharges || 0;
-        
-        // Add COD fee if customer pays
         if (order.codFeePaidBy === 'CUSTOMER' && order.codFee && order.codFee > 0) {
           orderTotal += order.codFee;
         }
         orderTotal += shippingCharges;
 
-        // Calculate pending amount
-        // Use verified payment amount if payment is verified, otherwise use 0 (unverified payments don't count)
-        const paid = order.paymentVerified && order.verifiedPaymentAmount !== null && order.verifiedPaymentAmount !== undefined
-          ? order.verifiedPaymentAmount
-          : 0;
-        const pending = orderTotal - paid;
+        const paidAmount = paymentsByOrder[order.id] || 0;
+        const refundAmount = order.refundAmount || 0;
+        const pending = Math.max(0, orderTotal - paidAmount - refundAmount);
         if (pending > 0) {
           totalPending += pending;
         }
@@ -409,34 +425,46 @@ class CustomerService {
         }
       });
 
-      // Calculate pending payments for each customer and filter if needed
-      const customersWithPending = await Promise.all(
+      // Get closing balance (ledger net balance) and totalPending for each customer
+      const customersWithBalance = await Promise.all(
         customers.map(async (customer) => {
-          const pendingPayment = await this.calculatePendingPayment(customer.id);
+          let pendingPayment = 0;
+          let closingBalance = 0;
+          try {
+            const balance = await balanceService.calculateCustomerBalance(customer.id);
+            pendingPayment = balance.totalPending || 0;
+            closingBalance = balance.netBalance ?? 0;
+          } catch (e) {
+            console.error(`Error calculating balance for customer ${customer.id}:`, e);
+          }
           return {
             ...customer,
-            pendingPayment
+            pendingPayment,
+            closingBalance
           };
         })
       );
 
       // Filter by pending payment if requested
       const filteredCustomers = hasPendingPayment
-        ? customersWithPending.filter(c => c.pendingPayment > 0)
-        : customersWithPending;
+        ? customersWithBalance.filter(c => c.pendingPayment > 0)
+        : customersWithBalance;
 
       // Recalculate total count if filtering
       let total;
       if (hasPendingPayment) {
-        // Need to check all customers for pending payments
         const allCustomers = await prisma.customer.findMany({
           where: where,
           select: { id: true }
         });
         const customersWithPendingCheck = await Promise.all(
           allCustomers.map(async (c) => {
-            const pending = await this.calculatePendingPayment(c.id);
-            return { id: c.id, pendingPayment: pending };
+            try {
+              const balance = await balanceService.calculateCustomerBalance(c.id);
+              return { id: c.id, pendingPayment: balance.totalPending || 0 };
+            } catch (e) {
+              return { id: c.id, pendingPayment: 0 };
+            }
           })
         );
         total = customersWithPendingCheck.filter(c => c.pendingPayment > 0).length;

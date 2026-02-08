@@ -82,16 +82,29 @@ function AccountLedgerPage() {
           if (dateA.getTime() !== dateB.getTime()) {
             return dateA - dateB
           }
-          // If same date, sort by transaction number
           return a.transactionNumber.localeCompare(b.transactionNumber)
         })
-        
-        // Calculate running balance from start
-        // For ASSET and EXPENSE: Debit increases, Credit decreases
-        // For LIABILITY, EQUITY, INCOME: Credit increases, Debit decreases
-        const isDebitIncrease = accountData.type === 'ASSET' || accountData.type === 'EXPENSE'
-        let currentBalance = 0
-        
+
+        // For ASSET and EXPENSE: Debit increases, Credit decreases. EQUITY in this system uses same as ASSET.
+        const isDebitIncrease = ['ASSET', 'EXPENSE', 'EQUITY'].includes(accountData.type)
+
+        // Total effect of displayed transactions on this account
+        const totalEffect = entries.reduce((sum, entry) => {
+          const change = isDebitIncrease ? entry.debitAmount - entry.creditAmount : entry.creditAmount - entry.debitAmount
+          return sum + change
+        }, 0)
+
+        // Opening balance: when fromDate is set use API value; otherwise derive from account balance
+        // This handles accounts created with balance directly (Add Account) where no transaction exists
+        let openingBalance
+        if (filters.fromDate && response.data.openingBalance !== undefined) {
+          openingBalance = response.data.openingBalance
+        } else {
+          openingBalance = accountData.balance - totalEffect
+        }
+
+        // Calculate running balance starting from opening balance
+        let currentBalance = openingBalance
         entries.forEach(entry => {
           if (isDebitIncrease) {
             currentBalance = currentBalance + entry.debitAmount - entry.creditAmount
@@ -101,9 +114,17 @@ function AccountLedgerPage() {
           entry.balance = currentBalance
         })
 
-        // Reverse to show most recent first (but balance is already calculated correctly)
-        entries.reverse()
-        setLedgerEntries(entries)
+        // Build display list: Opening Balance row first, then entries in chronological order (oldest first)
+        const openingRow = {
+          date: filters.fromDate || entries[0]?.date || new Date().toISOString().split('T')[0],
+          transactionNumber: '—',
+          description: 'Opening Balance',
+          debitAmount: 0,
+          creditAmount: 0,
+          balance: openingBalance,
+          isOpeningBalance: true
+        }
+        setLedgerEntries([openingRow, ...entries])
       }
     } catch (error) {
       console.error('Error fetching ledger:', error)

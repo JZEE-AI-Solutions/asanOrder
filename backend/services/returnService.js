@@ -179,19 +179,40 @@ class ReturnService {
         }
       });
 
+      // Get order items to extract variant info
+      const orderItems = await tx.orderItem.findMany({
+        where: { orderId: orderId }
+      });
+
+      // Map by composite key (productId_variantId) so multiple variant lines of same product are correct
+      const orderItemsMap = new Map();
+      orderItems.forEach(item => {
+        if (item.productId) {
+          const compositeKey = `${item.productId}_${item.productVariantId || 'base'}`;
+          orderItemsMap.set(compositeKey, item);
+          if (!item.productVariantId) orderItemsMap.set(item.productId, item); // legacy single-key
+        }
+      });
+
       // Create return items
       for (const product of productsToReturn) {
-        // Handle both object format {id, quantity, price, name} and simple ID format
         const productId = typeof product === 'object' ? (product.id || product) : product;
+        const variantId = typeof product === 'object' ? (product.variantId || product.productVariantId) : null;
+        const compositeKey = variantId ? `${productId}_${variantId}` : productId;
         const quantity = typeof product === 'object' && product.quantity !== undefined
           ? product.quantity
-          : (productQuantities[productId] || 1);
+          : (productQuantities[compositeKey] ?? productQuantities[productId] ?? 1);
         const price = typeof product === 'object' && product.price !== undefined
           ? product.price
-          : (productPrices[productId] || 0);
+          : (productPrices[compositeKey] ?? productPrices[productId] ?? 0);
         const productName = typeof product === 'object' && product.name
           ? product.name
           : ('Product');
+
+        const orderItem = orderItemsMap.get(compositeKey) || orderItemsMap.get(productId);
+        const variantIdResolved = orderItem?.productVariantId || variantId;
+        const color = orderItem?.color || (typeof product === 'object' ? product.color : null);
+        const size = orderItem?.size || (typeof product === 'object' ? product.size : null);
         
         await tx.returnItem.create({
           data: {
@@ -199,7 +220,10 @@ class ReturnService {
             purchasePrice: price,
             quantity,
             reason,
-            returnId: returnRecord.id
+            returnId: returnRecord.id,
+            productVariantId: variantIdResolved || null,
+            color: color || null,
+            size: size || null
           }
         });
       }
@@ -289,7 +313,7 @@ class ReturnService {
       });
     }
 
-    return await prisma.$transaction(async (tx) => {
+    const transactionResult = await prisma.$transaction(async (tx) => {
       // Get accounts
       const salesReturnsAccount = await accountingService.getAccountByCode('4100', tenantId) ||
         await accountingService.getOrCreateAccount({
@@ -422,6 +446,26 @@ class ReturnService {
         transaction
       };
     });
+
+    const approvedReturnForResponse = transactionResult;
+
+    // Increase inventory after transaction (business receives product back from customer return)
+    const isCustomerReturn = returnRecord.returnType === 'CUSTOMER_FULL' || returnRecord.returnType === 'CUSTOMER_PARTIAL';
+    if (isCustomerReturn && approvedReturnForResponse?.returnItems?.length > 0) {
+      try {
+        const InventoryService = require('./inventoryService');
+        await InventoryService.increaseInventoryFromCustomerReturn(
+          tenantId,
+          approvedReturnForResponse.returnItems,
+          returnId,
+          approvedReturnForResponse.returnNumber
+        );
+      } catch (inventoryErr) {
+        console.error('⚠️  Inventory increase from customer return failed (return still approved):', inventoryErr);
+      }
+    }
+
+    return approvedReturnForResponse;
   }
 
   /**

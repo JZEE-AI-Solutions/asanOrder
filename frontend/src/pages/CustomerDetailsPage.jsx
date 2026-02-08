@@ -33,16 +33,16 @@ const CustomerDetailsPage = () => {
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentAccountId, setPaymentAccountId] = useState(null)
   const [paymentOrderId, setPaymentOrderId] = useState(null)
-  const [paymentIsVerified, setPaymentIsVerified] = useState(false)
   const [useAdvanceBalance, setUseAdvanceBalance] = useState(false)
   const [advanceAmountUsed, setAdvanceAmountUsed] = useState('')
   const [recordingPayment, setRecordingPayment] = useState(false)
   
-  // Payment verification
-  const [verifyingPaymentId, setVerifyingPaymentId] = useState(null)
-  const [verifyPaymentAccountId, setVerifyPaymentAccountId] = useState(null)
-  const [verifyingPayment, setVerifyingPayment] = useState(false)
-
+  // Associate direct payment with order (no accounting)
+  const [showAssociateModal, setShowAssociateModal] = useState(false)
+  const [associatePaymentId, setAssociatePaymentId] = useState(null)
+  const [associateOrderId, setAssociateOrderId] = useState(null)
+  const [associatingPayment, setAssociatingPayment] = useState(false)
+  
   useEffect(() => {
     if (customerId) {
       fetchCustomerDetails()
@@ -56,7 +56,7 @@ const CustomerDetailsPage = () => {
         api.get(`/customer/${customerId}`),
         api.get(`/customer/${customerId}/orders`),
         api.get(`/customer/${customerId}/logs`),
-        api.get(`/accounting/balances/customer/${customerId}`).catch(() => ({ data: null }))
+        api.get(`/accounting/balances/customers/${customerId}`).catch(() => ({ data: null }))
       ])
 
       setCustomerDetails(detailsRes.data.customer)
@@ -81,9 +81,11 @@ const CustomerDetailsPage = () => {
   const fetchPayments = async () => {
     try {
       const response = await api.get('/accounting/payments', {
-        params: { customerId, type: 'CUSTOMER_PAYMENT' }
+        params: { customerId, type: 'CUSTOMER_PAYMENT', limit: 100 }
       })
-      setCustomerPayments(response.data.payments || [])
+      if (response.data?.success) {
+        setCustomerPayments(response.data.data || [])
+      }
     } catch (error) {
       console.error('Failed to fetch payments:', error)
     }
@@ -91,7 +93,7 @@ const CustomerDetailsPage = () => {
   
   const fetchReturns = async () => {
     try {
-      const response = await api.get('/accounting/returns', {
+      const response = await api.get('/accounting/order-returns', {
         params: { 
           returnType: 'CUSTOMER_FULL,CUSTOMER_PARTIAL'
         }
@@ -135,33 +137,34 @@ const CustomerDetailsPage = () => {
   }
 
   const calculateOrderTotal = (order) => {
-    const selectedProducts = parseJSON(order.selectedProducts) || []
-    const productQuantities = parseJSON(order.productQuantities) || {}
-    const productPrices = parseJSON(order.productPrices) || {}
-    
     let total = 0
-    selectedProducts.forEach(product => {
-      const quantity = productQuantities[product.id] || product.quantity || 1
-      const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
-      total += price * quantity
-    })
-    
-    // Add shipping charges
+    // Prefer normalized orderItems when present (variant orders / new flow)
+    if (order.orderItems && order.orderItems.length > 0) {
+      total = order.orderItems.reduce((sum, item) => sum + (item.quantity || 0) * (item.price || 0), 0)
+    } else {
+      const selectedProducts = parseJSON(order.selectedProducts) || []
+      const productQuantities = parseJSON(order.productQuantities) || {}
+      const productPrices = parseJSON(order.productPrices) || {}
+      selectedProducts.forEach(product => {
+        const quantity = productQuantities[product.id] || product.quantity || 1
+        const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
+        total += price * quantity
+      })
+    }
     const shippingCharges = order.shippingCharges || 0
     total += shippingCharges
-    
     return total
   }
 
   const getPaymentStatus = (order) => {
     const total = calculateOrderTotal(order)
-    // Use verified payment amount if payment is verified, otherwise use claimed amount (but don't count unverified)
     const claimed = order.paymentAmount || 0
     const verified = order.paymentVerified ? (order.verifiedPaymentAmount || 0) : 0
-    // For balance calculation, only count verified payments
-    const paid = order.paymentVerified ? verified : 0
+    // Paid = sum of Payment records (order.totalPaid from API when available); else fallback to verified only
+    const paid = (order.totalPaid != null && order.totalPaid !== undefined)
+      ? Number(order.totalPaid)
+      : (order.paymentVerified ? verified : 0)
     const remaining = total - paid
-    
     return {
       total,
       paid,
@@ -484,17 +487,10 @@ const CustomerDetailsPage = () => {
                     </div>
                   </div>
                   {(() => {
-                    // Only include CONFIRMED orders for pending payment calculation
-                    const confirmedOrders = customerOrders.filter(order => order.status === 'CONFIRMED')
-                    // Use verified payment amounts for total paid calculation
-                    const totalPaid = customerOrders.reduce((sum, order) => {
-                      const verified = order.paymentVerified ? (order.verifiedPaymentAmount || 0) : 0
-                      return sum + verified
-                    }, 0)
-                    const totalPending = confirmedOrders.reduce((sum, order) => {
-                      const status = getPaymentStatus(order)
-                      return sum + status.remaining
-                    }, 0)
+                    // Use same source as Orders tab: sum of payments per order (order.totalPaid from API = Payment records)
+                    const ordersInScope = customerOrders.filter(o => ['CONFIRMED', 'DISPATCHED', 'COMPLETED'].includes(o.status))
+                    const totalPaid = ordersInScope.reduce((sum, order) => sum + getPaymentStatus(order).paid, 0)
+                    const totalPending = ordersInScope.reduce((sum, order) => sum + getPaymentStatus(order).remaining, 0)
                     return (
                       <div className="grid grid-cols-2 gap-4 mt-4">
                         <div className="bg-green-50 p-3 rounded-lg border border-green-200">
@@ -504,7 +500,7 @@ const CustomerDetailsPage = () => {
                         <div className="bg-red-50 p-3 rounded-lg border border-red-200">
                           <p className="text-xs font-medium text-red-600 mb-1">Pending Balance</p>
                           <p className="text-lg font-bold text-red-900">Rs. {totalPending.toFixed(2)}</p>
-                          <p className="text-xs text-gray-500 mt-1">(Confirmed orders only)</p>
+                          <p className="text-xs text-gray-500 mt-1">(Confirmed, dispatched & completed orders)</p>
                         </div>
                       </div>
                     )
@@ -581,13 +577,14 @@ const CustomerDetailsPage = () => {
                 </div>
               ) : (
                 <>
-                  {/* Orders Summary */}
+                  {/* Orders Summary - from orders (uses totalPaid per order so matches ledger) */}
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                     {(() => {
                       const totalOrders = customerOrders.length
                       const totalAmount = customerOrders.reduce((sum, order) => sum + calculateOrderTotal(order), 0)
-                      const totalPaid = customerOrders.reduce((sum, order) => sum + (order.paymentAmount || 0), 0)
-                      const totalPending = totalAmount - totalPaid
+                      const ordersInScope = customerOrders.filter(o => ['CONFIRMED', 'DISPATCHED', 'COMPLETED'].includes(o.status))
+                      const totalPaid = ordersInScope.reduce((sum, order) => sum + getPaymentStatus(order).paid, 0)
+                      const totalPending = ordersInScope.reduce((sum, order) => sum + getPaymentStatus(order).remaining, 0)
                       
                       return (
                         <>
@@ -667,25 +664,36 @@ const CustomerDetailsPage = () => {
                                 )}
                               </div>
 
-                              {/* Products Summary */}
-                              {selectedProducts.length > 0 && (
+                              {/* Products Summary: orderItems (variant flow) or legacy selectedProducts */}
+                              {((order.orderItems && order.orderItems.length > 0) || selectedProducts.length > 0) && (
                                 <div className="mb-4">
-                                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Products ({selectedProducts.length})</p>
+                                  <p className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                                    Products ({order.orderItems?.length || selectedProducts.length})
+                                  </p>
                                   <div className="flex flex-wrap gap-2">
-                                    {selectedProducts.slice(0, 5).map((product, idx) => {
-                                      const quantity = parseJSON(order.productQuantities)?.[product.id] || product.quantity || 1
-                                      return (
-                                        <span 
-                                          key={idx} 
-                                          className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs font-medium"
-                                        >
-                                          {product.name || 'Unknown'} (Qty: {quantity})
-                                        </span>
-                                      )
-                                    })}
-                                    {selectedProducts.length > 5 && (
+                                    {order.orderItems && order.orderItems.length > 0
+                                      ? order.orderItems.slice(0, 5).map((item, idx) => (
+                                          <span
+                                            key={idx}
+                                            className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs font-medium"
+                                          >
+                                            {item.productName || 'Item'} (Qty: {item.quantity})
+                                          </span>
+                                        ))
+                                      : selectedProducts.slice(0, 5).map((product, idx) => {
+                                          const quantity = parseJSON(order.productQuantities)?.[product.id] || product.quantity || 1
+                                          return (
+                                            <span
+                                              key={idx}
+                                              className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs font-medium"
+                                            >
+                                              {product.name || 'Unknown'} (Qty: {quantity})
+                                            </span>
+                                          )
+                                        })}
+                                    {(order.orderItems?.length > 5 || selectedProducts.length > 5) && (
                                       <span className="inline-flex items-center px-2 py-1 rounded-md bg-gray-100 text-gray-700 text-xs font-medium">
-                                        +{selectedProducts.length - 5} more
+                                        +{(order.orderItems?.length || selectedProducts.length) - 5} more
                                       </span>
                                     )}
                                   </div>
@@ -772,9 +780,7 @@ const CustomerDetailsPage = () => {
                     setPaymentAmount('')
                     setPaymentAccountId(null)
                     setPaymentOrderId(null)
-                    setPaymentIsVerified(false)
                     setUseAdvanceBalance(false)
-                    setAdvanceAmountUsed('')
                     setShowPaymentModal(true)
                   }}
                   className="btn-primary flex items-center px-4 py-2"
@@ -797,16 +803,6 @@ const CustomerDetailsPage = () => {
                         <div className="flex-1">
                           <div className="flex items-center gap-3">
                             <span className="font-semibold text-gray-900">{payment.paymentNumber}</span>
-                            {!payment.transactionId && (
-                              <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded-full">
-                                Unverified
-                              </span>
-                            )}
-                            {payment.transactionId && (
-                              <span className="px-2 py-1 bg-green-100 text-green-800 text-xs font-semibold rounded-full">
-                                Verified
-                              </span>
-                            )}
                           </div>
                           <p className="text-sm text-gray-600 mt-1">
                             Amount: <span className="font-semibold">Rs. {payment.amount.toFixed(2)}</span>
@@ -825,24 +821,25 @@ const CustomerDetailsPage = () => {
                           </p>
                         </div>
                         <div className="flex gap-2">
-                          {!payment.transactionId && (
+                          {payment.orderId ? (
                             <button
-                              onClick={() => {
-                                setVerifyingPaymentId(payment.id)
-                                setVerifyPaymentAccountId(payment.accountId || null)
-                              }}
+                              onClick={() => navigate(`/business/orders/${payment.orderId}`)}
                               className="btn-secondary text-sm px-3 py-1.5"
                             >
-                              Verify
+                              View Order
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setAssociatePaymentId(payment.id)
+                                setAssociateOrderId(null)
+                                setShowAssociateModal(true)
+                              }}
+                              className="btn-primary text-sm px-3 py-1.5"
+                            >
+                              Associate with Order
                             </button>
                           )}
-                          <button
-                            onClick={() => navigate(`/business/orders/${payment.orderId}`)}
-                            className="btn-secondary text-sm px-3 py-1.5"
-                            disabled={!payment.orderId}
-                          >
-                            View Order
-                          </button>
                         </div>
                       </div>
                     </div>
@@ -1107,32 +1104,16 @@ const CustomerDetailsPage = () => {
                   
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Payment Account {paymentIsVerified && <span className="text-red-500">*</span>}
+                      Payment Account <span className="text-red-500">*</span>
                     </label>
                     <PaymentAccountSelector
                       value={paymentAccountId}
                       onChange={setPaymentAccountId}
                       showQuickAdd={true}
-                      required={paymentIsVerified}
+                      required={true}
                       className="w-full"
                     />
                   </div>
-                  
-                  {!paymentOrderId && (
-                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <label className="flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={paymentIsVerified}
-                          onChange={(e) => setPaymentIsVerified(e.target.checked)}
-                          className="mr-2 h-4 w-4 text-yellow-600"
-                        />
-                        <span className="text-sm font-medium text-gray-900">
-                          Mark as Verified (will create accounting entries immediately)
-                        </span>
-                      </label>
-                    </div>
-                  )}
                   
                   <div className="flex gap-3 pt-4">
                     <button
@@ -1141,7 +1122,6 @@ const CustomerDetailsPage = () => {
                         setPaymentAmount('')
                         setPaymentAccountId(null)
                         setPaymentOrderId(null)
-                        setPaymentIsVerified(false)
                         setUseAdvanceBalance(false)
                         setAdvanceAmountUsed('')
                       }}
@@ -1156,36 +1136,39 @@ const CustomerDetailsPage = () => {
                           toast.error('Please enter a valid payment amount')
                           return
                         }
-                        if (paymentIsVerified && !paymentAccountId) {
-                          toast.error('Please select a payment account for verified payments')
+                        if (!paymentAccountId) {
+                          toast.error('Please select a payment account')
                           return
                         }
                         setRecordingPayment(true)
                         try {
-                          await api.post('/accounting/payments', {
+                          const response = await api.post('/accounting/payments', {
                             date: new Date().toISOString(),
                             type: 'CUSTOMER_PAYMENT',
                             amount: parseFloat(paymentAmount),
                             paymentAccountId: paymentAccountId || null,
                             customerId,
                             orderId: paymentOrderId || null,
-                            isVerified: paymentIsVerified || (paymentOrderId !== null),
+                            isVerified: true,
                             useAdvanceBalance,
                             advanceAmountUsed: useAdvanceBalance ? parseFloat(advanceAmountUsed) : undefined
                           })
-                          toast.success('Payment recorded successfully!')
-                          setShowPaymentModal(false)
-                          setPaymentAmount('')
-                          setPaymentAccountId(null)
-                          setPaymentOrderId(null)
-                          setPaymentIsVerified(false)
-                          setUseAdvanceBalance(false)
-                          setAdvanceAmountUsed('')
-                          fetchCustomerDetails()
-                          fetchPayments()
+                          if (response.data?.success) {
+                            toast.success('Payment recorded successfully!')
+                            setShowPaymentModal(false)
+                            setPaymentAmount('')
+                            setPaymentAccountId(null)
+                            setPaymentOrderId(null)
+                            setUseAdvanceBalance(false)
+                            setAdvanceAmountUsed('')
+                            fetchCustomerDetails()
+                            fetchPayments()
+                          }
                         } catch (error) {
                           console.error('Failed to record payment:', error)
-                          toast.error(error.response?.data?.error?.message || 'Failed to record payment')
+                          const errMsg = error.response?.data?.error
+                          const msg = typeof errMsg === 'string' ? errMsg : (errMsg?.message || 'Failed to record payment')
+                          toast.error(msg)
                         } finally {
                           setRecordingPayment(false)
                         }
@@ -1202,70 +1185,84 @@ const CustomerDetailsPage = () => {
           </div>
         )}
         
-        {/* Payment Verification Modal */}
-        {verifyingPaymentId && (
+        {/* Associate Direct Payment with Order Modal */}
+        {showAssociateModal && associatePaymentId && (
           <div className="fixed inset-0 bg-gray-900 bg-opacity-75 z-50 flex items-center justify-center p-4">
             <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
               <div className="p-6">
-                <h3 className="text-xl font-bold text-gray-900 mb-4">Verify Payment</h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Payment Account <span className="text-red-500">*</span>
-                    </label>
-                    <PaymentAccountSelector
-                      value={verifyPaymentAccountId}
-                      onChange={setVerifyPaymentAccountId}
-                      showQuickAdd={true}
-                      required={true}
-                      className="w-full"
-                    />
-                  </div>
-                  <div className="flex gap-3 pt-4">
-                    <button
-                      onClick={() => {
-                        setVerifyingPaymentId(null)
-                        setVerifyPaymentAccountId(null)
-                      }}
-                      className="flex-1 btn-secondary px-6 py-3"
-                      disabled={verifyingPayment}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={async () => {
-                        if (!verifyPaymentAccountId) {
-                          toast.error('Please select a payment account')
-                          return
-                        }
-                        setVerifyingPayment(true)
-                        try {
-                          await api.post(`/accounting/payments/${verifyingPaymentId}/verify`, {
-                            paymentAccountId: verifyPaymentAccountId
-                          })
-                          toast.success('Payment verified successfully!')
-                          setVerifyingPaymentId(null)
-                          setVerifyPaymentAccountId(null)
+                <h3 className="text-xl font-bold text-gray-900 mb-2">Associate Payment with Order</h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  This payment has already been posted. Linking it to an order will update the record only—no new accounting entry will be created.
+                </p>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Order <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={associateOrderId || ''}
+                    onChange={(e) => setAssociateOrderId(e.target.value || null)}
+                    className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                  >
+                    <option value="">Choose an order...</option>
+                    {customerOrders.map((order) => (
+                      <option key={order.id} value={order.id}>
+                        {order.orderNumber} - Rs. {calculateOrderTotal(order).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex gap-3 pt-4">
+                  <button
+                    onClick={() => {
+                      setShowAssociateModal(false)
+                      setAssociatePaymentId(null)
+                      setAssociateOrderId(null)
+                    }}
+                    className="flex-1 btn-secondary px-6 py-3"
+                    disabled={associatingPayment}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!associateOrderId) {
+                        toast.error('Please select an order')
+                        return
+                      }
+                      setAssociatingPayment(true)
+                      try {
+                        const response = await api.patch(
+                          `/accounting/payments/${associatePaymentId}/associate-order`,
+                          { orderId: associateOrderId }
+                        )
+                        if (response.data?.success) {
+                          toast.success('Payment associated with order successfully')
+                          setShowAssociateModal(false)
+                          setAssociatePaymentId(null)
+                          setAssociateOrderId(null)
                           fetchCustomerDetails()
                           fetchPayments()
-                        } catch (error) {
-                          console.error('Failed to verify payment:', error)
-                          toast.error(error.response?.data?.error?.message || 'Failed to verify payment')
-                        } finally {
-                          setVerifyingPayment(false)
                         }
-                      }}
-                      className="flex-1 btn-primary px-6 py-3"
-                      disabled={verifyingPayment || !verifyPaymentAccountId}
-                    >
-                      {verifyingPayment ? 'Verifying...' : 'Verify Payment'}
-                    </button>
-                  </div>
+                      } catch (error) {
+                        console.error('Failed to associate payment:', error)
+                        const errMsg = error.response?.data?.error
+                        const msg = typeof errMsg === 'string' ? errMsg : (errMsg?.message || 'Failed to associate payment')
+                        toast.error(msg)
+                      } finally {
+                        setAssociatingPayment(false)
+                      }
+                    }}
+                    className="flex-1 btn-primary px-6 py-3"
+                    disabled={associatingPayment || !associateOrderId}
+                  >
+                    {associatingPayment ? 'Associating...' : 'Associate'}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         )}
+        
       </div>
     </ModernLayout>
   )

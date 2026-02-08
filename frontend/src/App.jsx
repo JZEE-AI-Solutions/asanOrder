@@ -31,6 +31,7 @@ import {
   LazyCustomerDetailsPage,
   LazyAddCustomerPage,
   LazyAddSupplierPage,
+  LazySupplierDetailsPage,
   LazyEditSupplierPage,
   LazyAddProductPage,
   LazyEditProductPage,
@@ -163,6 +164,14 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyAddSupplierPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              <Route path="/business/suppliers/:supplierId" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazySupplierDetailsPage />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

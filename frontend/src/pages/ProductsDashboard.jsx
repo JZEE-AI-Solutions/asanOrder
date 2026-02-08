@@ -247,9 +247,16 @@ const ProductsDashboard = () => {
 
                   {/* Product Info */}
                   <div className="mb-4">
-                    <h3 className="font-semibold text-gray-900 text-lg mb-1 group-hover:text-pink-600 transition-colors">
-                      {product.name}
-                    </h3>
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="font-semibold text-gray-900 text-lg group-hover:text-pink-600 transition-colors">
+                        {product.name}
+                      </h3>
+                      {(product.hasVariants || product.isStitched) && product.variantCount > 0 && (
+                        <span className="inline-flex items-center bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-medium">
+                          {product.variantCount} {product.variantCount === 1 ? 'variant' : 'variants'}
+                        </span>
+                      )}
+                    </div>
                     {product.description && (
                       <p className="text-gray-600 text-sm mb-2 line-clamp-2">
                         {product.description}
@@ -266,26 +273,37 @@ const ProductsDashboard = () => {
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-600">Purchase Price:</span>
-                      <span className="font-semibold">Rs. {product.lastPurchasePrice || 0}</span>
+                      <span className="font-semibold whitespace-nowrap">Rs. {parseFloat(product.lastPurchasePrice || 0).toFixed(2)}</span>
                     </div>
                     {product.currentRetailPrice && (
                       <div className="flex justify-between">
                         <span className="text-gray-600">Retail Price:</span>
-                        <span className="font-semibold text-green-600">Rs. {product.currentRetailPrice}</span>
+                        <span className="font-semibold text-green-600 whitespace-nowrap">Rs. {parseFloat(product.currentRetailPrice).toFixed(2)}</span>
                       </div>
                     )}
                     {product.lastSalePrice && (
                       <div className="flex justify-between">
                         <span className="text-gray-600">Sale Price:</span>
-                        <span className="font-semibold text-blue-600">Rs. {product.lastSalePrice}</span>
+                        <span className="font-semibold text-blue-600 whitespace-nowrap">Rs. {parseFloat(product.lastSalePrice).toFixed(2)}</span>
                       </div>
                     )}
                     <div className="flex justify-between">
                       <span className="text-gray-600">Quantity:</span>
-                      <span className={`font-semibold ${product.currentQuantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                        {product.currentQuantity}
+                      <span className={`font-semibold ${(product.hasVariants && product.totalVariantStock !== null) 
+                        ? (product.totalVariantStock === 0 ? 'text-red-600' : 'text-gray-900')
+                        : (product.currentQuantity === 0 ? 'text-red-600' : 'text-gray-900')
+                      }`}>
+                        {product.hasVariants && product.totalVariantStock !== null 
+                          ? product.totalVariantStock 
+                          : product.currentQuantity}
                       </span>
                     </div>
+                    {product.hasVariants && product.totalVariantStock !== null && (
+                      <div className="flex justify-between text-xs text-gray-500">
+                        <span>Variant Stock:</span>
+                        <span>{product.totalVariantStock} total</span>
+                      </div>
+                    )}
                     {product.sku && (
                       <div className="flex justify-between">
                         <span className="text-gray-600">SKU:</span>
@@ -294,6 +312,64 @@ const ProductsDashboard = () => {
                     )}
                   </div>
 
+                  {/* Variants List */}
+                  {product.hasVariants && product.variants && product.variants.length > 0 && (
+                    <div className="mt-4 pt-4 border-t border-gray-200">
+                      <p className="text-xs font-semibold text-gray-700 mb-2">Variants:</p>
+                      <div className="space-y-2">
+                        {product.variants.map((variant) => (
+                          <div key={variant.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                            {/* Variant Image */}
+                            <div className="w-12 h-12 bg-gray-200 rounded flex-shrink-0 overflow-hidden">
+                              <img
+                                src={getImageUrl('product-variant', variant.id, true)}
+                                alt={`${variant.color}${variant.size ? `, ${variant.size}` : ''}`}
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.target.style.display = 'none'
+                                  e.target.nextElementSibling.style.display = 'flex'
+                                }}
+                              />
+                              <div style={{display: 'none'}} className="w-full h-full items-center justify-center text-gray-400 text-xs">
+                                <span>{variant.color?.[0] || 'V'}</span>
+                              </div>
+                            </div>
+                            
+                            {/* Variant Details */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-gray-900">
+                                  {variant.color}
+                                  {variant.size && <span className="text-gray-600">, {variant.size}</span>}
+                                </span>
+                                {variant.sku && (
+                                  <span className="text-xs text-gray-500 font-mono bg-gray-200 px-1.5 py-0.5 rounded">
+                                    {variant.sku}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between mt-1">
+                                <span className="text-xs text-gray-600">Qty:</span>
+                                <span className={`text-xs font-semibold ${variant.currentQuantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                                  {variant.currentQuantity || 0}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Variant summary */}
+                  {(product.hasVariants || (product.variantCount > 0)) && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      Variants: {product.variantCount ?? (product.variants?.length ?? 0)}
+                      {product.totalVariantStock != null && (
+                        <span className="ml-2">· Stock: {product.totalVariantStock}</span>
+                      )}
+                    </div>
+                  )}
                   {/* Status Badge */}
                   <div className="mt-4 mb-4">
                     <span className={`badge ${product.isActive ? 'badge-confirmed' : 'badge-pending'}`}>
@@ -391,7 +467,7 @@ const ProductsDashboard = () => {
             </div>
             <div className="card p-4 text-center">
               <div className="text-2xl font-bold text-blue-600">
-                {products.reduce((sum, p) => sum + (p.currentQuantity || 0), 0)}
+                {products.reduce((sum, p) => sum + (p.hasVariants && p.totalVariantStock != null ? p.totalVariantStock : (p.currentQuantity || 0)), 0)}
               </div>
               <div className="text-gray-600">Total Quantity</div>
             </div>

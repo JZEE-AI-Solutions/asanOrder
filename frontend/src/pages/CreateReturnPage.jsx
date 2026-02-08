@@ -40,17 +40,25 @@ const CreateReturnPage = () => {
   }, [customerId, orderIdParam])
 
   useEffect(() => {
-    if (selectedOrderId) {
-      const order = orders.find(o => o.id === selectedOrderId)
-      setSelectedOrder(order)
-      if (order) {
-        setOrderReturnStatus(order.returnStatus)
-        // Fetch existing returns when order changes
-        fetchExistingReturns(order.id)
-        calculateRefund()
+    if (!selectedOrderId) return
+    const orderFromList = orders.find(o => o.id === selectedOrderId)
+    setOrderReturnStatus(orderFromList?.returnStatus ?? null)
+    if (orderFromList?.id) fetchExistingReturns(orderFromList.id)
+    // Fetch full order (with orderItems) for return line display and payload
+    const fetchFullOrder = async () => {
+      try {
+        const res = await api.get(`/order/${selectedOrderId}`)
+        setSelectedOrder(res.data.order)
+      } catch (e) {
+        if (orderFromList) setSelectedOrder(orderFromList)
       }
     }
-  }, [selectedOrderId, returnType, selectedProducts, shippingChargeHandling, orders])
+    fetchFullOrder()
+  }, [selectedOrderId, orders])
+
+  useEffect(() => {
+    if (selectedOrder) calculateRefund()
+  }, [selectedOrder, returnType, selectedProducts, shippingChargeHandling])
 
   const fetchExistingReturns = async (orderId) => {
     try {
@@ -75,7 +83,7 @@ const CreateReturnPage = () => {
       const [customerRes, ordersRes, balanceRes] = await Promise.all([
         api.get(`/customer/${customerId}`),
         api.get(`/customer/${customerId}/orders`),
-        api.get(`/accounting/balances/customer/${customerId}`).catch(() => ({ data: null }))
+        api.get(`/accounting/balances/customers/${customerId}`).catch(() => ({ data: null }))
       ])
 
       setCustomer(customerRes.data.customer)
@@ -146,30 +154,43 @@ const CreateReturnPage = () => {
     }
   }
 
+  const getLineKey = (line) => {
+    const vid = line?.productVariantId ?? line?.variantId
+    const pid = line?.id
+    if (!pid) return String(line?.name || '')
+    return vid ? `${pid}_${vid}` : pid
+  }
+
   const calculateRefund = () => {
     if (!selectedOrder) return
 
-    const orderProducts = parseJSON(selectedOrder.selectedProducts) || []
-    const productQuantities = parseJSON(selectedOrder.productQuantities) || {}
-    const productPrices = parseJSON(selectedOrder.productPrices) || {}
+    const qtyMap = parseJSON(selectedOrder.productQuantities) || {}
+    const priceMap = parseJSON(selectedOrder.productPrices) || {}
     const shippingCharges = selectedOrder.shippingCharges || 0
+    const lines = (selectedOrder.orderItems && selectedOrder.orderItems.length > 0)
+      ? selectedOrder.orderItems.map(oi => ({
+          id: oi.productId,
+          productVariantId: oi.productVariantId,
+          variantId: oi.productVariantId,
+          quantity: oi.quantity,
+          price: oi.price,
+          name: oi.productName
+        }))
+      : (parseJSON(selectedOrder.selectedProducts) || []).map(p => ({ ...p, id: p.id || p }))
 
     let productsValue = 0
-
     if (returnType === 'CUSTOMER_FULL') {
-      // Calculate for all products
-      orderProducts.forEach(product => {
-        const productId = product.id || product
-        const quantity = productQuantities[productId] || 1
-        const price = productPrices[productId] || product.price || product.currentRetailPrice || 0
+      lines.forEach(product => {
+        const key = getLineKey(product)
+        const quantity = product.quantity ?? qtyMap[key] ?? qtyMap[product.id] ?? 1
+        const price = product.price ?? priceMap[key] ?? priceMap[product.id] ?? 0
         productsValue += price * quantity
       })
     } else {
-      // Calculate for selected products only
       selectedProducts.forEach(product => {
-        const productId = product.id || product
-        const quantity = productQuantities[productId] || product.quantity || 1
-        const price = productPrices[productId] || product.price || product.currentRetailPrice || 0
+        const key = getLineKey(product)
+        const quantity = product.quantity ?? qtyMap[key] ?? qtyMap[product.id] ?? 1
+        const price = product.price ?? priceMap[key] ?? priceMap[product.id] ?? 0
         productsValue += price * quantity
       })
     }
@@ -194,16 +215,14 @@ const CreateReturnPage = () => {
     setCalculatedRefund(Math.max(0, finalRefund))
   }
 
-  const handleProductToggle = (product) => {
+  const handleProductToggle = (line) => {
     if (returnType !== 'CUSTOMER_PARTIAL') return
-
-    const productId = product.id || product
-    const isSelected = selectedProducts.some(p => (p.id || p) === productId)
-
+    const key = getLineKey(line)
+    const isSelected = selectedProducts.some(p => getLineKey(p) === key)
     if (isSelected) {
-      setSelectedProducts(selectedProducts.filter(p => (p.id || p) !== productId))
+      setSelectedProducts(selectedProducts.filter(p => getLineKey(p) !== key))
     } else {
-      setSelectedProducts([...selectedProducts, product])
+      setSelectedProducts([...selectedProducts, line])
     }
   }
 
@@ -243,19 +262,17 @@ const CreateReturnPage = () => {
       }
 
       if (returnType === 'CUSTOMER_PARTIAL' && selectedProducts.length > 0) {
-        // Format selected products for API
-        const orderProducts = parseJSON(selectedOrder.selectedProducts) || []
-        const productQuantities = parseJSON(selectedOrder.productQuantities) || {}
-        const productPrices = parseJSON(selectedOrder.productPrices) || {}
-
+        const qtyMap = parseJSON(selectedOrder.productQuantities) || {}
+        const priceMap = parseJSON(selectedOrder.productPrices) || {}
         payload.selectedProducts = selectedProducts.map(product => {
-          const productId = product.id || product
-          const fullProduct = orderProducts.find(p => (p.id || p) === productId) || product
+          const key = getLineKey(product)
           return {
-            id: productId,
-            name: fullProduct.name || 'Product',
-            quantity: productQuantities[productId] || product.quantity || 1,
-            price: productPrices[productId] || product.price || product.currentRetailPrice || 0
+            id: product.id || product,
+            productVariantId: product.productVariantId ?? product.variantId ?? null,
+            variantId: product.variantId ?? product.productVariantId ?? null,
+            name: product.name || 'Product',
+            quantity: product.quantity ?? qtyMap[key] ?? qtyMap[product.id] ?? 1,
+            price: product.price ?? priceMap[key] ?? priceMap[product.id] ?? 0
           }
         })
       }
@@ -289,7 +306,23 @@ const CreateReturnPage = () => {
     )
   }
 
-  const orderProducts = selectedOrder ? parseJSON(selectedOrder.selectedProducts) || [] : []
+  const orderProducts = (() => {
+    if (!selectedOrder) return []
+    if (selectedOrder.orderItems && selectedOrder.orderItems.length > 0) {
+      return selectedOrder.orderItems.map(oi => ({
+        id: oi.productId,
+        name: oi.productName,
+        productVariantId: oi.productVariantId ?? null,
+        variantId: oi.productVariantId ?? null,
+        color: oi.color ?? null,
+        size: oi.size ?? null,
+        quantity: oi.quantity ?? 1,
+        price: oi.price ?? 0
+      }))
+    }
+    return parseJSON(selectedOrder.selectedProducts) || []
+  })()
+
   const productQuantities = selectedOrder ? parseJSON(selectedOrder.productQuantities) || {} : {}
   const productPrices = selectedOrder ? parseJSON(selectedOrder.productPrices) || {} : {}
   const shippingCharges = selectedOrder?.shippingCharges || 0
@@ -493,16 +526,17 @@ const CreateReturnPage = () => {
                   <h2 className="text-lg font-semibold text-gray-900 mb-4">Select Products to Return</h2>
                   
                   <div className="space-y-3">
-                    {orderProducts.map((product, index) => {
-                      const productId = product.id || product
-                      const quantity = productQuantities[productId] || 1
-                      const price = productPrices[productId] || product.price || product.currentRetailPrice || 0
+                    {orderProducts.map((line, index) => {
+                      const lineKey = getLineKey(line)
+                      const quantity = line.quantity ?? productQuantities[lineKey] ?? productQuantities[line.id] ?? 1
+                      const price = line.price ?? productPrices[lineKey] ?? productPrices[line.id] ?? 0
                       const total = price * quantity
-                      const isSelected = selectedProducts.some(p => (p.id || p) === productId)
+                      const isSelected = selectedProducts.some(p => getLineKey(p) === lineKey)
+                      const variantLabel = [line.color, line.size].filter(Boolean).join(' · ')
 
                       return (
                         <label
-                          key={productId || index}
+                          key={lineKey || index}
                           className={`flex items-center p-4 border-2 rounded-lg cursor-pointer transition-colors ${
                             isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'
                           }`}
@@ -510,12 +544,13 @@ const CreateReturnPage = () => {
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => handleProductToggle(product)}
+                            onChange={() => handleProductToggle(line)}
                             className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500"
                           />
                           <div className="flex-1">
                             <div className="font-semibold text-gray-900">
-                              {product.name || 'Product'}
+                              {line.name || 'Product'}
+                              {variantLabel && <span className="text-gray-600 font-normal"> · {variantLabel}</span>}
                             </div>
                             <div className="text-sm text-gray-600 mt-1">
                               Quantity: {quantity} × Rs. {price.toFixed(2)} = Rs. {total.toFixed(2)}

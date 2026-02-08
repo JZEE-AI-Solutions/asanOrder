@@ -904,5 +904,66 @@ describe('Supplier, Purchase, Payment & Accounting Integration Tests', () => {
       await verifyAccountBalance('2000', testTenant.id, 37500); // AP should be back to original + return total
     });
   });
+
+  describe('Purchase invoice with product variants (two variants: yellow and white)', () => {
+    test('should create purchase with two variant lines and store each with correct color (yellow, white)', async () => {
+      // Ensure we have a supplier (when running this test in isolation supplierBId may be undefined)
+      let supplierId = supplierBId;
+      if (!supplierId) {
+        const supplierRes = await request(app)
+          .post('/accounting/suppliers')
+          .send({ name: 'Supplier Variants Test', balanceType: 'we_owe', balance: 0 });
+        expect(supplierRes.status).toBe(201);
+        supplierId = supplierRes.body.data?.id;
+      }
+
+      // Create a product with hasVariants so backend will find-or-create variants by color (unique SKU per run to avoid collision)
+      const productSku = `VTP-${Date.now()}`;
+      const product = await prisma.product.create({
+        data: {
+          name: 'Variant Test Product',
+          tenantId: testTenant.id,
+          hasVariants: true,
+          sku: productSku,
+          currentQuantity: 0,
+          lastPurchasePrice: 0
+        }
+      });
+
+      const createRes = await request(app)
+        .post('/purchase-invoice/with-products')
+        .send({
+          supplierId,
+          invoiceNumber: 'PI-VARIANTS-001',
+          invoiceDate: new Date().toISOString(),
+          totalAmount: 500,
+          products: [
+            { name: product.name, productId: product.id, quantity: 2, purchasePrice: 100, color: 'yellow' },
+            { name: product.name, productId: product.id, quantity: 3, purchasePrice: 100, color: 'white' }
+          ]
+        });
+
+      expect(createRes.status).toBe(201);
+      const invoiceId = createRes.body.invoice?.id || createRes.body.data?.id;
+      expect(invoiceId).toBeDefined();
+
+      const getRes = await request(app)
+        .get(`/purchase-invoice/${invoiceId}`);
+
+      expect(getRes.status).toBe(200);
+      const items = getRes.body.purchaseInvoice?.purchaseItems ?? [];
+      expect(items.length).toBe(2);
+
+      // Backend preserves request order (id asc); first line = yellow, second = white
+      const yellowItem = items.find(i => i.productVariant?.color === 'yellow');
+      const whiteItem = items.find(i => i.productVariant?.color === 'white');
+      expect(yellowItem).toBeDefined();
+      expect(whiteItem).toBeDefined();
+      expect(yellowItem.productVariant.color).toBe('yellow');
+      expect(yellowItem.quantity).toBe(2);
+      expect(whiteItem.productVariant.color).toBe('white');
+      expect(whiteItem.quantity).toBe(3);
+    });
+  });
 });
 

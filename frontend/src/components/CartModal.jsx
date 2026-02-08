@@ -102,29 +102,47 @@ const CartModal = ({
               </div>
             ) : (
               <div className="space-y-3 sm:space-y-4">
-                {cart.map((item) => (
-                  <div key={item.id} className="bg-white rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200 hover:border-pink-200">
+                {cart.map((item) => {
+                  const lineKey = (item.variantId || item.productVariantId) ? `${item.id}-${item.variantId || item.productVariantId}` : item.id
+                  const imageUrl = (item.variantId || item.productVariantId)
+                    ? getImageUrl('product-variant', item.variantId || item.productVariantId, true)
+                    : getImageUrl('product', item.id, true)
+                  const isVideo = item.primaryMediaType?.startsWith?.('video/')
+                  return (
+                  <div key={lineKey} className="bg-white rounded-xl p-3 sm:p-4 shadow-sm hover:shadow-lg transition-all duration-200 border border-gray-200 hover:border-pink-200">
                     <div className="flex items-start gap-3 sm:gap-4">
-                      {/* Product Image */}
+                      {/* Product / Variant Image or Video */}
                       <div className="flex-shrink-0">
                         <div className="relative group">
                           <div className="absolute inset-0 bg-pink-100 rounded-lg opacity-0 group-hover:opacity-20 transition-opacity"></div>
-                          <img
-                            src={getImageUrl('product', item.id, true)}
-                            alt={item.name}
-                            className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded-lg border-2 border-gray-200 shadow-sm"
-                            onError={(e) => {
-                              e.target.style.display = 'none'
-                              if (e.target.nextElementSibling) {
-                                e.target.nextElementSibling.style.display = 'flex'
-                              }
-                            }}
-                            onLoad={(e) => {
-                              if (e.target.nextElementSibling) {
-                                e.target.nextElementSibling.style.display = 'none'
-                              }
-                            }}
-                          />
+                          {isVideo ? (
+                            <video
+                              src={imageUrl}
+                              className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded-lg border-2 border-gray-200 shadow-sm"
+                              muted
+                              playsInline
+                              autoPlay
+                              loop
+                              preload="metadata"
+                            />
+                          ) : (
+                            <img
+                              src={imageUrl}
+                              alt={item.name + (item.color ? ` (${item.color}${item.size ? `, ${item.size}` : ''})` : '')}
+                              className="h-20 w-20 sm:h-24 sm:w-24 object-cover rounded-lg border-2 border-gray-200 shadow-sm"
+                              onError={(e) => {
+                                e.target.style.display = 'none'
+                                if (e.target.nextElementSibling) {
+                                  e.target.nextElementSibling.style.display = 'flex'
+                                }
+                              }}
+                              onLoad={(e) => {
+                                if (e.target.nextElementSibling) {
+                                  e.target.nextElementSibling.style.display = 'none'
+                                }
+                              }}
+                            />
+                          )}
                           <div className="h-20 w-20 sm:h-24 sm:w-24 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg border-2 border-gray-200 flex items-center justify-center absolute inset-0" style={{display: 'none'}}>
                             <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -136,11 +154,18 @@ const CartModal = ({
                       {/* Product Details */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between mb-2 gap-2">
-                          <h3 className="text-sm sm:text-base font-bold text-gray-900 line-clamp-2 leading-tight flex-1">
-                            {item.name}
-                          </h3>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-sm sm:text-base font-bold text-gray-900 line-clamp-2 leading-tight">
+                              {item.name}
+                            </h3>
+                            {(item.color || item.variantId || item.productVariantId) && (
+                              <div className="text-xs text-gray-500 mt-1">
+                                {item.color}{item.size ? `, ${item.size}` : ''}
+                              </div>
+                            )}
+                          </div>
                           <button
-                            onClick={() => onRemoveItem(item.id)}
+                            onClick={() => onRemoveItem(lineKey)}
                             className="flex-shrink-0 p-1.5 sm:p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all duration-200 active:scale-95"
                             title="Remove item"
                             aria-label="Remove item"
@@ -156,7 +181,7 @@ const CartModal = ({
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex items-center bg-gray-50 rounded-lg p-1 border border-gray-200">
                             <button
-                              onClick={() => onUpdateQuantity(item.id, item.quantity - 1)}
+                              onClick={() => onUpdateQuantity(lineKey, item.quantity - 1)}
                               className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-white border border-gray-300 flex items-center justify-center text-gray-700 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600 transition-all duration-200 active:scale-95 shadow-sm"
                               aria-label="Decrease quantity"
                             >
@@ -168,7 +193,7 @@ const CartModal = ({
                             </span>
                             
                             <button
-                              onClick={() => onUpdateQuantity(item.id, item.quantity + 1)}
+                              onClick={() => onUpdateQuantity(lineKey, item.quantity + 1)}
                               className="w-8 h-8 sm:w-9 sm:h-9 rounded-md bg-white border border-gray-300 flex items-center justify-center text-gray-700 hover:bg-pink-50 hover:border-pink-300 hover:text-pink-600 transition-all duration-200 active:scale-95 shadow-sm"
                               aria-label="Increase quantity"
                             >
@@ -185,7 +210,8 @@ const CartModal = ({
                       </div>
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
         </div>

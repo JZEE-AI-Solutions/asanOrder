@@ -86,19 +86,6 @@ const ProductModal = ({ product, isEditing, onClose, onSaved }) => {
             )}
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Description</label>
-            <textarea
-              {...register('description')}
-              className="input-field"
-              rows={3}
-              placeholder="Enter product description"
-            />
-            {errors.description && (
-              <p className="form-error">{errors.description.message}</p>
-            )}
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div className="form-group">
               <label className="form-label">Purchase Price *</label>
@@ -176,6 +163,19 @@ const ProductModal = ({ product, isEditing, onClose, onSaved }) => {
             />
             {errors.sku && (
               <p className="form-error">{errors.sku.message}</p>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Description</label>
+            <textarea
+              {...register('description')}
+              className="input-field"
+              rows={3}
+              placeholder="Enter product description"
+            />
+            {errors.description && (
+              <p className="form-error">{errors.description.message}</p>
             )}
           </div>
 

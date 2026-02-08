@@ -217,14 +217,14 @@ function CustomerLedgerPage() {
                           <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
                             entry.type === 'OPENING_BALANCE' ? 'bg-gray-100 text-gray-700' :
                             entry.type === 'ORDER' ? 'bg-blue-100 text-blue-700' :
-                            entry.type === 'PAYMENT' ? 'bg-purple-100 text-purple-700' :
+                            entry.type === 'PAYMENT' ? (entry.isDirectPayment ? 'bg-indigo-100 text-indigo-700' : 'bg-purple-100 text-purple-700') :
                             entry.type === 'RETURN' ? 'bg-green-100 text-green-700' :
                             entry.type === 'REFUND' ? 'bg-yellow-100 text-yellow-700' :
                             'bg-gray-100 text-gray-700'
                           }`}>
                             {entry.type === 'OPENING_BALANCE' ? 'Opening' :
                              entry.type === 'ORDER' ? 'Order' :
-                             entry.type === 'PAYMENT' ? 'Payment' :
+                             entry.type === 'PAYMENT' ? (entry.isDirectPayment ? 'Direct Payment' : 'Payment') :
                              entry.type === 'RETURN' ? 'Return' :
                              entry.type === 'REFUND' ? 'Refund' :
                              entry.type}

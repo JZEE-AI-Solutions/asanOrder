@@ -168,13 +168,16 @@ const CreateSupplierReturnPage = () => {
       // Format return items for purchase invoice edit endpoint
       const returnItems = selectedProducts.map(product => ({
         productName: product.name,
-        name: product.name, // Support both fields
+        name: product.name,
         description: product.description || null,
         purchasePrice: product.purchasePrice,
         quantity: product.returnQuantity,
         reason: reason.trim(),
         sku: product.sku || null,
-        category: product.category || null
+        category: product.category || null,
+        productVariantId: product.productVariantId || null,
+        color: product.color ?? product.productVariant?.color ?? null,
+        size: product.size ?? product.productVariant?.size ?? null
       }))
 
       // Calculate purchase total from existing invoice items

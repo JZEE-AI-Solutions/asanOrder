@@ -175,14 +175,17 @@ const CustomersSection = ({
                       <p className="text-sm font-medium text-gray-900">
                         {customer.totalOrders} orders
                       </p>
-                      <p className="text-sm text-gray-500">
-                        Rs. {customer.totalSpent?.toLocaleString() || 0}
-                      </p>
-                      {customer.pendingPayment > 0 && (
-                        <p className="text-sm font-semibold text-red-600 mt-1">
-                          Pending: Rs. {customer.pendingPayment.toFixed(2)}
-                        </p>
-                      )}
+                      {(() => {
+                        const balance = customer.closingBalance ?? (customer.pendingPayment > 0 ? customer.pendingPayment : null);
+                        if (balance == null || balance === 0) return null;
+                        const isOwes = balance > 0;
+                        return (
+                          <p className={`text-sm font-semibold mt-1 ${isOwes ? 'text-red-600' : 'text-green-600'}`}>
+                            {isOwes ? 'Owes: ' : 'Advance: '}
+                            Rs. {Math.abs(Number(balance)).toFixed(2)}
+                          </p>
+                        );
+                      })()}
                     </div>
 
                     <div className="text-right">
@@ -222,22 +225,25 @@ const CustomersSection = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-4 py-4 border-t border-b border-gray-50">
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Orders</p>
-                  <p className="font-semibold text-gray-900">{customer.totalOrders}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 uppercase tracking-wide">Spent</p>
-                  <p className="font-semibold text-gray-900">Rs. {customer.totalSpent?.toLocaleString() || 0}</p>
-                </div>
+              <div className="mb-4 py-4 border-t border-b border-gray-50">
+                <p className="text-xs text-gray-500 uppercase tracking-wide">Orders</p>
+                <p className="font-semibold text-gray-900">{customer.totalOrders}</p>
               </div>
-              {customer.pendingPayment > 0 && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-xs text-red-600 uppercase tracking-wide font-semibold mb-1">Pending Payment</p>
-                  <p className="text-lg font-bold text-red-700">Rs. {customer.pendingPayment.toFixed(2)}</p>
-                </div>
-              )}
+              {(() => {
+                const balance = customer.closingBalance ?? (customer.pendingPayment > 0 ? customer.pendingPayment : (customer.advanceBalance > 0 ? -customer.advanceBalance : null));
+                if (balance == null || balance === 0) return null;
+                const isOwes = balance > 0;
+                return (
+                  <div className={`mb-4 p-3 rounded-lg ${isOwes ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+                    <p className={`text-xs uppercase tracking-wide font-semibold mb-1 ${isOwes ? 'text-red-600' : 'text-green-600'}`}>
+                      {isOwes ? 'Owes' : 'Advance'}
+                    </p>
+                    <p className={`text-lg font-bold ${isOwes ? 'text-red-700' : 'text-green-700'}`}>
+                      Rs. {Math.abs(Number(balance)).toFixed(2)}
+                    </p>
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">

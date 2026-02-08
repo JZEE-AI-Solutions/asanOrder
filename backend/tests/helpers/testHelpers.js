@@ -166,6 +166,54 @@ function createTestApp() {
 }
 
 /**
+ * Create a test app that includes order and accounting/returns routes (for product variant impact tests).
+ * Uses same mock auth (globalTestUser, globalTestTenant). Call setTestAuth() before requests that need auth.
+ */
+function createTestAppWithOrderAndReturns() {
+  const express = require('express');
+  const app = express();
+  app.use(express.json());
+
+  const mockAuth = (req, res, next) => {
+    const currentUser = globalTestUser;
+    const currentTenant = globalTestTenant;
+    if (currentUser && currentTenant) {
+      req.user = {
+        id: currentUser.id,
+        email: currentUser.email,
+        name: currentUser.name,
+        role: currentUser.role,
+        tenant: currentTenant
+      };
+      return next();
+    }
+    return res.status(401).json({ error: 'Test authentication required' });
+  };
+
+  const mockRequireRole = (roles) => (req, res, next) => {
+    if (req.user && req.user.role === 'BUSINESS_OWNER') return next();
+    return res.status(403).json({ error: 'Forbidden' });
+  };
+
+  const authModule = require('../../middleware/auth');
+  const originalAuth = authModule.authenticateToken;
+  const originalRole = authModule.requireRole;
+  authModule.authenticateToken = mockAuth;
+  authModule.requireRole = mockRequireRole;
+
+  const orderRoutes = require('../../routes/order');
+  const returnRoutes = require('../../routes/accounting/returns');
+
+  authModule.authenticateToken = originalAuth;
+  authModule.requireRole = originalRole;
+
+  app.use('/api/order', orderRoutes);
+  app.use('/api/accounting/order-returns', mockAuth, returnRoutes);
+
+  return app;
+}
+
+/**
  * Clean up test data
  */
 async function cleanupTestData(tenantId) {
@@ -284,6 +332,7 @@ module.exports = {
   getProductQuantity,
   getPaymentAccount,
   createTestApp,
+  createTestAppWithOrderAndReturns,
   setTestAuth,
   getTestUser,
   getTestTenant

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { 
     ArrowLeftIcon, 
     ArrowPathIcon,
@@ -23,6 +23,7 @@ import WhatsAppConfirmationModal from '../components/WhatsAppConfirmationModal'
 const OrderDetailsPage = () => {
     const { orderId } = useParams()
     const navigate = useNavigate()
+    const location = useLocation()
     const [order, setOrder] = useState(null)
     const [profit, setProfit] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -49,6 +50,7 @@ const OrderDetailsPage = () => {
     const [dispatchCodFeeOverride, setDispatchCodFeeOverride] = useState(false)
     const [dispatchManualCodFee, setDispatchManualCodFee] = useState(null)
     const [dispatchCodFeeCalculationDetails, setDispatchCodFeeCalculationDetails] = useState(null)
+    const [dispatchPrintReceiptChoice, setDispatchPrintReceiptChoice] = useState('without_payment') // 'without_payment' | 'with_payment' - asked in dispatch modal
     const [codFeePaidBy, setCodFeePaidBy] = useState('BUSINESS_OWNER')
     const [showShippingAdjustmentModal, setShowShippingAdjustmentModal] = useState(false)
     const [adjustmentActualCost, setAdjustmentActualCost] = useState(null)
@@ -83,6 +85,14 @@ const OrderDetailsPage = () => {
         }
     }, [orderId])
 
+    // Open Receive Payment modal when navigated from order card with state
+    useEffect(() => {
+        if (order && location.state?.openReceivePayment) {
+            setShowPaymentModal(true)
+            navigate(location.pathname, { replace: true, state: {} })
+        }
+    }, [order, location.state?.openReceivePayment])
+
     const fetchLogisticsCompanies = async () => {
         try {
             const response = await api.get('/accounting/logistics-companies')
@@ -106,19 +116,39 @@ const OrderDetailsPage = () => {
             const parsedFormData = parseJSON(orderData.formData)
             setFormData(parsedFormData)
             
-            if (orderData.selectedProducts) {
+            // Prefer orderItems (source of truth for variants); fallback to legacy selectedProducts
+            if (orderData.orderItems && Array.isArray(orderData.orderItems) && orderData.orderItems.length > 0) {
+                const items = orderData.orderItems
+                const products = items.map(oi => ({
+                    id: oi.productId,
+                    name: oi.productName,
+                    productVariantId: oi.productVariantId ?? null,
+                    variantId: oi.productVariantId ?? null,
+                    color: oi.color ?? null,
+                    size: oi.size ?? null,
+                    price: oi.price ?? 0,
+                    quantity: oi.quantity ?? 1,
+                    ...(oi.product && { image: oi.product.image, category: oi.product.category, currentRetailPrice: oi.product.currentRetailPrice, lastSalePrice: oi.product.lastSalePrice })
+                }))
+                const quantities = {}
+                const prices = {}
+                products.forEach(p => {
+                    const key = (p.productVariantId || p.variantId) ? `${p.id}_${p.productVariantId || p.variantId}` : p.id
+                    quantities[key] = p.quantity ?? 1
+                    prices[key] = p.price ?? 0
+                })
+                setSelectedProducts(products)
+                setProductQuantities(quantities)
+                setProductPrices(prices)
+            } else if (orderData.selectedProducts) {
                 const products = parseJSON(orderData.selectedProducts)
                 setSelectedProducts(products)
-            }
-            
-            if (orderData.productQuantities) {
-                const quantities = parseJSON(orderData.productQuantities)
-                setProductQuantities(quantities)
-            }
-            
-            if (orderData.productPrices) {
-                const prices = parseJSON(orderData.productPrices)
-                setProductPrices(prices)
+                if (orderData.productQuantities) {
+                    setProductQuantities(parseJSON(orderData.productQuantities))
+                }
+                if (orderData.productPrices) {
+                    setProductPrices(parseJSON(orderData.productPrices))
+                }
             }
             
             setPaymentAmount(orderData.paymentAmount !== null && orderData.paymentAmount !== undefined ? orderData.paymentAmount : null)
@@ -181,48 +211,49 @@ const OrderDetailsPage = () => {
         }
     }
 
-    const handleProductQuantityChange = (productId, quantity) => {
+    // Composite key for variant lines: productId_variantId or productId
+    const getLineKey = (line) => {
+        const vid = line?.productVariantId ?? line?.variantId
+        const pid = line?.id
+        if (!pid) return ''
+        return vid ? `${pid}_${vid}` : pid
+    }
+
+    const handleProductQuantityChange = (lineKey, quantity) => {
         setProductQuantities(prev => ({
             ...prev,
-            [productId]: Math.max(1, quantity)
+            [lineKey]: Math.max(1, quantity)
         }))
     }
 
-    const handleProductPriceChange = (productId, price) => {
+    const handleProductPriceChange = (lineKey, price) => {
         setProductPrices(prev => ({
             ...prev,
-            [productId]: Math.max(0, parseFloat(price) || 0)
+            [lineKey]: Math.max(0, parseFloat(price) || 0)
         }))
     }
 
     const handleProductsChange = (newSelectedProducts) => {
         setSelectedProducts(newSelectedProducts)
-        
-        // Clean up quantities and prices for removed products
-        const newQuantities = { ...productQuantities }
-        const newPrices = { ...productPrices }
-        
-        Object.keys(newQuantities).forEach(productId => {
-            if (!newSelectedProducts.some(p => p.id === productId)) {
-                delete newQuantities[productId]
-            }
+        const keySet = new Set(newSelectedProducts.map(p => getLineKey(p)))
+        setProductQuantities(prev => {
+            const next = { ...prev }
+            Object.keys(next).forEach(k => { if (!keySet.has(k)) delete next[k] })
+            return next
         })
-        
-        Object.keys(newPrices).forEach(productId => {
-            if (!newSelectedProducts.some(p => p.id === productId)) {
-                delete newPrices[productId]
-            }
+        setProductPrices(prev => {
+            const next = { ...prev }
+            Object.keys(next).forEach(k => { if (!keySet.has(k)) delete next[k] })
+            return next
         })
-        
-        setProductQuantities(newQuantities)
-        setProductPrices(newPrices)
     }
 
     const calculateProductsTotal = () => {
         let total = 0
         selectedProducts.forEach(product => {
-            const quantity = productQuantities[product.id] || product.quantity || 1
-            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0
+            const key = getLineKey(product)
+            const quantity = productQuantities[key] ?? product.quantity ?? 1
+            const price = productPrices[key] ?? product.price ?? product.currentRetailPrice ?? 0
             total += price * quantity
         })
         return total
@@ -232,10 +263,10 @@ const OrderDetailsPage = () => {
         try {
             setSaving(true)
             
-            // If paymentAmount is null/undefined, use products total, otherwise use the value (including 0)
-            const finalPaymentAmount = paymentAmount !== null && paymentAmount !== undefined 
-                ? paymentAmount 
-                : (selectedProducts.length > 0 ? calculateProductsTotal() : 0)
+            // Use current payment amount from form state; if not set, keep existing order value (do NOT default to products total on edit).
+            const finalPaymentAmount = paymentAmount !== null && paymentAmount !== undefined
+                ? paymentAmount
+                : (order?.paymentAmount !== null && order?.paymentAmount !== undefined ? order.paymentAmount : null)
             
             // Note: Shipping variance for DISPATCHED/COMPLETED orders should be handled via adjust-shipping-cost endpoint
             // Only calculate variance here for non-dispatched orders (if needed)
@@ -433,6 +464,7 @@ const OrderDetailsPage = () => {
             
             await api.post(`/order/${orderId}/dispatch`, payload)
             toast.success('Order dispatched successfully!')
+            const shouldPrintWithPayment = dispatchPrintReceiptChoice === 'with_payment'
             setShowDispatchModal(false)
             setActualShippingCost(null)
             setDispatchLogisticsCompanyId(null)
@@ -440,7 +472,10 @@ const OrderDetailsPage = () => {
             setDispatchCodFeeOverride(false)
             setDispatchManualCodFee(null)
             setDispatchCodFeeCalculationDetails(null)
+            setDispatchPrintReceiptChoice('without_payment')
             fetchOrderDetails()
+            // Print shipping receipt as chosen in dispatch modal (COD vs without COD)
+            setTimeout(() => handlePrintShippingReceipt(shouldPrintWithPayment), 300)
         } catch (error) {
             console.error('Dispatch order error:', error)
             if (error.response?.data?.error) {
@@ -530,8 +565,9 @@ const OrderDetailsPage = () => {
         
         let total = 0
         productsToCalculate.forEach(product => {
-            const quantity = quantitiesToUse[product.id] || product.quantity || 1
-            const price = pricesToUse[product.id] || product.price || product.currentRetailPrice || 0
+            const key = getLineKey(product)
+            const quantity = quantitiesToUse[key] ?? quantitiesToUse[product.id] ?? product.quantity ?? 1
+            const price = pricesToUse[key] ?? pricesToUse[product.id] ?? product.price ?? product.currentRetailPrice ?? 0
             total += price * quantity
         })
         
@@ -554,18 +590,20 @@ const OrderDetailsPage = () => {
     const getPaymentStatus = () => {
         if (!order) return { total: 0, paid: 0, remaining: 0, isFullyPaid: false, isPartiallyPaid: false, isUnpaid: true, claimed: 0, verified: 0 }
         const total = calculateOrderTotal()
-        // Use verified payment amount if verified, otherwise use claimed amount (but mark as unverified)
+        // Customer-claimed amount at order submission (verification required only for this)
         const claimed = order.paymentAmount || 0
         const verified = order.paymentVerified ? (order.verifiedPaymentAmount || 0) : 0
-        const paid = order.paymentVerified ? verified : claimed // For calculation, use verified if available, otherwise claimed
+        // Paid = sum of all Payment records only (Verify Payment and Receive Payment both create Payment records - do not add verified again or we double-count)
+        const paid = (payments || []).reduce((sum, p) => sum + (p.amount || 0), 0)
         const remaining = total - paid
-        
+
         return {
             total,
             paid,
             remaining,
             claimed,
             verified,
+            receivedTotal: paid,
             isFullyPaid: paid >= total,
             isPartiallyPaid: paid > 0 && paid < total,
             isUnpaid: paid === 0,
@@ -615,13 +653,13 @@ const OrderDetailsPage = () => {
 
             if (response.data?.success) {
                 const paymentStatus = getPaymentStatus()
-                const newPaymentAmount = (order.paymentAmount || 0) + paymentValue
-                const isFullyPaid = newPaymentAmount >= paymentStatus.total
+                const newPaid = paymentStatus.paid + paymentValue
+                const newRemaining = paymentStatus.total - newPaid
 
-                if (isFullyPaid) {
+                if (newRemaining <= 0) {
                     toast.success(`Payment of Rs. ${paymentValue.toFixed(2)} received. Order is now fully paid!`)
                 } else {
-                    toast.success(`Payment of Rs. ${paymentValue.toFixed(2)} received. Remaining balance: Rs. ${(paymentStatus.total - newPaymentAmount).toFixed(2)}`)
+                    toast.success(`Payment of Rs. ${paymentValue.toFixed(2)} received. Remaining balance: Rs. ${newRemaining.toFixed(2)}`)
                 }
 
                 setShowPaymentModal(false)
@@ -762,11 +800,12 @@ const OrderDetailsPage = () => {
         const selectedProducts = parseJSON(order.selectedProducts) || []
         const productQuantities = parseJSON(order.productQuantities) || {}
         
-        // Format products for display (max 2 lines)
+        // Format products for display (max 2 lines); support composite key for variant lines
         let productsDisplay = ''
         if (selectedProducts.length > 0) {
             const productItems = selectedProducts.map(product => {
-                const quantity = productQuantities[product.id] || product.quantity || 1
+                const key = getLineKey(product)
+                const quantity = productQuantities[key] || productQuantities[product.id] || product.quantity || 1
                 return `${product.name || 'N/A'} (${quantity})`
             })
             
@@ -1126,68 +1165,67 @@ const OrderDetailsPage = () => {
                         {!isEditing ? (
                             <>
                                 {order.status === 'CONFIRMED' && (
-                                    <>
-                                        <div className="relative">
-                                            <button
-                                                onClick={() => setShowPrintDropdown(!showPrintDropdown)}
-                                                className="btn-primary flex items-center px-6 py-2.5 bg-blue-600 hover:bg-blue-700"
-                                            >
-                                                <PrinterIcon className="h-5 w-5 mr-2" />
-                                                Print Shipping Receipt
-                                                <ChevronDownIcon className="h-4 w-4 ml-2" />
-                                            </button>
-                                            
-                                            {showPrintDropdown && (
-                                                <>
-                                                    <div 
-                                                        className="fixed inset-0 z-10" 
-                                                        onClick={() => setShowPrintDropdown(false)}
-                                                    />
-                                                    <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
-                                                        <button
-                                                            onClick={() => {
-                                                                handlePrintShippingReceipt(false)
-                                                                setShowPrintDropdown(false)
-                                                            }}
-                                                            className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center space-x-3"
-                                                        >
-                                                            <PrinterIcon className="h-5 w-5 text-blue-600" />
-                                                            <div>
-                                                                <div className="font-medium text-gray-900">Without Payment Amount</div>
-                                                                <div className="text-xs text-gray-500">Standard shipping receipt</div>
-                                                            </div>
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                handlePrintShippingReceipt(true)
-                                                                setShowPrintDropdown(false)
-                                                            }}
-                                                            className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center space-x-3 border-t border-gray-200"
-                                                        >
-                                                            <CurrencyDollarIcon className="h-5 w-5 text-green-600" />
-                                                            <div>
-                                                                <div className="font-medium text-gray-900">With Pending Payment</div>
-                                                                <div className="text-xs text-gray-500">Includes payment details</div>
-                                                            </div>
-                                                        </button>
-                                                    </div>
-                                                </>
-                                            )}
-                                        </div>
-                                        <button
-                                            onClick={() => {
-                                                setActualShippingCost(order.shippingCharges || null)
-                                                setDispatchLogisticsCompanyId(order.logisticsCompanyId || null)
+                                    <button
+                                        onClick={() => {
+                                            setActualShippingCost(order.shippingCharges || null)
+                                            setDispatchLogisticsCompanyId(order.logisticsCompanyId || null)
                                             setShowDispatchModal(true)
-                                            }}
-                                            className="btn-primary flex items-center px-6 py-2.5 bg-green-600 hover:bg-green-700"
-                                        >
-                                            <CheckIcon className="h-5 w-5 mr-2" />
-                                            Dispatch Order
-                                        </button>
-                                    </>
+                                        }}
+                                        className="btn-primary flex items-center px-6 py-2.5 bg-green-600 hover:bg-green-700"
+                                    >
+                                        <CheckIcon className="h-5 w-5 mr-2" />
+                                        Dispatch Order
+                                    </button>
                                 )}
-                                {order.status === 'DISPATCHED' && (
+                                {(order.status === 'DISPATCHED' || order.status === 'COMPLETED') && (
+                                    <div className="relative">
+                                        <button
+                                            onClick={() => setShowPrintDropdown(!showPrintDropdown)}
+                                            className="btn-primary flex items-center px-6 py-2.5 bg-blue-600 hover:bg-blue-700"
+                                        >
+                                            <PrinterIcon className="h-5 w-5 mr-2" />
+                                            Print Shipping Receipt
+                                            <ChevronDownIcon className="h-4 w-4 ml-2" />
+                                        </button>
+                                        {showPrintDropdown && (
+                                            <>
+                                                <div
+                                                    className="fixed inset-0 z-10"
+                                                    onClick={() => setShowPrintDropdown(false)}
+                                                />
+                                                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
+                                                    <button
+                                                        onClick={() => {
+                                                            handlePrintShippingReceipt(false)
+                                                            setShowPrintDropdown(false)
+                                                        }}
+                                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center space-x-3"
+                                                    >
+                                                        <PrinterIcon className="h-5 w-5 text-blue-600" />
+                                                        <div>
+                                                            <div className="font-medium text-gray-900">Don&apos;t print COD amount on receipt</div>
+                                                            <div className="text-xs text-gray-500">Choose when you don&apos;t want COD amount on the dispatch receipt</div>
+                                                        </div>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => {
+                                                            handlePrintShippingReceipt(true)
+                                                            setShowPrintDropdown(false)
+                                                        }}
+                                                        className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors flex items-center space-x-3 border-t border-gray-200"
+                                                    >
+                                                        <CurrencyDollarIcon className="h-5 w-5 text-green-600" />
+                                                        <div>
+                                                            <div className="font-medium text-gray-900">With Pending Payment (COD)</div>
+                                                            <div className="text-xs text-gray-500">Includes payment details for COD collection</div>
+                                                        </div>
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                                {(order.status === 'CONFIRMED' || order.status === 'DISPATCHED' || order.status === 'COMPLETED') && (
                                     <button
                                         onClick={handleReceivePayment}
                                         className="btn-primary flex items-center px-6 py-2.5 bg-purple-600 hover:bg-purple-700"
@@ -1404,24 +1442,36 @@ const OrderDetailsPage = () => {
                                 ) : (
                                     selectedProducts.length > 0 && (
                                         <div className="space-y-4">
-                                            {selectedProducts.map((product) => {
-                                                const quantity = productQuantities[product.id] || 1
-                                                const price = productPrices[product.id] || 0
+                                            {selectedProducts.map((product, idx) => {
+                                                const lineKey = getLineKey(product)
+                                                const quantity = productQuantities[lineKey] ?? product.quantity ?? 1
+                                                const price = productPrices[lineKey] ?? product.price ?? 0
                                                 const total = quantity * price
-                                                
+                                                const variantLabel = [product.color, product.size].filter(Boolean).join(' · ') || null
+                                                const variantId = product.productVariantId ?? product.variantId
+                                                const productImageUrl = getImageUrl('product', product.id)
+                                                const variantImageUrl = variantId ? getImageUrl('product-variant', variantId) : null
                                                 return (
-                                                    <div key={product.id} className="border-2 border-gray-300 rounded-lg p-4 bg-white shadow-sm">
+                                                    <div key={lineKey || product.id || idx} className="border-2 border-gray-300 rounded-lg p-4 bg-white shadow-sm">
                                                         <div className="flex items-start space-x-4">
                                                             <img
-                                                                src={getImageUrl('product', product.id)}
+                                                                src={variantImageUrl || productImageUrl}
                                                                 alt={product.name}
                                                                 className="w-16 h-16 rounded-lg object-cover border-2 border-gray-300"
                                                                 onError={(e) => {
-                                                                    e.target.style.display = 'none'
+                                                                    if (variantImageUrl && e.target.src !== productImageUrl) {
+                                                                        e.target.src = productImageUrl
+                                                                        e.target.onerror = null
+                                                                    } else {
+                                                                        e.target.style.display = 'none'
+                                                                    }
                                                                 }}
                                                             />
                                                             <div className="flex-1">
                                                                 <h3 className="font-bold text-gray-900 text-lg">{product.name}</h3>
+                                                                {variantLabel && (
+                                                                    <p className="text-sm text-gray-600 mt-0.5">Variant: {variantLabel}</p>
+                                                                )}
                                                                 {product.description && (
                                                                     <p className="text-sm text-gray-700 mt-1">{product.description}</p>
                                                                 )}
@@ -1810,23 +1860,23 @@ const OrderDetailsPage = () => {
                                     <div className="bg-white rounded-lg p-4 border border-green-200">
                                         <div className="flex justify-between items-center mb-2">
                                             <span className="text-sm font-semibold text-gray-600">Total Revenue:</span>
-                                            <span className="text-lg font-bold text-blue-600">Rs. {profit.totalRevenue.toFixed(2)}</span>
+                                            <span className="text-lg font-bold text-blue-600">Rs. {(profit.totalRevenue ?? 0).toFixed(2)}</span>
                                         </div>
                                         <div className="flex justify-between items-center mb-2">
                                             <span className="text-sm font-semibold text-gray-600">Total Cost:</span>
-                                            <span className="text-lg font-bold text-red-600">Rs. {profit.totalCost.toFixed(2)}</span>
+                                            <span className="text-lg font-bold text-red-600">Rs. {(profit.totalCost ?? 0).toFixed(2)}</span>
                                         </div>
                                         <div className="border-t border-gray-300 pt-2 mt-2">
                                             <div className="flex justify-between items-center">
                                                 <span className="text-sm font-bold text-gray-700">Net Profit:</span>
-                                                <span className={`text-xl font-bold ${profit.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                    Rs. {profit.profit.toFixed(2)}
+                                                <span className={`text-xl font-bold ${(profit.profit ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    Rs. {(profit.profit ?? 0).toFixed(2)}
                                                 </span>
                                             </div>
                                             <div className="flex justify-between items-center mt-1">
                                                 <span className="text-xs text-gray-500">Profit Margin:</span>
-                                                <span className={`text-sm font-semibold ${profit.profitMargin >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                                    {profit.profitMargin.toFixed(2)}%
+                                                <span className={`text-sm font-semibold ${(profit.profitMargin ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                                    {(profit.profitMargin ?? 0).toFixed(2)}%
                                                 </span>
                                             </div>
                                         </div>
@@ -1844,12 +1894,17 @@ const OrderDetailsPage = () => {
 
                             {selectedProducts.length > 0 && (() => {
                                 const paymentStatus = getPaymentStatus()
+                                const total = paymentStatus?.total ?? 0
+                                const paid = paymentStatus?.paid ?? 0
+                                const remaining = paymentStatus?.remaining ?? 0
+                                const claimed = paymentStatus?.claimed ?? 0
+                                const verified = paymentStatus?.verified ?? 0
                                 return (
                                     <div className="mb-4 space-y-3">
                                         <div className="text-center bg-blue-100 rounded-xl p-4 border-2 border-blue-300 shadow-sm">
                                             <p className="text-sm text-blue-800 font-bold mb-1 uppercase tracking-wide">Products Total</p>
                                             <p className="text-2xl font-bold text-blue-700">
-                                                Rs. {paymentStatus.total.toFixed(2)}
+                                                Rs. {Number(total).toFixed(2)}
                                             </p>
                                         </div>
                                         {order.status === 'DISPATCHED' && (
@@ -1858,15 +1913,15 @@ const OrderDetailsPage = () => {
                                                     <>
                                                         <div className="flex justify-between text-sm">
                                                             <span className="text-gray-600 font-semibold">Claimed Payment:</span>
-                                                            <span className={`font-bold ${paymentStatus.isVerified ? 'text-gray-500 line-through' : 'text-yellow-600'}`}>
-                                                                Rs. {paymentStatus.claimed.toFixed(2)}
+                                                            <span className={`font-bold ${paymentStatus?.isVerified ? 'text-gray-500 line-through' : 'text-yellow-600'}`}>
+                                                                Rs. {Number(claimed).toFixed(2)}
                                                             </span>
                                                         </div>
-                                                        {paymentStatus.isVerified ? (
+                                                        {paymentStatus?.isVerified ? (
                                                             <div className="flex justify-between text-sm">
                                                                 <span className="text-gray-600 font-semibold">Verified Payment:</span>
                                                                 <span className="font-bold text-green-600">
-                                                                    Rs. {paymentStatus.verified.toFixed(2)} ✓
+                                                                    Rs. {Number(verified).toFixed(2)} ✓
                                                                 </span>
                                                             </div>
                                                         ) : (
@@ -1881,12 +1936,12 @@ const OrderDetailsPage = () => {
                                                 )}
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-gray-600 font-semibold">Paid Amount:</span>
-                                                    <span className="font-bold text-green-600">Rs. {paymentStatus.paid.toFixed(2)}</span>
+                                                    <span className="font-bold text-green-600">Rs. {Number(paid).toFixed(2)}</span>
                                                 </div>
                                                 <div className="flex justify-between text-sm">
                                                     <span className="text-gray-600 font-semibold">Remaining Balance:</span>
-                                                    <span className={`font-bold ${paymentStatus.remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                                        Rs. {paymentStatus.remaining.toFixed(2)}
+                                                    <span className={`font-bold ${remaining > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                                        Rs. {Number(remaining).toFixed(2)}
                                                     </span>
                                                 </div>
                                                 {paymentStatus.isFullyPaid && (
@@ -1970,10 +2025,11 @@ const OrderDetailsPage = () => {
                                     </div>
                                 ) : (
                                     <div className="text-center bg-green-100 rounded-xl p-6 border-2 border-green-300 shadow-sm">
-                                        <p className="text-sm text-green-800 font-bold mb-2 uppercase tracking-wide">Total Amount</p>
+                                        <p className="text-sm text-green-800 font-bold mb-2 uppercase tracking-wide">Claimed payment amount</p>
                                         <p className="text-4xl font-bold text-green-700">
                                             Rs. {parseFloat(paymentAmount !== null && paymentAmount !== undefined ? paymentAmount : (order.paymentAmount || 0)).toLocaleString()}
                                         </p>
+                                        <p className="text-xs text-green-700 mt-1">Amount customer stated at order submission</p>
                                     </div>
                                 )}
                             </div>
@@ -2017,7 +2073,7 @@ const OrderDetailsPage = () => {
                 </div>
             </div>
 
-            {/* Payment Verification Section */}
+            {/* Payment Verification Section - only for amount customer stated at order submission */}
             {!isEditing && order && order.paymentAmount > 0 && !order.paymentVerified && order.status !== 'PENDING' && (
                 <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
                     <div className="card p-6 bg-yellow-50 border-2 border-yellow-300">
@@ -2028,7 +2084,7 @@ const OrderDetailsPage = () => {
                                     Payment Verification Required
                                 </h2>
                                 <p className="text-sm text-gray-600 mt-1">
-                                    Customer claimed payment of Rs. {(order.paymentAmount || 0).toFixed(2)}. Please verify this payment was actually received.
+                                    The customer stated they paid Rs. {(order.paymentAmount || 0).toFixed(2)} at order submission. Please verify this amount was actually received. Payments you record via &quot;Receive Payment&quot; do not require verification.
                                 </p>
                             </div>
                             <button
@@ -2516,6 +2572,48 @@ const OrderDetailsPage = () => {
                                         </p>
                                     </div>
                                 )}
+                                {/* Print receipt choice: COD (with pending payment) vs standard (without) */}
+                                <div className="space-y-3 pt-3 border-t border-gray-200">
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                        Print shipping receipt after dispatch
+                                    </label>
+                                    <div className="space-y-2">
+                                        <label className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-200 hover:bg-gray-50 cursor-pointer has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                                            <input
+                                                type="radio"
+                                                name="dispatchPrintReceipt"
+                                                value="without_payment"
+                                                checked={dispatchPrintReceiptChoice === 'without_payment'}
+                                                onChange={() => setDispatchPrintReceiptChoice('without_payment')}
+                                                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <PrinterIcon className="h-5 w-5 text-gray-500" />
+                                                <div>
+                                                    <div className="font-medium text-gray-900">Don&apos;t print COD amount on receipt</div>
+                                                    <div className="text-xs text-gray-500">Choose when you don&apos;t want COD amount on the dispatch receipt</div>
+                                                </div>
+                                            </div>
+                                        </label>
+                                        <label className="flex items-center gap-3 p-3 rounded-lg border-2 border-gray-200 hover:bg-gray-50 cursor-pointer has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                                            <input
+                                                type="radio"
+                                                name="dispatchPrintReceipt"
+                                                value="with_payment"
+                                                checked={dispatchPrintReceiptChoice === 'with_payment'}
+                                                onChange={() => setDispatchPrintReceiptChoice('with_payment')}
+                                                className="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                                            />
+                                            <div className="flex items-center gap-2">
+                                                <CurrencyDollarIcon className="h-5 w-5 text-green-600" />
+                                                <div>
+                                                    <div className="font-medium text-gray-900">With Pending Payment (COD)</div>
+                                                    <div className="text-xs text-gray-500">Includes payment details for COD collection</div>
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                </div>
                                 <div className="flex gap-3 mt-6">
                                     <button
                                         onClick={() => {
@@ -2526,6 +2624,7 @@ const OrderDetailsPage = () => {
                                             setDispatchCodFeeOverride(false)
                                             setDispatchManualCodFee(null)
                                             setDispatchCodFeeCalculationDetails(null)
+                                            setDispatchPrintReceiptChoice('without_payment')
                                         }}
                                         className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg hover:bg-gray-50 font-medium"
                                     >

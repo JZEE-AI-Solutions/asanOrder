@@ -923,11 +923,11 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
     if (fromDate) dateFilter.gte = new Date(fromDate);
     if (toDate) dateFilter.lte = new Date(toDate);
 
-    // Get all orders
+    // Get all orders (CONFIRMED, DISPATCHED, COMPLETED - orders with potential outstanding balance)
     const orders = await prisma.order.findMany({
       where: {
         customerId: id,
-        status: 'CONFIRMED',
+        status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] },
         ...(Object.keys(dateFilter).length > 0 && {
           createdAt: dateFilter
         })
@@ -943,7 +943,8 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
         codFee: true,
         codFeePaidBy: true,
         verifiedPaymentAmount: true,
-        paymentVerified: true
+        paymentVerified: true,
+        orderItems: { select: { quantity: true, price: true } }
       },
       orderBy: {
         createdAt: 'asc'
@@ -1009,42 +1010,32 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
       }
     });
 
-    // Find opening balance transaction date from accounting transactions
-    let openingBalanceDate = customer.createdAt; // Default to customer creation date
-    if (customer.advanceBalance !== 0) {
-      try {
-        // Find the opening balance transaction for this customer
-        const openingBalanceTransaction = await prisma.transaction.findFirst({
-          where: {
-            tenantId: tenant.id,
-            description: {
-              contains: `Customer Opening Balance - ${customer.name || customer.phoneNumber}`,
-              mode: 'insensitive'
-            }
-          },
-          orderBy: {
-            date: 'asc'
-          },
-          select: {
-            date: true
-          }
-        });
-        
-        if (openingBalanceTransaction) {
-          openingBalanceDate = openingBalanceTransaction.date;
+    // Find opening balance transaction - only show Opening Balance row when we have an explicit transaction.
+    // When advance comes from customer.advanceBalance (no transaction), it's from direct payments we show as separate rows - don't double-count.
+    const openingBalanceTransaction = await prisma.transaction.findFirst({
+      where: {
+        tenantId: tenant.id,
+        description: {
+          contains: `Customer Opening Balance - ${customer.name || customer.phoneNumber}`,
+          mode: 'insensitive'
         }
-      } catch (error) {
-        console.error('Error fetching opening balance transaction date:', error);
-        // Use customer.createdAt as fallback
-      }
+      },
+      orderBy: { date: 'asc' },
+      select: { date: true }
+    });
+
+    let openingBalanceDate = customer.createdAt;
+    if (openingBalanceTransaction) {
+      openingBalanceDate = openingBalanceTransaction.date;
     }
 
     // Build ledger entries
     const ledgerEntries = [];
-
-    // Add opening balance entry FIRST (before all other transactions)
     const customerBalance = await balanceService.calculateCustomerBalance(id);
-    if (customerBalance.openingARBalance !== 0 || customerBalance.openingAdvanceBalance !== 0) {
+
+    // Only show Opening Balance row when we have an explicit "Customer Opening Balance" transaction.
+    // Otherwise openingAdvanceBalance from customer.advanceBalance = sum of direct payments, which we show as separate rows.
+    if (openingBalanceTransaction && (customerBalance.openingARBalance !== 0 || customerBalance.openingAdvanceBalance !== 0)) {
       ledgerEntries.push({
         date: openingBalanceDate,
         type: 'OPENING_BALANCE',
@@ -1058,28 +1049,33 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
 
     // Add order entries (AR created)
     for (const order of orders) {
-      // Parse order data to calculate total
+      // Calculate order total: prefer orderItems (variant flow), else legacy selectedProducts
       let orderTotal = 0;
-      try {
-        const selectedProducts = typeof order.selectedProducts === 'string'
-          ? JSON.parse(order.selectedProducts)
-          : (order.selectedProducts || []);
-        const productQuantities = typeof order.productQuantities === 'string'
-          ? JSON.parse(order.productQuantities)
-          : (order.productQuantities || {});
-        const productPrices = typeof order.productPrices === 'string'
-          ? JSON.parse(order.productPrices)
-          : (order.productPrices || {});
+      if (order.orderItems && order.orderItems.length > 0) {
+        orderTotal = order.orderItems.reduce((sum, item) =>
+          sum + (item.quantity || 0) * (item.price || 0), 0);
+      } else {
+        try {
+          const selectedProducts = typeof order.selectedProducts === 'string'
+            ? JSON.parse(order.selectedProducts)
+            : (order.selectedProducts || []);
+          const productQuantities = typeof order.productQuantities === 'string'
+            ? JSON.parse(order.productQuantities)
+            : (order.productQuantities || {});
+          const productPrices = typeof order.productPrices === 'string'
+            ? JSON.parse(order.productPrices)
+            : (order.productPrices || {});
 
-        if (Array.isArray(selectedProducts)) {
-          selectedProducts.forEach(product => {
-            const quantity = productQuantities[product.id] || product.quantity || 1;
-            const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
-            orderTotal += price * quantity;
-          });
+          if (Array.isArray(selectedProducts)) {
+            selectedProducts.forEach(product => {
+              const quantity = productQuantities[product.id] || product.quantity || 1;
+              const price = productPrices[product.id] || product.price || product.currentRetailPrice || 0;
+              orderTotal += price * quantity;
+            });
+          }
+        } catch (e) {
+          console.error('Error parsing order data for ledger:', e);
         }
-      } catch (e) {
-        console.error('Error parsing order data for ledger:', e);
       }
 
       orderTotal += (order.shippingCharges || 0);
@@ -1100,17 +1096,21 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
       }
     }
 
-    // Add payment entries
+    // Add payment entries (distinguish direct payments vs order-linked)
     for (const payment of allPayments) {
+      const isDirectPayment = !payment.orderId;
+      const paymentLabel = isDirectPayment ? 'Payment (without order)' : 'Payment';
+      const accountSuffix = payment.account ? ` (${payment.account.name})` : '';
       ledgerEntries.push({
         date: payment.date,
         type: 'PAYMENT',
-        description: `Payment: ${payment.paymentNumber}${payment.account ? ` (${payment.account.name})` : ''}`,
+        description: `${paymentLabel}: ${payment.paymentNumber}${accountSuffix}`,
         reference: payment.paymentNumber,
         debit: 0,
         credit: payment.amount,
         paymentId: payment.id,
-        orderId: payment.orderId
+        orderId: payment.orderId,
+        isDirectPayment
       });
     }
 
@@ -1146,8 +1146,13 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
     // Sort by date
     ledgerEntries.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Calculate running balance
-    let runningBalance = customerBalance.openingARBalance - customerBalance.openingAdvanceBalance;
+    // Calculate running balance.
+    // When no explicit opening transaction, openingAdvanceBalance = customer.advanceBalance (= sum of direct payments).
+    // Those direct payments are shown as separate rows, so we must NOT include them in the starting balance or we double-count.
+    const hasExplicitOpening = !!openingBalanceTransaction;
+    let runningBalance = hasExplicitOpening
+      ? customerBalance.openingARBalance - customerBalance.openingAdvanceBalance
+      : 0;
     const ledgerWithBalance = ledgerEntries.map(entry => {
       runningBalance = runningBalance + entry.debit - entry.credit;
       return {
@@ -1165,8 +1170,8 @@ router.get('/:id/ledger', authenticateToken, requireRole(['BUSINESS_OWNER']), as
       },
       ledger: ledgerWithBalance,
       summary: {
-        openingARBalance: customerBalance.openingARBalance,
-        openingAdvanceBalance: customerBalance.openingAdvanceBalance,
+        openingARBalance: hasExplicitOpening ? customerBalance.openingARBalance : 0,
+        openingAdvanceBalance: hasExplicitOpening ? customerBalance.openingAdvanceBalance : 0,
         totalOrders: orders.length,
         totalPayments: allPayments.length,
         totalReturns: allReturns.length,
@@ -1215,7 +1220,8 @@ router.get('/:id/orders', authenticateToken, requireRole(['BUSINESS_OWNER']), as
             name: true,
             formLink: true
           }
-        }
+        },
+        orderItems: { select: { quantity: true, price: true, productName: true } }
       }
     });
 
@@ -1223,9 +1229,27 @@ router.get('/:id/orders', authenticateToken, requireRole(['BUSINESS_OWNER']), as
       where: { customerId: id }
     });
 
+    const orderIds = orders.map((o) => o.id);
+    let totalPaidByOrderId = {};
+    if (orderIds.length > 0) {
+      const payments = await prisma.payment.findMany({
+        where: { orderId: { in: orderIds }, type: 'CUSTOMER_PAYMENT' },
+        select: { orderId: true, amount: true }
+      });
+      for (const p of payments) {
+        if (p.orderId) {
+          totalPaidByOrderId[p.orderId] = (totalPaidByOrderId[p.orderId] || 0) + (p.amount || 0);
+        }
+      }
+    }
+    const ordersWithPaid = orders.map((o) => ({
+      ...o,
+      totalPaid: totalPaidByOrderId[o.id] ?? 0
+    }));
+
     res.json({
       success: true,
-      orders,
+      orders: ordersWithPaid,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),

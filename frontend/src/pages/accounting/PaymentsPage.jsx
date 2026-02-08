@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon, CreditCardIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, CreditCardIcon, ArrowDownTrayIcon, ArrowUpTrayIcon } from '@heroicons/react/24/outline'
 import api from '../../services/api'
 import { useTenant } from '../../hooks/useTenant'
 import { toast } from 'react-hot-toast'
@@ -166,13 +166,16 @@ function PaymentsPage() {
                   Payment #
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
+                  Direction
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Customer/Supplier
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Received (Rs.)
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Paid (Rs.)
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Method
@@ -182,35 +185,54 @@ function PaymentsPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {payments.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
                     No payments found
                   </td>
                 </tr>
               ) : (
-                payments.map((payment) => (
-                  <tr key={payment.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                      {new Date(payment.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                      {payment.paymentNumber}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm">
-                      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                        {payment.type.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {payment.customer?.name || payment.supplier?.name || 'N/A'}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-gray-900">
-                      Rs. {payment.amount.toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                      {payment.account?.name || payment.paymentMethod || 'N/A'}
-                    </td>
-                  </tr>
-                ))
+                payments.map((payment) => {
+                  const isReceived = payment.type === 'CUSTOMER_PAYMENT'
+                  const isPaid = payment.type === 'SUPPLIER_PAYMENT' || payment.type === 'REFUND'
+                  return (
+                    <tr key={payment.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(payment.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        {payment.paymentNumber}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm">
+                        {isReceived ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                            <ArrowDownTrayIcon className="h-3.5 w-3.5" />
+                            Received
+                          </span>
+                        ) : isPaid ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+                            <ArrowUpTrayIcon className="h-3.5 w-3.5" />
+                            Paid
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-700">
+                            {payment.type.replace('_', ' ')}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {payment.customer?.name || payment.supplier?.name || 'N/A'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-green-700">
+                        {isReceived ? `Rs. ${Number(payment.amount).toLocaleString()}` : '—'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-red-700">
+                        {isPaid ? `Rs. ${Number(payment.amount).toLocaleString()}` : '—'}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                        {payment.account?.name || payment.paymentMethod || 'N/A'}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
               </tbody>
             </table>

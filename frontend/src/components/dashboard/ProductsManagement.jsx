@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import LoadingSpinner from '../LoadingSpinner'
 import ProductHistoryModal from '../ProductHistoryModal'
 import ProductImageUpload from '../ProductImageUpload'
+import VariantImageUpload from '../VariantImageUpload'
 import InvoiceUploadModal from '../InvoiceUploadModal'
 import {
     PlusIcon,
@@ -39,9 +40,20 @@ const ProductsManagement = () => {
     const [selectedProduct, setSelectedProduct] = useState(null) // For history modal
     const [selectedProductForImage, setSelectedProductForImage] = useState(null)
     const [imageRefreshVersion, setImageRefreshVersion] = useState(Date.now())
+    const [showVariantImageUpload, setShowVariantImageUpload] = useState(false)
+    const [selectedVariantForImage, setSelectedVariantForImage] = useState(null)
 
     useEffect(() => {
         fetchProducts()
+    }, [])
+
+    // Refetch products when user returns to this page (e.g. from Edit Product after setting primary media)
+    useEffect(() => {
+        const onVisibilityChange = () => {
+            if (document.visibilityState === 'visible') fetchProducts()
+        }
+        document.addEventListener('visibilitychange', onVisibilityChange)
+        return () => document.removeEventListener('visibilitychange', onVisibilityChange)
     }, [])
 
     const fetchProducts = async () => {
@@ -115,6 +127,23 @@ const ProductsManagement = () => {
         setShowInvoiceUpload(false)
         toast.success(`${extractedProducts.length} products imported successfully!`)
         fetchProducts()
+    }
+
+    const handleVariantImageUpload = (variant) => {
+        setSelectedVariantForImage(variant)
+        setShowVariantImageUpload(true)
+    }
+
+    const handleVariantImageUploaded = async () => {
+        setShowVariantImageUpload(false)
+        setSelectedVariantForImage(null)
+        try {
+            await fetchProducts()
+            setImageRefreshVersion(Date.now())
+        } catch (error) {
+            console.error('Error refreshing after variant image upload:', error)
+            toast.error('Image uploaded but failed to refresh')
+        }
     }
 
     // Filter products
@@ -229,22 +258,32 @@ const ProductsManagement = () => {
                     {filteredProducts.map(product => (
                         <div key={product.id} className="card group hover:shadow-lg transition-all duration-200">
                             <div className="relative aspect-square bg-gray-100 rounded-t-xl overflow-hidden">
-                                <img
-                                    src={`${getImageUrl('product', product.id)}?t=${imageRefreshVersion}`}
-                                    alt={product.name}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => {
-                                        // Prevent infinite loop by removing the error handler
-                                        e.target.onerror = null
-                                        // Hide the image and show the fallback icon
-                                        e.target.style.display = 'none'
-                                        const fallback = e.target.nextElementSibling
-                                        if (fallback) {
-                                            fallback.classList.remove('hidden')
-                                            fallback.classList.add('flex')
-                                        }
-                                    }}
-                                />
+                                {(product.productImages?.[0]?.mediaType?.startsWith('video/')) ? (
+                                    <video
+                                        src={`${getImageUrl('product', product.id)}?t=${imageRefreshVersion}`}
+                                        className="w-full h-full object-cover"
+                                        muted
+                                        playsInline
+                                        autoPlay
+                                        loop
+                                        preload="metadata"
+                                    />
+                                ) : (
+                                    <img
+                                        src={`${getImageUrl('product', product.id)}?t=${imageRefreshVersion}`}
+                                        alt={product.name}
+                                        className="w-full h-full object-cover"
+                                        onError={(e) => {
+                                            e.target.onerror = null
+                                            e.target.style.display = 'none'
+                                            const fallback = e.target.nextElementSibling
+                                            if (fallback) {
+                                                fallback.classList.remove('hidden')
+                                                fallback.classList.add('flex')
+                                            }
+                                        }}
+                                    />
+                                )}
                                 <div className="hidden w-full h-full items-center justify-center text-gray-400 absolute inset-0 bg-gray-100">
                                     <Squares2X2Icon className="h-12 w-12" />
                                 </div>
@@ -263,8 +302,15 @@ const ProductsManagement = () => {
 
                             <div className="p-4">
                                 <div className="flex justify-between items-start mb-2">
-                                    <h3 className="font-semibold text-gray-900 line-clamp-1">{product.name}</h3>
-                                    <span className={`px-2 py-0.5 text-xs rounded-full ${product.isActive
+                                    <div className="flex-1 min-w-0">
+                                        <h3 className="font-semibold text-gray-900 line-clamp-1">{product.name}</h3>
+                                        {(((product.hasVariants || product.isStitched) && product.variantCount > 0) || (product.variants && product.variants.length > 0)) ? (
+                                            <span className="inline-flex items-center mt-1 bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded-full font-medium">
+                                                {(product.variantCount ?? product.variants?.length ?? 0)} {(product.variantCount ?? product.variants?.length ?? 0) === 1 ? 'variant' : 'variants'}
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <span className={`px-2 py-0.5 text-xs rounded-full flex-shrink-0 ml-2 ${product.isActive
                                         ? 'bg-green-100 text-green-700'
                                         : 'bg-red-100 text-red-700'
                                         }`}>
@@ -278,28 +324,113 @@ const ProductsManagement = () => {
                                 <div className="space-y-1.5 mb-3 text-sm">
                                     <div className="flex justify-between items-center">
                                         <span className="text-gray-600">Purchase:</span>
-                                        <span className="font-semibold text-gray-900">Rs. {(product.lastPurchasePrice || 0).toLocaleString()}</span>
+                                        <span className="font-semibold text-gray-900 whitespace-nowrap">Rs. {parseFloat(product.lastPurchasePrice || 0).toFixed(2)}</span>
                                     </div>
                                     {product.currentRetailPrice && (
                                         <div className="flex justify-between items-center">
                                             <span className="text-gray-600">Retail:</span>
-                                            <span className="font-semibold text-green-600">Rs. {product.currentRetailPrice.toLocaleString()}</span>
+                                            <span className="font-semibold text-green-600 whitespace-nowrap">Rs. {parseFloat(product.currentRetailPrice).toFixed(2)}</span>
                                         </div>
                                     )}
                                     {product.lastSalePrice && (
                                         <div className="flex justify-between items-center">
                                             <span className="text-gray-600">Sale:</span>
-                                            <span className="font-semibold text-blue-600">Rs. {product.lastSalePrice.toLocaleString()}</span>
+                                            <span className="font-semibold text-blue-600 whitespace-nowrap">Rs. {parseFloat(product.lastSalePrice).toFixed(2)}</span>
                                         </div>
                                     )}
                                 </div>
 
                                 <div className="flex items-center justify-between text-sm font-medium pt-2 border-t border-gray-100">
                                     <span className="text-gray-600">Qty:</span>
-                                    <span className={`font-semibold ${(product.currentQuantity || 0) === 0 ? 'text-red-600' : 'text-gray-900'}`}>
-                                        {product.currentQuantity || 0}
+                                    <span className={`font-semibold ${(product.hasVariants && product.totalVariantStock !== null) 
+                                      ? (product.totalVariantStock === 0 ? 'text-red-600' : 'text-gray-900')
+                                      : ((product.currentQuantity || 0) === 0 ? 'text-red-600' : 'text-gray-900')
+                                    }`}>
+                                        {product.hasVariants && product.totalVariantStock !== null 
+                                          ? product.totalVariantStock 
+                                          : (product.currentQuantity || 0)}
                                     </span>
                                 </div>
+                                {product.hasVariants && product.totalVariantStock !== null && (
+                                    <div className="flex items-center justify-between text-xs text-gray-500 pt-1">
+                                        <span>Variant Stock:</span>
+                                        <span>{product.totalVariantStock} total</span>
+                                    </div>
+                                )}
+
+                                {/* Variants List */}
+                                {product.hasVariants && product.variants && product.variants.length > 0 && (
+                                    <div className="mt-3 pt-3 border-t border-gray-100">
+                                        <p className="text-xs font-semibold text-gray-700 mb-2">Variants:</p>
+                                        <div className="space-y-1.5">
+                                            {product.variants.map((variant) => (
+                                                <div key={variant.id} className="flex items-center gap-2 p-1.5 bg-gray-50 rounded">
+                                                    {/* Variant Image + Upload */}
+                                                    <div className="relative w-10 h-10 flex-shrink-0 group">
+                                                        <div className="w-10 h-10 bg-gray-200 rounded overflow-hidden">
+                                                            {(variant.images?.[0]?.imageType?.startsWith('video/')) ? (
+                                                                <video
+                                                                    src={`${getImageUrl('product-variant', variant.id)}?t=${imageRefreshVersion}`}
+                                                                    className="w-full h-full object-cover"
+                                                                    muted
+                                                                    playsInline
+                                                                    autoPlay
+                                                                    loop
+                                                                    preload="metadata"
+                                                                />
+                                                            ) : (
+                                                                <img
+                                                                    src={`${getImageUrl('product-variant', variant.id)}?t=${imageRefreshVersion}`}
+                                                                    alt={`${variant.color}${variant.size ? `, ${variant.size}` : ''}`}
+                                                                    className="w-full h-full object-cover"
+                                                                    onError={(e) => {
+                                                                        e.target.style.display = 'none'
+                                                                        const fallback = e.target.nextElementSibling
+                                                                        if (fallback) {
+                                                                            fallback.style.display = 'flex'
+                                                                        }
+                                                                    }}
+                                                                />
+                                                            )}
+                                                            <div style={{display: 'none'}} className="w-full h-full flex items-center justify-center text-gray-400 text-xs bg-gray-200">
+                                                                <span>{variant.color?.[0] || 'V'}</span>
+                                                            </div>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleVariantImageUpload(variant)}
+                                                            className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 rounded transition-opacity"
+                                                            title="Upload variant image"
+                                                        >
+                                                            <CameraIcon className="h-4 w-4 text-white" />
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Variant Details */}
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-1.5">
+                                                            <span className="text-xs font-medium text-gray-900">
+                                                                {variant.color}
+                                                                {variant.size && <span className="text-gray-600">, {variant.size}</span>}
+                                                            </span>
+                                                            {variant.sku && (
+                                                                <span className="text-xs text-gray-500 font-mono bg-gray-200 px-1 py-0.5 rounded">
+                                                                    {variant.sku}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex items-center justify-between mt-0.5">
+                                                            <span className="text-xs text-gray-500">Qty:</span>
+                                                            <span className={`text-xs font-semibold ${variant.currentQuantity === 0 ? 'text-red-600' : 'text-gray-900'}`}>
+                                                                {variant.currentQuantity || 0}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end gap-2">
                                     <button
@@ -358,16 +489,28 @@ const ProductsManagement = () => {
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center">
                                                 <div className="h-10 w-10 flex-shrink-0 relative">
-                                                    <img
-                                                        className="h-10 w-10 rounded-lg object-cover"
-                                                        src={`${getImageUrl('product', product.id)}?t=${imageRefreshVersion}`}
-                                                        alt=""
-                                                        onError={(e) => {
-                                                            e.target.onerror = null
-                                                            e.target.style.display = 'none'
-                                                            e.target.nextSibling.style.display = 'flex'
-                                                        }}
-                                                    />
+                                                    {(product.productImages?.[0]?.mediaType?.startsWith('video/')) ? (
+                                                        <video
+                                                            src={`${getImageUrl('product', product.id)}?t=${imageRefreshVersion}`}
+                                                            className="h-10 w-10 rounded-lg object-cover"
+                                                            muted
+                                                            playsInline
+                                                            autoPlay
+                                                            loop
+                                                            preload="metadata"
+                                                        />
+                                                    ) : (
+                                                        <img
+                                                            className="h-10 w-10 rounded-lg object-cover"
+                                                            src={`${getImageUrl('product', product.id)}?t=${imageRefreshVersion}`}
+                                                            alt=""
+                                                            onError={(e) => {
+                                                                e.target.onerror = null
+                                                                e.target.style.display = 'none'
+                                                                e.target.nextSibling.style.display = 'flex'
+                                                            }}
+                                                        />
+                                                    )}
                                                     <div className="hidden h-10 w-10 rounded-lg bg-gray-100 items-center justify-center absolute inset-0">
                                                         <Squares2X2Icon className="h-5 w-5 text-gray-400" />
                                                     </div>
@@ -380,7 +523,7 @@ const ProductsManagement = () => {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{product.category}</td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">Rs. {product.price}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{product.currentQuantity || 0}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{product.hasVariants && product.totalVariantStock != null ? product.totalVariantStock : (product.currentQuantity || 0)}</td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${product.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                                                 }`}>
@@ -451,6 +594,20 @@ const ProductsManagement = () => {
                         }}
                         product={selectedProductForImage}
                         onImageUploaded={handleProductImageUploaded}
+                    />
+                )
+            }
+
+            {
+                showVariantImageUpload && selectedVariantForImage && (
+                    <VariantImageUpload
+                        isOpen={showVariantImageUpload}
+                        onClose={() => {
+                            setShowVariantImageUpload(false)
+                            setSelectedVariantForImage(null)
+                        }}
+                        variant={selectedVariantForImage}
+                        onImageUploaded={handleVariantImageUploaded}
                     />
                 )
             }

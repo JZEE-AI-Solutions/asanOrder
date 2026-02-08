@@ -256,6 +256,9 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
         quantity: item.quantity,
         reason: item.reason || null,
         sku: item.sku || null,
+        productVariantId: item.productVariantId || null,
+        color: item.color || null,
+        size: item.size || null,
         returnId: returnRecord.id
       }));
 
@@ -532,6 +535,9 @@ router.post('/from-invoice', authenticateToken, requireRole(['BUSINESS_OWNER']),
         quantity: item.quantity,
         reason: item.reason || 'INVOICE_RETURN',
         sku: item.sku || null,
+        productVariantId: item.productVariantId || null,
+        color: item.color || null,
+        size: item.size || null,
         returnId: returnRecord.id
       }));
 
@@ -1031,6 +1037,9 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
               quantity: item.quantity,
               reason: item.reason || null,
               sku: item.sku || null,
+              productVariantId: item.productVariantId || null,
+              color: item.color || null,
+              size: item.size || null,
               returnId: id
             }))
           });

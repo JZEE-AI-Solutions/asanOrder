@@ -575,29 +575,42 @@ const ClientFormDynamic = () => {
           // Note: selectedProducts and productQuantities are sent separately in orderData
           // We don't add them to formData to avoid cluttering the order details display
 
-      // Prepare productPrices from selectedProducts
-      const productPrices = {}
+      // Build productQuantities and productPrices with backend composite key (productId_variantId) for variant lines
+      const payloadQuantities = {}
+      const payloadPrices = {}
       selectedProducts.forEach(product => {
-        // Use product.price if available (from form's selectedProducts), otherwise use currentRetailPrice
+        const vid = product.productVariantId ?? product.variantId
+        const backendKey = vid ? `${product.id}_${vid}` : product.id
+        const displayKey = vid ? `${product.id}-${vid}` : product.id
+        payloadQuantities[backendKey] = productQuantities[displayKey] ?? productQuantities[product.id] ?? 1
         const price = product.price !== undefined && product.price !== null
           ? (typeof product.price === 'number' ? product.price : parseFloat(product.price) || 0)
           : (product.currentRetailPrice ? parseFloat(product.currentRetailPrice) || 0 : 0)
-        productPrices[product.id] = price
+        payloadPrices[backendKey] = price
       })
-      
-      // Submit order
+
+      const normalizedProducts = selectedProducts.map(p => ({
+        id: p.id,
+        name: p.name || 'Product',
+        price: p.price !== undefined && p.price !== null ? (typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0) : (p.currentRetailPrice ? parseFloat(p.currentRetailPrice) || 0 : 0),
+        quantity: payloadQuantities[(p.productVariantId ?? p.variantId) ? `${p.id}_${p.productVariantId ?? p.variantId}` : p.id] ?? 1,
+        variantId: p.variantId ?? p.productVariantId ?? null,
+        productVariantId: p.productVariantId ?? p.variantId ?? null,
+        color: p.color ?? null,
+        size: p.size ?? null
+      }))
+
       const orderData = {
         formLink,
         formData,
-        // Only include paymentAmount if there's a Payment Amount field in the form
-        paymentAmount: form.fields.some(f => f.label === 'Payment Amount') && data['Payment Amount'] 
-          ? parseFloat(data['Payment Amount']) 
+        paymentAmount: form.fields.some(f => f.label === 'Payment Amount') && data['Payment Amount']
+          ? parseFloat(data['Payment Amount'])
           : null,
         images: uploadedImages.map(img => img.url),
         paymentReceipt: paymentReceipt?.url || null,
-        selectedProducts: selectedProducts,
-        productQuantities: productQuantities,
-        productPrices: productPrices
+        selectedProducts: normalizedProducts,
+        productQuantities: payloadQuantities,
+        productPrices: payloadPrices
       }
 
       console.log('📤 Submitting order data:', orderData)

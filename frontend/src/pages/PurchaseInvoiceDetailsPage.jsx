@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeftIcon, CurrencyDollarIcon, PencilIcon, ArrowLeftOnRectangleIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, CurrencyDollarIcon, PencilIcon, ArrowLeftOnRectangleIcon, Squares2X2Icon, RectangleStackIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
@@ -37,6 +37,7 @@ const PurchaseInvoiceDetailsPage = () => {
     note: ''
   })
   const [processingEditPayment, setProcessingEditPayment] = useState(false)
+  const [paymentsViewMode, setPaymentsViewMode] = useState('card') // 'card' | 'grid' – card is mobile-friendly
 
   useEffect(() => {
     if (invoiceId) {
@@ -65,22 +66,11 @@ const PurchaseInvoiceDetailsPage = () => {
       setInvoice(invoice)
       
       // Store payments linked to this purchase invoice (preferred) or from supplier (backward compatibility)
-      console.log('🔍 Payment Debug Info:')
-      console.log('  invoice.payments:', invoice.payments)
-      console.log('  invoice.payments length:', invoice.payments?.length || 0)
-      console.log('  invoice.supplier?.payments:', invoice.supplier?.payments)
-      console.log('  invoice.supplier?.payments length:', invoice.supplier?.payments?.length || 0)
-      console.log('  invoice.paymentAmount:', invoice.paymentAmount)
-      
-      // Prefer payments linked directly to invoice
       if (invoice.payments && Array.isArray(invoice.payments) && invoice.payments.length > 0) {
-        console.log('✅ Using invoice.payments (linked to invoice):', invoice.payments.map(p => `${p.paymentNumber}: Rs. ${p.amount}`).join(', '))
         setPayments(invoice.payments)
       } else if (invoice.supplier?.payments && Array.isArray(invoice.supplier.payments) && invoice.supplier.payments.length > 0) {
-        console.log('⚠️ Using supplier.payments (fallback - legacy):', invoice.supplier.payments.map(p => `${p.paymentNumber}: Rs. ${p.amount}`).join(', '))
         setPayments(invoice.supplier.payments)
       } else {
-        console.log('ℹ️ No payments found in response')
         setPayments([])
       }
     } catch (error) {
@@ -98,20 +88,11 @@ const PurchaseInvoiceDetailsPage = () => {
     // Sum all Payment records linked to this purchase invoice
     const paymentsTotal = payments.reduce((sum, payment) => sum + (payment.amount || 0), 0)
     
-    console.log('💰 calculateTotalPaid:')
-    console.log('  payments array:', payments)
-    console.log('  payments count:', payments.length)
-    console.log('  paymentsTotal (sum of payments array):', paymentsTotal)
-    console.log('  invoice.paymentAmount:', invoice.paymentAmount)
-    
     // Backward compatibility: if no payments linked to invoice and paymentAmount exists, use it
     // This handles old invoices created before we started linking payments
     if (paymentsTotal === 0 && invoice.paymentAmount > 0) {
-      console.log('  → Using invoice.paymentAmount (backward compatibility):', invoice.paymentAmount)
       return invoice.paymentAmount
     }
-    
-    console.log('  → Using paymentsTotal:', paymentsTotal)
     return paymentsTotal
   }
 
@@ -143,11 +124,6 @@ const PurchaseInvoiceDetailsPage = () => {
       const response = await api.get(`/accounting/transactions?${params}`)
       
       if (response.data?.success) {
-        // Debug: Log all transactions to see what we're getting
-        console.log('🔍 All transactions:', response.data.data?.length || 0)
-        console.log('🔍 Invoice ID:', invoiceId)
-        console.log('🔍 Invoice Number:', invoice?.invoiceNumber)
-        
         // Filter transactions related to this purchase invoice
         // Only show transactions that are actually linked to this purchase invoice
         // Exclude transactions linked to orders (orderId should be null or not set)
@@ -159,20 +135,8 @@ const PurchaseInvoiceDetailsPage = () => {
           // Exclude transactions that are linked to orders (these are customer order transactions, not purchase invoice transactions)
           const isOrderTransaction = txn.orderId !== null && txn.orderId !== undefined
           
-          if (matchesById && !isOrderTransaction) {
-            console.log('✅ Matching transaction:', {
-              id: txn.id,
-              transactionNumber: txn.transactionNumber,
-              purchaseInvoiceId: txn.purchaseInvoiceId,
-              orderId: txn.orderId,
-              description: txn.description
-            })
-          }
-          
           return matchesById && !isOrderTransaction
         })
-        
-        console.log('🔍 Filtered transactions:', invoiceTransactions.length)
         setTransactions(invoiceTransactions)
       }
     } catch (error) {
@@ -368,22 +332,28 @@ const PurchaseInvoiceDetailsPage = () => {
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Variant</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {invoice.purchaseItems.map((item) => (
+                  {invoice.purchaseItems.map((item) => {
+                    const variantColor = item.productVariant?.color ?? item.color ?? ''
+                    const variantSize = item.productVariant?.size ?? item.size ?? ''
+                    const variantLabel = [variantColor, variantSize].filter(Boolean).join(' · ')
+                    return (
                     <tr key={item.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-sm text-gray-900">{item.name}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{variantLabel || '—'}</td>
                       <td className="px-4 py-3 text-sm text-gray-900">{item.quantity}</td>
                       <td className="px-4 py-3 text-sm text-gray-900">Rs. {item.purchasePrice.toLocaleString()}</td>
                       <td className="px-4 py-3 text-sm font-semibold text-gray-900">
                         Rs. {(item.quantity * item.purchasePrice).toLocaleString()}
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -429,6 +399,7 @@ const PurchaseInvoiceDetailsPage = () => {
                       <thead className="bg-white">
                         <tr>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Variant</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Quantity</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Price</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Total</th>
@@ -441,6 +412,9 @@ const PurchaseInvoiceDetailsPage = () => {
                         {returnRecord.returnItems.map((item, index) => (
                           <tr key={index} className="hover:bg-gray-50">
                             <td className="px-3 py-2 text-sm text-gray-900">{item.productName}</td>
+                            <td className="px-3 py-2 text-sm text-gray-700">
+                              {[item.color, item.size].filter(Boolean).join(' · ') || '—'}
+                            </td>
                             <td className="px-3 py-2 text-sm text-gray-900">{item.quantity}</td>
                             <td className="px-3 py-2 text-sm text-gray-900">Rs. {item.purchasePrice.toLocaleString()}</td>
                             <td className="px-3 py-2 text-sm font-semibold text-gray-900">
@@ -454,7 +428,7 @@ const PurchaseInvoiceDetailsPage = () => {
                       </tbody>
                       <tfoot className="bg-gray-50">
                         <tr>
-                          <td colSpan={returnRecord.returnItems.some(item => item.reason) ? 4 : 3} className="px-3 py-2 text-right text-sm font-medium text-gray-700">
+                          <td colSpan={returnRecord.returnItems.some(item => item.reason) ? 5 : 4} className="px-3 py-2 text-right text-sm font-medium text-gray-700">
                             Return Total:
                           </td>
                           <td className="px-3 py-2 text-sm font-bold text-gray-900">
@@ -477,20 +451,45 @@ const PurchaseInvoiceDetailsPage = () => {
           </div>
         )}
 
-        {/* Payments Section */}
+        {/* Payments Section – card view (default) or grid/table */}
         {invoice.supplier && (
-          <div className="card p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-semibold text-gray-900">Payments</h2>
-              <button
-                type="button"
-                onClick={handleMakePayment}
-                className="btn-primary flex items-center min-h-[44px]"
-                disabled={calculateRemainingBalance() <= 0}
-              >
-                <CurrencyDollarIcon className="h-5 w-5 mr-2" />
-                Make Payment
-              </button>
+          <div className="card p-4 sm:p-6 rounded-xl">
+            <div className="flex flex-col gap-3 mb-4 sm:mb-6">
+              <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
+                <h2 className="text-lg sm:text-xl font-semibold text-gray-900">Payments</h2>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-gray-500 hidden sm:inline">View:</span>
+                  <div className="inline-flex rounded-lg border border-gray-200 p-0.5 bg-gray-50">
+                    <button
+                      type="button"
+                      onClick={() => setPaymentsViewMode('card')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md min-h-[40px] touch-manipulation transition-colors ${paymentsViewMode === 'card' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                      title="Card view"
+                    >
+                      <RectangleStackIcon className="h-4 w-4" />
+                      Card
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPaymentsViewMode('grid')}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-md min-h-[40px] touch-manipulation transition-colors ${paymentsViewMode === 'grid' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+                      title="Table view"
+                    >
+                      <Squares2X2Icon className="h-4 w-4" />
+                      Grid
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleMakePayment}
+                    className="btn-primary flex items-center justify-center min-h-[44px] px-4 py-3 rounded-xl touch-manipulation flex-1 sm:flex-initial"
+                    disabled={calculateRemainingBalance() <= 0}
+                  >
+                    <CurrencyDollarIcon className="h-5 w-5 mr-2" />
+                    Make Payment
+                  </button>
+                </div>
+              </div>
             </div>
 
             {/* Payment Summary */}
@@ -513,11 +512,78 @@ const PurchaseInvoiceDetailsPage = () => {
               </div>
             </div>
 
-            {/* Payments List */}
+            {/* Payments List – Card or Grid */}
             {(payments.length === 0 && !invoice.paymentAmount) ? (
               <p className="text-gray-500 text-center py-4">No payments recorded yet</p>
+            ) : paymentsViewMode === 'card' ? (
+              <div className="space-y-3">
+                {payments.map((payment) => {
+                  const isInitialPayment = invoice.paymentAmount > 0 &&
+                    payment.amount === invoice.paymentAmount &&
+                    new Date(payment.date).toDateString() === new Date(invoice.invoiceDate).toDateString() &&
+                    payment.supplierId === invoice.supplierId
+                  return (
+                    <div
+                      key={payment.id}
+                      className={`rounded-xl p-4 border shadow-sm ${isInitialPayment ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1.5 min-w-0">
+                          <p className="text-sm font-semibold text-gray-900">{payment.paymentNumber}</p>
+                          <p className="text-sm text-gray-600">
+                            {new Date(payment.date).toLocaleDateString()}
+                          </p>
+                          <p className="text-base font-bold text-gray-900">
+                            Rs. {payment.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </p>
+                          <p className="text-sm text-gray-500">{payment.account?.name || payment.paymentMethod || 'N/A'}</p>
+                          {isInitialPayment ? (
+                            <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">At Creation</span>
+                          ) : (
+                            <span className="inline-block px-2 py-1 bg-green-100 text-green-800 rounded text-xs">Additional</span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPaymentForEdit(payment)
+                            setEditPaymentFormData({
+                              date: new Date(payment.date).toISOString().split('T')[0],
+                              amount: payment.amount.toString(),
+                              paymentAccountId: payment.accountId || ''
+                            })
+                            setShowEditPaymentForm(true)
+                          }}
+                          className="flex-shrink-0 p-2.5 rounded-lg text-blue-600 hover:bg-blue-50 hover:text-blue-800 min-h-[44px] min-w-[44px] flex items-center justify-center touch-manipulation"
+                          title="Edit Payment"
+                        >
+                          <PencilIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+                {/* Legacy initial payment when not in Payment records */}
+                {invoice.paymentAmount > 0 && !payments.some(payment =>
+                  payment.amount === invoice.paymentAmount &&
+                  new Date(payment.date).toDateString() === new Date(invoice.invoiceDate).toDateString() &&
+                  payment.supplierId === invoice.supplierId
+                ) && (
+                  <div className="rounded-xl p-4 border border-blue-200 bg-blue-50 shadow-sm">
+                    <div className="space-y-1.5">
+                      <p className="text-sm font-semibold text-gray-900">Initial Payment</p>
+                      <p className="text-sm text-gray-600">{new Date(invoice.invoiceDate).toLocaleDateString()}</p>
+                      <p className="text-base font-bold text-gray-900">
+                        Rs. {invoice.paymentAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-sm text-gray-500">{invoice.paymentMethod || 'N/A'}</p>
+                      <span className="inline-block px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">At Creation</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0" style={{ WebkitOverflowScrolling: 'touch' }}>
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
@@ -531,12 +597,10 @@ const PurchaseInvoiceDetailsPage = () => {
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {payments.map((payment) => {
-                      // Check if this payment matches the initial payment
                       const isInitialPayment = invoice.paymentAmount > 0 &&
                         payment.amount === invoice.paymentAmount &&
                         new Date(payment.date).toDateString() === new Date(invoice.invoiceDate).toDateString() &&
                         payment.supplierId === invoice.supplierId
-                      
                       return (
                         <tr key={payment.id} className={isInitialPayment ? "bg-blue-50 hover:bg-blue-100" : "hover:bg-gray-50"}>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
@@ -569,7 +633,7 @@ const PurchaseInvoiceDetailsPage = () => {
                                 })
                                 setShowEditPaymentForm(true)
                               }}
-                              className="text-blue-600 hover:text-blue-900"
+                              className="text-blue-600 hover:text-blue-900 p-2 -m-2"
                               title="Edit Payment"
                             >
                               <PencilIcon className="h-4 w-4" />
@@ -578,8 +642,7 @@ const PurchaseInvoiceDetailsPage = () => {
                         </tr>
                       )
                     })}
-                    {/* Show initial payment separately only if it's not in Payment records (backward compatibility) */}
-                    {invoice.paymentAmount > 0 && !payments.some(payment => 
+                    {invoice.paymentAmount > 0 && !payments.some(payment =>
                       payment.amount === invoice.paymentAmount &&
                       new Date(payment.date).toDateString() === new Date(invoice.invoiceDate).toDateString() &&
                       payment.supplierId === invoice.supplierId
@@ -596,6 +659,7 @@ const PurchaseInvoiceDetailsPage = () => {
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
                           <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs">At Creation</span>
                         </td>
+                        <td />
                       </tr>
                     )}
                   </tbody>

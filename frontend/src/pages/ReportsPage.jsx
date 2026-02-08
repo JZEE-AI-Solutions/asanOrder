@@ -201,6 +201,9 @@ const ReportsPage = () => {
             {profitStats.shippingVariance && (
               <div className="card p-6 mb-8">
                 <h2 className="text-xl font-bold text-gray-900 mb-4">Shipping Variance Analysis</h2>
+                <p className="text-sm text-gray-600 mb-4">
+                  Variance expense is posted to account <strong>Shipping Variance Expense (5110)</strong>; variance income to <strong>Shipping Variance Income (4300)</strong>. View their ledgers under Accounting → Accounts → select the account → View Ledger.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4">
                     <div className="flex items-center justify-between">

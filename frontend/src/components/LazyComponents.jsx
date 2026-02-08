@@ -32,6 +32,7 @@ export const LazyCustomerDetailsPage = lazy(() => import('../pages/CustomerDetai
 export const LazyAddCustomerPage = lazy(() => import('../pages/AddCustomerPage'))
 export const LazyAddSupplierPage = lazy(() => import('../pages/AddSupplierPage'))
 export const LazyEditSupplierPage = lazy(() => import('../pages/EditSupplierPage'))
+export const LazySupplierDetailsPage = lazy(() => import('../pages/SupplierDetailsPage'))
 export const LazyAddProductPage = lazy(() => import('../pages/AddProductPage'))
 export const LazyEditProductPage = lazy(() => import('../pages/EditProductPage'))
 export const LazyAddPurchasePage = lazy(() => import('../pages/AddPurchasePage'))

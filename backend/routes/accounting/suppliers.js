@@ -272,13 +272,14 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
         payments: {
           where: { type: 'SUPPLIER_PAYMENT' },
           orderBy: { date: 'desc' },
-          take: 10,
+          take: 200,
           select: {
             id: true,
             paymentNumber: true,
             date: true,
             amount: true,
-            paymentMethod: true
+            paymentMethod: true,
+            purchaseInvoiceId: true
           }
         },
         _count: {

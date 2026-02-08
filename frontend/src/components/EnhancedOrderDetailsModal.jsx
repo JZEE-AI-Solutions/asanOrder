@@ -28,7 +28,7 @@ import { Input, Textarea, Select } from './ui/Input'
 import ProductSelector from './ProductSelector'
 import OrderProductSelector from './OrderProductSelector'
 import PaymentAccountSelector from './accounting/PaymentAccountSelector'
-import api from '../services/api'
+import api, { getImageUrl } from '../services/api'
 import toast from 'react-hot-toast'
 
 const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
@@ -87,16 +87,40 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
       setPaymentReceipt(order.paymentReceipt)
     }
 
-    // Initialize product quantities
-    if (order.productQuantities) {
-      const productQty = JSON.parse(order.productQuantities)
-      setProductQuantities(productQty)
-    }
-
-    // Initialize product prices
-    if (order.productPrices) {
-      const productPrices = JSON.parse(order.productPrices)
-      setProductPrices(productPrices)
+    // Prefer orderItems (source of truth for variants)
+    if (order.orderItems && Array.isArray(order.orderItems) && order.orderItems.length > 0) {
+      const items = order.orderItems
+      const products = items.map(oi => ({
+        id: oi.productId,
+        name: oi.productName,
+        productVariantId: oi.productVariantId ?? null,
+        variantId: oi.productVariantId ?? null,
+        color: oi.color ?? null,
+        size: oi.size ?? null,
+        price: oi.price ?? 0,
+        quantity: oi.quantity ?? 1,
+        ...(oi.product && { image: oi.product.image, category: oi.product.category, currentRetailPrice: oi.product.currentRetailPrice, lastSalePrice: oi.product.lastSalePrice })
+      }))
+      const quantities = {}
+      const prices = {}
+      products.forEach(p => {
+        const key = (p.productVariantId || p.variantId) ? `${p.id}_${p.productVariantId || p.variantId}` : p.id
+        quantities[key] = p.quantity ?? 1
+        prices[key] = p.price ?? 0
+      })
+      setSelectedProducts(products)
+      setProductQuantities(quantities)
+      setProductPrices(prices)
+    } else {
+      if (order.productQuantities) {
+        setProductQuantities(JSON.parse(order.productQuantities))
+      }
+      if (order.productPrices) {
+        setProductPrices(JSON.parse(order.productPrices))
+      }
+      if (order.selectedProducts) {
+        setSelectedProducts(JSON.parse(order.selectedProducts))
+      }
     }
 
     // Initialize COD fee payment preference
@@ -106,21 +130,16 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
       setCodFeePaidBy('BUSINESS_OWNER')
     }
     
-    // Initialize payment account
     if (order.paymentAccountId) {
       setSelectedPaymentAccountId(order.paymentAccountId)
     }
+  }
 
-    // Initialize payment account
-    if (order.paymentAccountId) {
-      setSelectedPaymentAccountId(order.paymentAccountId)
-    }
-
-    // Initialize selected products
-    if (order.selectedProducts) {
-      const products = JSON.parse(order.selectedProducts)
-      setSelectedProducts(products)
-    }
+  const getLineKey = (line) => {
+    const vid = line?.productVariantId ?? line?.variantId
+    const pid = line?.id
+    if (!pid) return ''
+    return vid ? `${pid}_${vid}` : pid
   }
 
   const getStatusBadge = (status) => {
@@ -169,41 +188,27 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
     setUploadedImages(prev => prev.filter((_, i) => i !== index))
   }
 
-  const handleProductQuantityChange = (productId, quantity) => {
-    setProductQuantities(prev => ({
-      ...prev,
-      [productId]: Math.max(0, quantity)
-    }))
+  const handleProductQuantityChange = (lineKey, quantity) => {
+    setProductQuantities(prev => ({ ...prev, [lineKey]: Math.max(0, quantity) }))
   }
 
-  const handleProductPriceChange = (productId, price) => {
-    setProductPrices(prev => ({
-      ...prev,
-      [productId]: Math.max(0, parseFloat(price) || 0)
-    }))
+  const handleProductPriceChange = (lineKey, price) => {
+    setProductPrices(prev => ({ ...prev, [lineKey]: Math.max(0, parseFloat(price) || 0) }))
   }
 
   const handleProductsChange = (newSelectedProducts) => {
     setSelectedProducts(newSelectedProducts)
-    
-    // Clean up quantities and prices for removed products
-    const newQuantities = { ...productQuantities }
-    const newPrices = { ...productPrices }
-    
-    Object.keys(newQuantities).forEach(productId => {
-      if (!newSelectedProducts.some(p => p.id === productId)) {
-        delete newQuantities[productId]
-      }
+    const keySet = new Set(newSelectedProducts.map(p => getLineKey(p)))
+    setProductQuantities(prev => {
+      const next = { ...prev }
+      Object.keys(next).forEach(k => { if (!keySet.has(k)) delete next[k] })
+      return next
     })
-    
-    Object.keys(newPrices).forEach(productId => {
-      if (!newSelectedProducts.some(p => p.id === productId)) {
-        delete newPrices[productId]
-      }
+    setProductPrices(prev => {
+      const next = { ...prev }
+      Object.keys(next).forEach(k => { if (!keySet.has(k)) delete next[k] })
+      return next
     })
-    
-    setProductQuantities(newQuantities)
-    setProductPrices(newPrices)
   }
 
   const onSubmit = async (data) => {
@@ -242,20 +247,7 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
   const handleConfirmOrder = async () => {
     try {
       setLoading(true)
-      
-      // Calculate COD amount to determine if COD fee is applicable
-      let orderTotal = 0
-      if (order.selectedProducts) {
-        const products = JSON.parse(order.selectedProducts)
-        const quantities = order.productQuantities ? JSON.parse(order.productQuantities) : {}
-        const prices = order.productPrices ? JSON.parse(order.productPrices) : {}
-        products.forEach(product => {
-          const qty = quantities[product.id] || product.quantity || 1
-          const price = prices[product.id] || product.price || 0
-          orderTotal += price * qty
-        })
-      }
-      orderTotal += (order.shippingCharges || 0)
+      const orderTotal = calculateTotalAmount() + (order.shippingCharges || 0)
       const codAmount = orderTotal - paymentAmount
       
       // Make API call with paymentAccountId and COD fee preference if applicable
@@ -295,12 +287,12 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
     setIsEditing(false)
   }
 
-  // Calculate total order amount
   const calculateTotalAmount = () => {
     let total = 0
     selectedProducts.forEach(product => {
-      const quantity = productQuantities[product.id] || 1
-      const price = productPrices[product.id] || 0
+      const key = getLineKey(product)
+      const quantity = productQuantities[key] ?? product.quantity ?? 1
+      const price = productPrices[key] ?? product.price ?? 0
       total += quantity * price
     })
     return total
@@ -432,7 +424,7 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
                                   selectedProducts={selectedProducts}
                                   productQuantities={productQuantities}
                                   productPrices={productPrices}
-                                  onProductsChange={setSelectedProducts}
+                                  onProductsChange={handleProductsChange}
                                   onQuantityChange={handleProductQuantityChange}
                                   onPriceChange={handleProductPriceChange}
                                   maxProducts={20}
@@ -445,90 +437,71 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
                                   </p>
                                   {selectedProducts.length > 0 ? (
                                     <div className="space-y-2">
-                                      {selectedProducts.map((product, idx) => (
-                                        <div key={idx} className="p-3 bg-white rounded border">
-                                          <div className="flex items-center space-x-3 mb-2">
-                                            <img
-                                              src={product.image || '/placeholder-product.png'}
-                                              alt={product.name}
-                                              className="w-10 h-10 rounded object-cover flex-shrink-0"
-                                            />
-                                            <div className="flex-1 min-w-0">
-                                              <span className="text-sm font-medium truncate block">{product.name}</span>
-                                              <span className="text-xs text-gray-500">
-                                                {product.category && `${product.category} • `}
-                                                {product.color && `${product.color} • `}
-                                                {product.size && `Size: ${product.size}`}
-                                              </span>
-                                            </div>
-                                          </div>
-                                          
-                                          <div className="grid grid-cols-2 gap-3">
-                                            {/* Quantity */}
-                                            <div>
-                                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                                Quantity
-                                              </label>
-                                              {isEditing ? (
-                                                <div className="flex items-center space-x-1">
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => handleProductQuantityChange(product.id, (productQuantities[product.id] || 1) - 1)}
-                                                    className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600"
-                                                  >
-                                                    <MinusIcon className="h-3 w-3" />
-                                                  </button>
-                                                  <span className="text-sm font-medium w-8 text-center">
-                                                    {productQuantities[product.id] || 1}
-                                                  </span>
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => handleProductQuantityChange(product.id, (productQuantities[product.id] || 1) + 1)}
-                                                    className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600"
-                                                  >
-                                                    <PlusIcon className="h-3 w-3" />
-                                                  </button>
-                                                </div>
-                                              ) : (
-                                                <span className="text-sm text-gray-700 font-medium">
-                                                  {productQuantities[product.id] || 1}
+                                      {selectedProducts.map((product, idx) => {
+                                        const lineKey = getLineKey(product)
+                                        const qty = productQuantities[lineKey] ?? product.quantity ?? 1
+                                        const price = productPrices[lineKey] ?? product.price ?? 0
+                                        const variantLabel = [product.color, product.size].filter(Boolean).join(' · ')
+                                        const variantId = product.productVariantId ?? product.variantId
+                                        const productImageUrl = getImageUrl('product', product.id)
+                                        const lineImageUrl = variantId ? getImageUrl('product-variant', variantId) : productImageUrl
+                                        return (
+                                          <div key={lineKey || product.id || idx} className="p-3 bg-white rounded border">
+                                            <div className="flex items-center space-x-3 mb-2">
+                                              <img
+                                                src={lineImageUrl || product.image || '/placeholder-product.png'}
+                                                alt={product.name}
+                                                className="w-10 h-10 rounded object-cover flex-shrink-0"
+                                                onError={(e) => {
+                                                  if (variantId && e.target.src !== productImageUrl) {
+                                                    e.target.src = productImageUrl
+                                                    e.target.onerror = null
+                                                  } else {
+                                                    e.target.src = '/placeholder-product.png'
+                                                    e.target.onerror = null
+                                                  }
+                                                }}
+                                              />
+                                              <div className="flex-1 min-w-0">
+                                                <span className="text-sm font-medium truncate block">{product.name}</span>
+                                                <span className="text-xs text-gray-500">
+                                                  {[product.category, variantLabel].filter(Boolean).join(' • ')}
                                                 </span>
-                                              )}
+                                              </div>
                                             </div>
-                                            
-                                            {/* Price */}
-                                            <div>
-                                              <label className="block text-xs font-medium text-gray-600 mb-1">
-                                                Sale Price (Rs.)
-                                              </label>
-                                              {isEditing ? (
-                                                <input
-                                                  type="number"
-                                                  step="0.01"
-                                                  min="0"
-                                                  value={productPrices[product.id] || 0}
-                                                  onChange={(e) => handleProductPriceChange(product.id, e.target.value)}
-                                                  className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                                                />
-                                              ) : (
-                                                <span className="text-sm text-gray-700 font-medium">
-                                                  Rs. {parseFloat(productPrices[product.id] || 0).toLocaleString()}
-                                                </span>
-                                              )}
+                                            <div className="grid grid-cols-2 gap-3">
+                                              <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Quantity</label>
+                                                {isEditing ? (
+                                                  <div className="flex items-center space-x-1">
+                                                    <button type="button" onClick={() => handleProductQuantityChange(lineKey, qty - 1)} className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600">
+                                                      <MinusIcon className="h-3 w-3" />
+                                                    </button>
+                                                    <span className="text-sm font-medium w-8 text-center">{qty}</span>
+                                                    <button type="button" onClick={() => handleProductQuantityChange(lineKey, qty + 1)} className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 flex items-center justify-center text-gray-600">
+                                                      <PlusIcon className="h-3 w-3" />
+                                                    </button>
+                                                  </div>
+                                                ) : (
+                                                  <span className="text-sm text-gray-700 font-medium">{qty}</span>
+                                                )}
+                                              </div>
+                                              <div>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">Sale Price (Rs.)</label>
+                                                {isEditing ? (
+                                                  <input type="number" step="0.01" min="0" value={price} onChange={(e) => handleProductPriceChange(lineKey, e.target.value)} className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+                                                ) : (
+                                                  <span className="text-sm text-gray-700 font-medium">Rs. {parseFloat(price).toLocaleString()}</span>
+                                                )}
+                                              </div>
                                             </div>
-                                          </div>
-                                          
-                                          {/* Total */}
-                                          <div className="mt-2 pt-2 border-t border-gray-100">
-                                            <div className="flex justify-between items-center">
+                                            <div className="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
                                               <span className="text-sm font-medium text-gray-700">Total:</span>
-                                              <span className="text-sm font-bold text-primary-600">
-                                                Rs. {((productQuantities[product.id] || 1) * (productPrices[product.id] || 0)).toLocaleString()}
-                                              </span>
+                                              <span className="text-sm font-bold text-primary-600">Rs. {(qty * price).toLocaleString()}</span>
                                             </div>
                                           </div>
-                                        </div>
-                                      ))}
+                                        )
+                                      })}
                                     </div>
                                   ) : (
                                     <p className="text-sm text-gray-400">No products selected</p>
@@ -790,18 +763,7 @@ const EnhancedOrderDetailsModal = ({ order, onClose, onConfirm, onUpdate }) => {
                     
                     {/* COD Fee Payment Preference */}
                     {(() => {
-                      let orderTotal = 0
-                      if (order.selectedProducts) {
-                        const products = JSON.parse(order.selectedProducts)
-                        const quantities = order.productQuantities ? JSON.parse(order.productQuantities) : {}
-                        const prices = order.productPrices ? JSON.parse(order.productPrices) : {}
-                        products.forEach(product => {
-                          const qty = quantities[product.id] || product.quantity || 1
-                          const price = prices[product.id] || product.price || 0
-                          orderTotal += price * qty
-                        })
-                      }
-                      orderTotal += (order.shippingCharges || 0)
+                      const orderTotal = calculateTotalAmount() + (order.shippingCharges || 0)
                       const codAmount = orderTotal - paymentAmount
                       const hasCodFee = order.codFee && order.codFee > 0
                       

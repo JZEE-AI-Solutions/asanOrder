@@ -189,27 +189,105 @@ router.post('/submit', [
     console.log('  - productQuantities:', productQuantities, 'Type:', typeof productQuantities);
     console.log('  - productPrices:', productPrices, 'Type:', typeof productPrices);
     
-    // Create order
-    const order = await prisma.order.create({
-      data: {
-        orderNumber: orderNumber,
-        formId: form.id,
-        tenantId: form.tenant.id,
-        customerId: customer ? customer.id : null,
-        formData: JSON.stringify(formData),
-        paymentAmount: paymentAmount || null,
-        paymentAccountId: paymentAccountId || null,
-        paymentMethod: paymentMethod || null,
-        shippingCharges: shippingCharges,
-        images: images ? JSON.stringify(images) : null,
-        paymentReceipt: paymentReceipt || null,
-        // selectedProducts, productQuantities, and productPrices are already stringified from frontend
-        // Just save them as-is (they're strings)
-        selectedProducts: selectedProducts || null,
-        productQuantities: productQuantities || null,
-        productPrices: productPrices || null,
-        status: 'PENDING'
-      },
+    // Parse products and quantities for OrderItem creation
+    let parsedProducts = selectedProducts;
+    let parsedQuantities = productQuantities;
+    let parsedPrices = productPrices;
+    
+    if (typeof selectedProducts === 'string') {
+      parsedProducts = JSON.parse(selectedProducts);
+    }
+    if (typeof productQuantities === 'string') {
+      parsedQuantities = JSON.parse(productQuantities);
+    }
+    if (typeof productPrices === 'string') {
+      parsedPrices = JSON.parse(productPrices);
+    }
+    
+    // Ensure arrays/objects
+    if (!Array.isArray(parsedProducts)) {
+      parsedProducts = [];
+    }
+    if (!parsedQuantities || typeof parsedQuantities !== 'object') {
+      parsedQuantities = {};
+    }
+    if (!parsedPrices || typeof parsedPrices !== 'object') {
+      parsedPrices = {};
+    }
+
+    // Avoid storing "products total only" as payment amount when order has shipping (common mistake).
+    // Payment amount should be 0, null, or full/partial order total, not just products subtotal.
+    let effectivePaymentAmount = paymentAmount != null && paymentAmount !== '' ? parseFloat(paymentAmount) : null;
+    if (effectivePaymentAmount != null && !isNaN(effectivePaymentAmount) && parsedProducts.length > 0) {
+      let productsTotalOnly = 0;
+      parsedProducts.forEach(p => {
+        const qty = parsedQuantities[p.id] ?? parsedQuantities[`${p.id}_${p.variantId || p.productVariantId}`] ?? p.quantity ?? 1;
+        const price = parsedPrices[p.id] ?? parsedPrices[`${p.id}_${p.variantId || p.productVariantId}`] ?? p.price ?? p.currentRetailPrice ?? 0;
+        productsTotalOnly += (Number(qty) || 0) * (Number(price) || 0);
+      });
+      const hasShipping = shippingCharges != null && Number(shippingCharges) > 0;
+      if (hasShipping && Math.abs(effectivePaymentAmount - productsTotalOnly) < 0.01) {
+        effectivePaymentAmount = null;
+      }
+    }
+    if (effectivePaymentAmount != null && isNaN(effectivePaymentAmount)) {
+      effectivePaymentAmount = null;
+    }
+
+    // Create order with OrderItems in a transaction
+    const order = await prisma.$transaction(async (tx) => {
+      const newOrder = await tx.order.create({
+        data: {
+          orderNumber: orderNumber,
+          formId: form.id,
+          tenantId: form.tenant.id,
+          customerId: customer ? customer.id : null,
+          formData: JSON.stringify(formData),
+          paymentAmount: effectivePaymentAmount,
+          paymentAccountId: paymentAccountId || null,
+          paymentMethod: paymentMethod || null,
+          shippingCharges: shippingCharges,
+          images: images ? JSON.stringify(images) : null,
+          paymentReceipt: paymentReceipt || null,
+          // Keep legacy fields for backward compatibility
+          selectedProducts: selectedProducts || null,
+          productQuantities: productQuantities || null,
+          productPrices: productPrices || null,
+          status: 'PENDING'
+        }
+      });
+
+      // Create OrderItem records for normalized variant data (composite key for variant lines)
+      if (parsedProducts.length > 0) {
+        const orderItemsData = parsedProducts.map(product => {
+          const productId = product.id || null;
+          const variantId = product.variantId || product.productVariantId || null;
+          const qtyPriceKey = variantId ? `${productId}_${variantId}` : productId;
+          const quantity = parsedQuantities[qtyPriceKey] ?? parsedQuantities[productId] ?? product.quantity ?? 1;
+          const price = parsedPrices[qtyPriceKey] ?? parsedPrices[productId] ?? product.price ?? 0;
+          return {
+            orderId: newOrder.id,
+            productId: productId,
+            productVariantId: variantId,
+            productName: product.name || 'Unknown Product',
+            quantity: quantity,
+            price: price,
+            color: product.color || null,
+            size: product.size || null
+          };
+        });
+
+        await tx.orderItem.createMany({
+          data: orderItemsData
+        });
+      }
+
+      return newOrder;
+    });
+
+    // Fetch order with relations for response
+    const orderWithRelations = await prisma.order.findUnique({
+      where: { id: order.id },
       include: {
         form: {
           select: {
@@ -275,9 +353,9 @@ router.post('/submit', [
     res.status(201).json({
       message: 'Order submitted successfully',
       order: {
-        id: order.id,
-        status: order.status,
-        createdAt: order.createdAt
+        id: orderWithRelations.id,
+        status: orderWithRelations.status,
+        createdAt: orderWithRelations.createdAt
       },
       whatsappUrl: whatsappUrl,
       businessOwnerPhone: businessOwnerPhone
@@ -352,8 +430,27 @@ router.get('/', authenticateToken, async (req, res) => {
       prisma.order.count({ where: whereClause })
     ]);
 
+    // Total paid per order (sum of CUSTOMER_PAYMENT records) so list shows Received/Pending correctly
+    const orderIds = (orders || []).map((o) => o.id);
+    let totalPaidByOrderId = {};
+    if (orderIds.length > 0) {
+      const payments = await prisma.payment.findMany({
+        where: { orderId: { in: orderIds }, type: 'CUSTOMER_PAYMENT' },
+        select: { orderId: true, amount: true }
+      });
+      for (const p of payments) {
+        if (p.orderId) {
+          totalPaidByOrderId[p.orderId] = (totalPaidByOrderId[p.orderId] || 0) + (p.amount || 0);
+        }
+      }
+    }
+    const ordersWithPaid = (orders || []).map((o) => ({
+      ...o,
+      totalPaid: totalPaidByOrderId[o.id] ?? 0
+    }));
+
     res.json({
-      orders: orders || [],
+      orders: ordersWithPaid,
       pagination: {
         page: parseInt(page) || 1,
         limit: limitNum,
@@ -439,6 +536,32 @@ router.get('/:id', authenticateToken, async (req, res) => {
             name: true,
             codFeeCalculationType: true
           }
+        },
+        orderItems: {
+          include: {
+            product: {
+              select: {
+                id: true,
+                name: true,
+                sku: true,
+                currentRetailPrice: true,
+                lastSalePrice: true,
+                lastPurchasePrice: true,
+                image: true,
+                category: true
+              }
+            },
+            productVariant: {
+              select: {
+                id: true,
+                color: true,
+                size: true,
+                sku: true,
+                currentQuantity: true
+              }
+            }
+          },
+          orderBy: { createdAt: 'asc' }
         }
       }
     });
@@ -572,7 +695,8 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
     }
 
     const updatedOrder = await prisma.$transaction(async (tx) => {
-      // Update order status and payment account if provided
+      // Update order status and payment account if provided.
+      // Do NOT set paymentAmount on confirm - it must stay as submitted (or be edited separately).
       const updateData = {
           status: 'CONFIRMED',
           businessOwnerId: req.user.id,
@@ -582,13 +706,11 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
         codFeePaidBy: codFeePaymentPreference, // Store who pays COD fee
         logisticsCompanyId: finalLogisticsCompanyId
       };
-      
-      // If paymentAccountId is provided at confirmation, update it
-      // Otherwise, keep the one from order submission (if any)
+
       if (paymentAccountId) {
         updateData.paymentAccountId = paymentAccountId;
       }
-      
+
       const updated = await tx.order.update({
         where: { id },
         data: updateData
@@ -742,9 +864,7 @@ router.post('/:id/confirm', authenticateToken, requireRole(['BUSINESS_OWNER']), 
         await InventoryService.decreaseInventoryFromOrder(
           order.tenantId,
           order.id,
-          order.orderNumber,
-          order.selectedProducts,
-          order.productQuantities
+          order.orderNumber
         );
         console.log(`✅ Inventory decreased for order ${order.orderNumber}`);
       } catch (inventoryError) {
@@ -1042,7 +1162,9 @@ router.post('/:id/dispatch', authenticateToken, requireRole(['BUSINESS_OWNER', '
               });
 
             const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
-            
+            const varianceAmount = Math.abs(variance);
+            // Balanced entry: Dr Shipping Variance Expense (5110), Cr Shipping Expense (5100)
+            // So the variance appears on account 5110 ledger and books stay balanced
             await accountingService.createTransaction(
               {
                 transactionNumber,
@@ -1053,19 +1175,19 @@ router.post('/:id/dispatch', authenticateToken, requireRole(['BUSINESS_OWNER', '
               },
               [
                 {
-                  accountId: shippingExpenseAccount.id,
-                  debitAmount: Math.abs(variance),
+                  accountId: varianceExpenseAccount.id,
+                  debitAmount: varianceAmount,
                   creditAmount: 0
                 },
                 {
-                  accountId: varianceExpenseAccount.id,
-                  debitAmount: Math.abs(variance),
-                  creditAmount: 0
+                  accountId: shippingExpenseAccount.id,
+                  debitAmount: 0,
+                  creditAmount: varianceAmount
                 }
               ]
             );
 
-            console.log(`✅ Shipping variance expense recorded: Rs. ${Math.abs(variance)} for order ${order.orderNumber}`);
+            console.log(`✅ Shipping variance expense recorded: Rs. ${varianceAmount} for order ${order.orderNumber}`);
           }
         } catch (accountingError) {
           console.error('⚠️  Error creating shipping variance accounting entries:', accountingError);
@@ -1508,10 +1630,11 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
                 balance: 0
               });
 
-            // If variance changed and old variance was expense, reverse it first
+            // If variance changed and old variance was expense, reverse it first (reverse Dr 5110 / Cr 5100)
             if (varianceChanged && oldVariance < 0 && existingVarianceTransactions.length > 0) {
               const oldVarianceExpenseAccount = await accountingService.getAccountByCode('5110', order.tenantId);
               if (oldVarianceExpenseAccount) {
+                const reverseAmount = Math.abs(oldVariance);
                 const reverseTransactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
                 await accountingService.createTransaction(
                   {
@@ -1523,14 +1646,14 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
                   },
                   [
                     {
-                      accountId: oldVarianceExpenseAccount.id,
-                      debitAmount: 0,
-                      creditAmount: Math.abs(oldVariance)
+                      accountId: shippingExpenseAccount.id,
+                      debitAmount: reverseAmount,
+                      creditAmount: 0
                     },
                     {
-                      accountId: shippingExpenseAccount.id,
+                      accountId: oldVarianceExpenseAccount.id,
                       debitAmount: 0,
-                      creditAmount: Math.abs(oldVariance)
+                      creditAmount: reverseAmount
                     }
                   ]
                 );
@@ -1580,7 +1703,7 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
                 balance: 0
               });
 
-            // If variance changed and old variance was income, reverse it first
+            // If variance changed and old variance was income, reverse it first (reverse Dr 5100 / Cr 4300)
             if (varianceChanged && oldVariance > 0 && existingVarianceTransactions.length > 0) {
               const oldVarianceIncomeAccount = await accountingService.getAccountByCode('4300', order.tenantId);
               if (oldVarianceIncomeAccount) {
@@ -1601,20 +1724,20 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
                     },
                     {
                       accountId: shippingExpenseAccount.id,
-                      debitAmount: oldVariance,
-                      creditAmount: 0
+                      debitAmount: 0,
+                      creditAmount: oldVariance
                     }
                   ]
                 );
               }
             }
 
-            // Create expense entry
-            // For expense variance: Record the variance amount (balanced transaction)
+            // Create expense entry: Dr Shipping Variance Expense (5110), Cr Shipping Expense (5100)
             const transactionNumber = `TXN-${new Date().getFullYear()}-${Date.now() + 1}`;
             const varianceAmount = varianceChanged && oldVariance < 0 ? (Math.abs(variance) - Math.abs(oldVariance)) : Math.abs(variance);
             
             if (varianceAmount > 0 || !varianceChanged) {
+              const amount = varianceAmount > 0 ? varianceAmount : Math.abs(variance);
               await accountingService.createTransaction(
                 {
                   transactionNumber,
@@ -1625,14 +1748,14 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
                 },
                 [
                   {
-                    accountId: shippingExpenseAccount.id,
-                    debitAmount: varianceAmount > 0 ? varianceAmount : Math.abs(variance),
+                    accountId: varianceExpenseAccount.id,
+                    debitAmount: amount,
                     creditAmount: 0
                   },
                   {
-                    accountId: varianceExpenseAccount.id,
-                    debitAmount: varianceAmount > 0 ? varianceAmount : Math.abs(variance),
-                    creditAmount: 0
+                    accountId: shippingExpenseAccount.id,
+                    debitAmount: 0,
+                    creditAmount: amount
                   }
                 ]
               );
@@ -1678,7 +1801,9 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
           } else {
             const varianceExpenseAccount = await accountingService.getAccountByCode('5110', order.tenantId);
             if (varianceExpenseAccount && shippingExpenseAccount) {
+              const reverseAmount = Math.abs(oldVariance);
               const reverseTransactionNumber = `TXN-${new Date().getFullYear()}-${Date.now()}`;
+              // Reverse Dr 5110 / Cr 5100 with Dr 5100 / Cr 5110
               await accountingService.createTransaction(
                 {
                   transactionNumber: reverseTransactionNumber,
@@ -1689,14 +1814,14 @@ router.post('/:id/adjust-shipping-cost', authenticateToken, requireRole(['BUSINE
                 },
                 [
                   {
-                    accountId: varianceExpenseAccount.id,
-                    debitAmount: 0,
-                    creditAmount: Math.abs(oldVariance)
+                    accountId: shippingExpenseAccount.id,
+                    debitAmount: reverseAmount,
+                    creditAmount: 0
                   },
                   {
-                    accountId: shippingExpenseAccount.id,
+                    accountId: varianceExpenseAccount.id,
                     debitAmount: 0,
-                    creditAmount: Math.abs(oldVariance)
+                    creditAmount: reverseAmount
                   }
                 ]
               );
@@ -2459,6 +2584,13 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       }
     }
 
+    // Edit order must NEVER change payment verification - only the verify/update-verified endpoints can.
+    // Strip these so they are never overwritten by this endpoint (even if sent in body by mistake).
+    delete updateData.paymentVerified;
+    delete updateData.verifiedPaymentAmount;
+    delete updateData.paymentVerifiedAt;
+    delete updateData.paymentVerifiedBy;
+
     const order = await prisma.$transaction(async (tx) => {
       const updatedOrder = await tx.order.update({
         where: { id },
@@ -2477,6 +2609,64 @@ router.put('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
           }
         }
       });
+
+      // Update OrderItem records if products changed
+      if (selectedProducts !== undefined || productQuantities !== undefined || productPrices !== undefined) {
+        // Parse products, quantities, and prices
+        let parsedProducts = selectedProducts !== undefined ? selectedProducts : existingOrder.selectedProducts;
+        let parsedQuantities = productQuantities !== undefined ? productQuantities : existingOrder.productQuantities;
+        let parsedPrices = productPrices !== undefined ? productPrices : existingOrder.productPrices;
+        
+        if (typeof parsedProducts === 'string') {
+          parsedProducts = JSON.parse(parsedProducts);
+        }
+        if (typeof parsedQuantities === 'string') {
+          parsedQuantities = JSON.parse(parsedQuantities);
+        }
+        if (typeof parsedPrices === 'string') {
+          parsedPrices = JSON.parse(parsedPrices);
+        }
+        
+        if (!Array.isArray(parsedProducts)) {
+          parsedProducts = [];
+        }
+        if (!parsedQuantities || typeof parsedQuantities !== 'object') {
+          parsedQuantities = {};
+        }
+        if (!parsedPrices || typeof parsedPrices !== 'object') {
+          parsedPrices = {};
+        }
+
+        // Delete existing OrderItems
+        await tx.orderItem.deleteMany({
+          where: { orderId: id }
+        });
+
+        // Create new OrderItem records (composite key for variant lines)
+        if (parsedProducts.length > 0) {
+          const orderItemsData = parsedProducts.map(product => {
+            const productId = product.id || null;
+            const variantId = product.variantId || product.productVariantId || null;
+            const qtyPriceKey = variantId ? `${productId}_${variantId}` : productId;
+            const quantity = parsedQuantities[qtyPriceKey] ?? parsedQuantities[productId] ?? product.quantity ?? 1;
+            const price = parsedPrices[qtyPriceKey] ?? parsedPrices[productId] ?? product.price ?? 0;
+            return {
+              orderId: id,
+              productId: productId,
+              productVariantId: variantId,
+              productName: product.name || 'Unknown Product',
+              quantity: quantity,
+              price: price,
+              color: product.color || null,
+              size: product.size || null
+            };
+          });
+
+          await tx.orderItem.createMany({
+            data: orderItemsData
+          });
+        }
+      }
 
       // Handle COD fee accounting entries if order is confirmed/dispatched/completed
       const orderStatus = updatedOrder.status;

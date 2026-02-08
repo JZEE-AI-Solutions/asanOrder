@@ -18,38 +18,130 @@ router.get('/search/:query', authenticateToken, requireRole(['BUSINESS_OWNER']),
       return res.status(404).json({ error: 'Tenant not found' });
     }
 
-    const products = await prisma.product.findMany({
-      where: {
-        tenantId: tenant.id,
-        OR: [
-          { name: { contains: query, mode: 'insensitive' } },
-          { sku: { contains: query, mode: 'insensitive' } },
-          { category: { contains: query, mode: 'insensitive' } }
-        ]
-      },
-      orderBy: { name: 'asc' },
-      take: 10,
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        category: true,
-        sku: true,
-        currentQuantity: true,
-        lastPurchasePrice: true,
-        currentRetailPrice: true
+    // Try to fetch with variant fields, fallback if migration not run
+    let products;
+    let hasVariantSupport = false;
+    
+    try {
+      products = await prisma.product.findMany({
+        where: {
+          tenantId: tenant.id,
+          OR: [
+            { name: { contains: query, mode: 'insensitive' } },
+            { sku: { contains: query, mode: 'insensitive' } },
+            { category: { contains: query, mode: 'insensitive' } }
+          ]
+        },
+        orderBy: { name: 'asc' },
+        take: 10,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          category: true,
+          sku: true,
+          currentQuantity: true,
+          lastPurchasePrice: true,
+          currentRetailPrice: true,
+          isStitched: true,
+          hasVariants: true,
+          variants: {
+            select: {
+              id: true,
+              color: true,
+              size: true,
+              sku: true,
+              currentQuantity: true,
+              isActive: true
+            }
+          }
+        }
+      });
+      hasVariantSupport = true;
+    } catch (error) {
+      // If variant columns/table don't exist, use fallback query
+      const isColumnError = error.code === 'P2021' || 
+                           error.code === 'P2022' || 
+                           error.code === 'P2010' ||
+                           error.message?.includes('column') || 
+                           error.message?.includes('does not exist') ||
+                           error.message?.includes('Unknown column') ||
+                           error.meta?.target?.includes('isStitched') ||
+                           error.meta?.target?.includes('hasVariants') ||
+                           error.meta?.target?.includes('variants');
+      
+      if (isColumnError) {
+        console.log('Variant columns not found, using fallback query for search. Error:', error.code, error.message);
+        products = await prisma.product.findMany({
+          where: {
+            tenantId: tenant.id,
+            OR: [
+              { name: { contains: query, mode: 'insensitive' } },
+              { sku: { contains: query, mode: 'insensitive' } },
+              { category: { contains: query, mode: 'insensitive' } }
+            ]
+          },
+          orderBy: { name: 'asc' },
+          take: 10,
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            category: true,
+            sku: true,
+            currentQuantity: true,
+            lastPurchasePrice: true,
+            currentRetailPrice: true
+          }
+        });
+        hasVariantSupport = false;
+      } else {
+        // Re-throw if it's a different error
+        throw error;
       }
+    }
+
+    // Add variant summary to each product
+    const productsWithVariants = products.map(product => {
+      let totalVariantStock = 0;
+      let variantCount = 0;
+      let isStitched = false;
+      let hasVariants = false;
+      
+      if (hasVariantSupport) {
+        if (product.hasVariants && product.variants) {
+          totalVariantStock = product.variants.reduce((sum, v) => sum + v.currentQuantity, 0);
+          variantCount = product.variants.length;
+        }
+        isStitched = product.isStitched || false;
+        hasVariants = product.hasVariants || false;
+      }
+      
+      return {
+        ...product,
+        isStitched: isStitched,
+        hasVariants: hasVariants,
+        variantCount: variantCount,
+        totalVariantStock: hasVariants ? totalVariantStock : null
+      };
     });
 
     res.json({
       success: true,
-      products
+      products: productsWithVariants
     });
   } catch (error) {
-    console.error('Error searching products:', error);
+    console.error('Error searching products:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
     res.status(500).json({
       success: false,
-      error: 'Failed to search products'
+      error: 'Failed to search products',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -183,61 +275,166 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
 
     // Optimize: Use direct tenantId instead of nested purchaseItems filter
     // This is 10-50x faster because it uses the index directly
-    const [products, totalCount] = await Promise.all([
-      prisma.product.findMany({
-        where: searchConditions,
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          category: true,
-          sku: true,
-          image: true,
-          isActive: true,
-          currentQuantity: true,
-          currentRetailPrice: true,
-          lastPurchasePrice: true,
-          lastSalePrice: true,
-          createdAt: true,
-          // Only get latest purchase item, not all
-          purchaseItems: {
+    // Try to fetch with variant fields, fallback if migration not run
+    let products, totalCount;
+    let hasVariantSupport = false;
+    
+    try {
+      // Try query with variant fields first
+      [products, totalCount] = await Promise.all([
+        prisma.product.findMany({
+          where: searchConditions,
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            category: true,
+            sku: true,
+            image: true,
+            isActive: true,
+            isStitched: true,
+            hasVariants: true,
+            currentQuantity: true,
+            currentRetailPrice: true,
+            lastPurchasePrice: true,
+            lastSalePrice: true,
+            variants: {
+              select: {
+                id: true,
+                color: true,
+                size: true,
+                sku: true,
+                currentQuantity: true,
+                isActive: true
+              }
+            },
+            createdAt: true,
+            // Only get latest purchase item, not all
+            purchaseItems: {
+              select: {
+                id: true,
+                purchasePrice: true,
+                quantity: true,
+                purchaseInvoice: {
+                  select: {
+                    invoiceDate: true,
+                    invoiceNumber: true
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: 'desc'
+              },
+              take: 1
+            },
+            // Remove productLogs from list - fetch only when viewing single product
+            _count: {
+              select: {
+                productLogs: true
+              }
+            }
+          },
+          orderBy: {
+            name: 'asc'
+          },
+          skip: skipNum,
+          take: limitNum
+        }),
+        prisma.product.count({
+          where: searchConditions
+        })
+      ]);
+      hasVariantSupport = true;
+    } catch (error) {
+      // If variant columns/table don't exist, use fallback query
+      // Check for various Prisma error codes and messages
+      const isColumnError = error.code === 'P2021' || 
+                           error.code === 'P2022' || 
+                           error.code === 'P2010' ||
+                           error.message?.includes('column') || 
+                           error.message?.includes('does not exist') ||
+                           error.message?.includes('Unknown column') ||
+                           error.meta?.target?.includes('isStitched') ||
+                           error.meta?.target?.includes('hasVariants') ||
+                           error.meta?.target?.includes('variants');
+      
+      if (isColumnError) {
+        console.log('Variant columns not found, using fallback query. Error:', error.code, error.message);
+        [products, totalCount] = await Promise.all([
+          prisma.product.findMany({
+            where: searchConditions,
             select: {
               id: true,
-              purchasePrice: true,
-              quantity: true,
-              purchaseInvoice: {
+              name: true,
+              description: true,
+              category: true,
+              sku: true,
+              image: true,
+              isActive: true,
+              currentQuantity: true,
+              currentRetailPrice: true,
+              lastPurchasePrice: true,
+              lastSalePrice: true,
+              createdAt: true,
+              // Only get latest purchase item, not all
+              purchaseItems: {
                 select: {
-                  invoiceDate: true,
-                  invoiceNumber: true
+                  id: true,
+                  purchasePrice: true,
+                  quantity: true,
+                  purchaseInvoice: {
+                    select: {
+                      invoiceDate: true,
+                      invoiceNumber: true
+                    }
+                  }
+                },
+                orderBy: {
+                  createdAt: 'desc'
+                },
+                take: 1
+              },
+              // Remove productLogs from list - fetch only when viewing single product
+              _count: {
+                select: {
+                  productLogs: true
                 }
               }
             },
             orderBy: {
-              createdAt: 'desc'
+              name: 'asc'
             },
-            take: 1
-          },
-          // Remove productLogs from list - fetch only when viewing single product
-          _count: {
-            select: {
-              productLogs: true
-            }
-          }
-        },
-        orderBy: {
-          name: 'asc'
-        },
-        skip: skipNum,
-        take: limitNum
-      }),
-      prisma.product.count({
-        where: searchConditions
-      })
-    ]);
+            skip: skipNum,
+            take: limitNum
+          }),
+          prisma.product.count({
+            where: searchConditions
+          })
+        ]);
+        hasVariantSupport = false;
+      } else {
+        // Re-throw if it's a different error
+        throw error;
+      }
+    }
 
     // Format the response
     const formattedProducts = products.map(product => {
       const latestPurchase = product.purchaseItems[0];
+      let totalVariantStock = 0;
+      let variantCount = 0;
+      let isStitched = false;
+      let hasVariants = false;
+      
+      if (hasVariantSupport) {
+        if (product.hasVariants && product.variants) {
+          totalVariantStock = product.variants.reduce((sum, v) => sum + v.currentQuantity, 0);
+          variantCount = product.variants.length;
+        }
+        isStitched = product.isStitched || false;
+        hasVariants = product.hasVariants || false;
+      }
+      
       return {
         id: product.id,
         name: product.name,
@@ -247,6 +444,10 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
         image: product.image,
         hasImage: !!product.image,
         isActive: product.isActive,
+        isStitched: isStitched,
+        hasVariants: hasVariants,
+        variantCount: variantCount,
+        totalVariantStock: hasVariants ? totalVariantStock : null,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
         lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
@@ -268,8 +469,88 @@ router.get('/tenant/:tenantId', authenticateToken, requireRole(['ADMIN', 'BUSINE
     });
 
   } catch (error) {
-    console.error('Error fetching products:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
+    console.error('Error fetching products:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    
+    // If it's a column error that wasn't caught, try one more fallback
+    const isColumnError = error.code === 'P2021' || 
+                         error.code === 'P2022' || 
+                         error.code === 'P2010' ||
+                         error.message?.includes('column') || 
+                         error.message?.includes('does not exist') ||
+                         error.message?.includes('Unknown column');
+    
+    if (isColumnError) {
+      console.log('Column error in outer catch, attempting final fallback');
+      try {
+        const [fallbackProducts, fallbackCount] = await Promise.all([
+          prisma.product.findMany({
+            where: searchConditions,
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              category: true,
+              sku: true,
+              image: true,
+              isActive: true,
+              currentQuantity: true,
+              currentRetailPrice: true,
+              lastPurchasePrice: true,
+              lastSalePrice: true,
+              createdAt: true
+            },
+            orderBy: { name: 'asc' },
+            skip: skipNum,
+            take: limitNum
+          }),
+          prisma.product.count({ where: searchConditions })
+        ]);
+        
+        const formattedProducts = fallbackProducts.map(product => ({
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          category: product.category,
+          sku: product.sku,
+          image: product.image,
+          hasImage: !!product.image,
+          isActive: product.isActive,
+          isStitched: false,
+          hasVariants: false,
+          variantCount: 0,
+          totalVariantStock: null,
+          currentQuantity: product.currentQuantity,
+          currentRetailPrice: product.currentRetailPrice,
+          lastPurchased: null,
+          lastInvoiceNumber: null,
+          totalPurchased: 0
+        }));
+        
+        return res.json({
+          success: true,
+          products: formattedProducts,
+          pagination: {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: fallbackCount,
+            pages: Math.ceil(fallbackCount / parseInt(limit))
+          }
+        });
+      } catch (fallbackError) {
+        console.error('Fallback query also failed:', fallbackError);
+      }
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch products',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -285,10 +566,204 @@ router.post('/by-ids', async (req, res) => {
     // If no productIds provided, get all products for the tenant (for shopping cart)
     if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
       // Optimize: Use direct tenantId filter instead of nested query
-      const allProducts = await prisma.product.findMany({
+      // Try to fetch with variant fields, fallback if migration not run
+      let allProducts;
+      let hasVariantSupport = false;
+      
+      try {
+        allProducts = await prisma.product.findMany({
+          where: {
+            tenantId: tenantId, // Direct filter - uses index
+            isActive: true // Only active products for shopping cart
+          },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            category: true,
+            sku: true,
+            image: true,
+            isActive: true,
+            isStitched: true,
+            hasVariants: true,
+            currentQuantity: true,
+            currentRetailPrice: true,
+            lastPurchasePrice: true,
+            lastSalePrice: true,
+            productImages: {
+              orderBy: [
+                { isPrimary: 'desc' },
+                { sortOrder: 'asc' },
+                { createdAt: 'asc' }
+              ],
+              select: { id: true, mediaType: true, isPrimary: true, sortOrder: true }
+            },
+            variants: {
+              where: { isActive: true },
+              select: {
+                id: true,
+                color: true,
+                size: true,
+                sku: true,
+                currentQuantity: true,
+                isActive: true,
+                images: {
+                  orderBy: [
+                    { isPrimary: 'desc' },
+                    { sortOrder: 'asc' }
+                  ],
+                  select: { id: true, imageType: true, isPrimary: true, sortOrder: true }
+                }
+              },
+              orderBy: [
+                { color: 'asc' },
+                { size: 'asc' }
+              ]
+            },
+            // Only get latest purchase item
+            purchaseItems: {
+              select: {
+                id: true,
+                purchasePrice: true,
+                quantity: true,
+                purchaseInvoice: {
+                  select: {
+                    invoiceDate: true,
+                    invoiceNumber: true
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: 'desc'
+              },
+              take: 1
+            }
+          },
+          orderBy: {
+            name: 'asc'
+          },
+          take: 500 // Limit to prevent huge responses
+        });
+        hasVariantSupport = true;
+      } catch (error) {
+        // If variant columns/table don't exist, use fallback query
+        const isColumnError = error.code === 'P2021' || 
+                             error.code === 'P2022' || 
+                             error.code === 'P2010' ||
+                             error.message?.includes('column') || 
+                             error.message?.includes('does not exist') ||
+                             error.message?.includes('Unknown column') ||
+                             error.meta?.target?.includes('isStitched') ||
+                             error.meta?.target?.includes('hasVariants') ||
+                             error.meta?.target?.includes('variants') ||
+                             error.meta?.target?.includes('product_images');
+        
+        if (isColumnError) {
+          console.log('Variant/productImages columns not found, using fallback query for by-ids (all products). Error:', error.code, error.message);
+          allProducts = await prisma.product.findMany({
+            where: {
+              tenantId: tenantId,
+              isActive: true
+            },
+            select: {
+              id: true,
+              name: true,
+              description: true,
+              category: true,
+              sku: true,
+              image: true,
+              isActive: true,
+              currentQuantity: true,
+              currentRetailPrice: true,
+              lastPurchasePrice: true,
+              lastSalePrice: true,
+              purchaseItems: {
+                select: {
+                  id: true,
+                  purchasePrice: true,
+                  quantity: true,
+                  purchaseInvoice: {
+                    select: {
+                      invoiceDate: true,
+                      invoiceNumber: true
+                    }
+                  }
+                },
+                orderBy: {
+                  createdAt: 'desc'
+                },
+                take: 1
+              }
+            },
+            orderBy: {
+              name: 'asc'
+            },
+            take: 500
+          });
+          hasVariantSupport = false;
+        } else {
+          throw error;
+        }
+      }
+
+      // Format the response for shopping cart
+      const formattedProducts = allProducts.map(product => {
+        const latestPurchase = product.purchaseItems[0];
+        let totalVariantStock = 0;
+        let variantCount = 0;
+        let isStitched = false;
+        let hasVariants = false;
+        let variants = [];
+        
+        if (hasVariantSupport) {
+          if (product.hasVariants && product.variants) {
+            totalVariantStock = product.variants.reduce((sum, v) => sum + v.currentQuantity, 0);
+            variantCount = product.variants.length;
+            variants = product.variants;
+          }
+          isStitched = product.isStitched || false;
+          hasVariants = product.hasVariants || false;
+        }
+        
+        return {
+          id: product.id,
+          name: product.name,
+          description: product.description,
+          category: product.category,
+          sku: product.sku,
+          image: product.image,
+          hasImage: !!product.image,
+          productImages: product.productImages ?? [],
+          isActive: product.isActive,
+          isStitched: isStitched,
+          hasVariants: hasVariants,
+          currentQuantity: product.currentQuantity,
+          currentRetailPrice: product.currentRetailPrice,
+          lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
+          lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
+          totalPurchased: product.purchaseItems.reduce((sum, item) => sum + (item.quantity || 0), 0),
+          variants: variants,
+          variantCount: variantCount,
+          totalVariantStock: hasVariants ? totalVariantStock : null
+        };
+      });
+
+      return res.json({ 
+        success: true, 
+        products: formattedProducts 
+      });
+    }
+
+    // Optimize: Use direct tenantId filter
+    // Try to fetch with variant fields, fallback if migration not run
+    let products;
+    let hasVariantSupport = false;
+    
+    try {
+      products = await prisma.product.findMany({
         where: {
-          tenantId: tenantId, // Direct filter - uses index
-          isActive: true // Only active products for shopping cart
+          id: { in: productIds },
+          tenantId: tenantId // Direct filter - much faster
         },
         select: {
           id: true,
@@ -298,11 +773,42 @@ router.post('/by-ids', async (req, res) => {
           sku: true,
           image: true,
           isActive: true,
+          isStitched: true,
+          hasVariants: true,
           currentQuantity: true,
           currentRetailPrice: true,
           lastPurchasePrice: true,
           lastSalePrice: true,
-          // Only get latest purchase item
+          productImages: {
+            orderBy: [
+              { isPrimary: 'desc' },
+              { sortOrder: 'asc' },
+              { createdAt: 'asc' }
+            ],
+            select: { id: true, mediaType: true, isPrimary: true, sortOrder: true }
+          },
+          variants: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              color: true,
+              size: true,
+              sku: true,
+              currentQuantity: true,
+              isActive: true,
+              images: {
+                orderBy: [
+                  { isPrimary: 'desc' },
+                  { sortOrder: 'asc' }
+                ],
+                select: { id: true, imageType: true, isPrimary: true, sortOrder: true }
+              }
+            },
+            orderBy: [
+              { color: 'asc' },
+              { size: 'asc' }
+            ]
+          },
           purchaseItems: {
             select: {
               id: true,
@@ -320,81 +826,86 @@ router.post('/by-ids', async (req, res) => {
             },
             take: 1
           }
-        },
-        orderBy: {
-          name: 'asc'
-        },
-        take: 500 // Limit to prevent huge responses
+          // Remove productLogs - not needed for product list
+        }
       });
-
-      // Format the response for shopping cart
-      const formattedProducts = allProducts.map(product => {
-        const latestPurchase = product.purchaseItems[0];
-        return {
-          id: product.id,
-          name: product.name,
-          description: product.description,
-          category: product.category,
-          sku: product.sku,
-          image: product.image,
-          hasImage: !!product.image,
-          isActive: product.isActive,
-          currentQuantity: product.currentQuantity,
-          currentRetailPrice: product.currentRetailPrice,
-          lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
-          lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
-          totalPurchased: product.purchaseItems.reduce((sum, item) => sum + (item.quantity || 0), 0)
-        };
-      });
-
-      return res.json({ 
-        success: true, 
-        products: formattedProducts 
-      });
-    }
-
-    // Optimize: Use direct tenantId filter
-    const products = await prisma.product.findMany({
-      where: {
-        id: { in: productIds },
-        tenantId: tenantId // Direct filter - much faster
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        category: true,
-        sku: true,
-        image: true,
-        isActive: true,
-        currentQuantity: true,
-        currentRetailPrice: true,
-        lastPurchasePrice: true,
-        lastSalePrice: true,
-        purchaseItems: {
+      hasVariantSupport = true;
+    } catch (error) {
+      // If variant columns/table don't exist, use fallback query
+        const isColumnError = error.code === 'P2021' || 
+                             error.code === 'P2022' || 
+                             error.code === 'P2010' ||
+                             error.message?.includes('column') || 
+                             error.message?.includes('does not exist') ||
+                             error.message?.includes('Unknown column') ||
+                             error.meta?.target?.includes('isStitched') ||
+                             error.meta?.target?.includes('hasVariants') ||
+                             error.meta?.target?.includes('variants') ||
+                             error.meta?.target?.includes('product_images');
+      
+      if (isColumnError) {
+        console.log('Variant/productImages columns not found, using fallback query for by-ids (specific products). Error:', error.code, error.message);
+        products = await prisma.product.findMany({
+          where: {
+            id: { in: productIds },
+            tenantId: tenantId
+          },
           select: {
             id: true,
-            purchasePrice: true,
-            quantity: true,
-            purchaseInvoice: {
+            name: true,
+            description: true,
+            category: true,
+            sku: true,
+            image: true,
+            isActive: true,
+            currentQuantity: true,
+            currentRetailPrice: true,
+            lastPurchasePrice: true,
+            lastSalePrice: true,
+            purchaseItems: {
               select: {
-                invoiceDate: true,
-                invoiceNumber: true
-              }
+                id: true,
+                purchasePrice: true,
+                quantity: true,
+                purchaseInvoice: {
+                  select: {
+                    invoiceDate: true,
+                    invoiceNumber: true
+                  }
+                }
+              },
+              orderBy: {
+                createdAt: 'desc'
+              },
+              take: 1
             }
-          },
-          orderBy: {
-            createdAt: 'desc'
-          },
-          take: 1
-        }
-        // Remove productLogs - not needed for product list
+          }
+        });
+        hasVariantSupport = false;
+      } else {
+        throw error;
       }
-    });
+    }
 
     // Format the response
     const formattedProducts = products.map(product => {
       const latestPurchase = product.purchaseItems[0];
+      let totalVariantStock = 0;
+      let variantCount = 0;
+      let isStitched = false;
+      let hasVariants = false;
+      let variants = [];
+      
+      if (hasVariantSupport) {
+        if (product.hasVariants && product.variants) {
+          totalVariantStock = product.variants.reduce((sum, v) => sum + v.currentQuantity, 0);
+          variantCount = product.variants.length;
+          variants = product.variants;
+        }
+        isStitched = product.isStitched || false;
+        hasVariants = product.hasVariants || false;
+      }
+      
       return {
         id: product.id,
         name: product.name,
@@ -403,13 +914,18 @@ router.post('/by-ids', async (req, res) => {
         sku: product.sku,
         image: product.image,
         hasImage: !!product.image,
+        productImages: product.productImages ?? [],
         isActive: product.isActive,
+        isStitched: isStitched,
+        hasVariants: hasVariants,
         currentQuantity: product.currentQuantity,
         currentRetailPrice: product.currentRetailPrice,
         lastPurchased: latestPurchase?.purchaseInvoice?.invoiceDate,
         lastInvoiceNumber: latestPurchase?.purchaseInvoice?.invoiceNumber,
-        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + (item.quantity || 0), 0)
-        // productLogs removed - fetch separately if needed
+        totalPurchased: product.purchaseItems.reduce((sum, item) => sum + (item.quantity || 0), 0),
+        variants: variants,
+        variantCount: variantCount,
+        totalVariantStock: hasVariants ? totalVariantStock : null
       };
     });
 
@@ -419,8 +935,17 @@ router.post('/by-ids', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching products by IDs:', error);
-    res.status(500).json({ error: 'Failed to fetch products' });
+    console.error('Error fetching products by IDs:', {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      meta: error.meta,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    res.status(500).json({ 
+      error: 'Failed to fetch products',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
