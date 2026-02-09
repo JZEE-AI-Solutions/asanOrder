@@ -201,19 +201,33 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
         return res.status(404).json({ error: 'Purchase invoice not found' });
       }
 
-      // Calculate available quantities per product
-      const productAvailability = {};
+      // Calculate available quantities: per variant (when purchase items have productVariantId) and per product name (fallback)
+      const variantAvailability = {};
+      const productAvailabilityByName = {};
       invoice.purchaseItems.forEach(item => {
-        const existingReturns = invoice.returns.flatMap(r => 
-          r.returnItems.filter(ri => ri.productName === item.name)
-        );
-        const returnedQty = existingReturns.reduce((sum, ri) => sum + ri.quantity, 0);
-        productAvailability[item.name] = item.quantity - returnedQty;
+        const qty = item.quantity || 0;
+        if (item.productVariantId) {
+          variantAvailability[item.productVariantId] = (variantAvailability[item.productVariantId] || 0) + qty;
+        }
+        const nameKey = item.name || '';
+        productAvailabilityByName[nameKey] = (productAvailabilityByName[nameKey] || 0) + qty;
+      });
+      invoice.returns.forEach(r => {
+        r.returnItems.forEach(ri => {
+          const qty = ri.quantity || 0;
+          if (ri.productVariantId) {
+            variantAvailability[ri.productVariantId] = (variantAvailability[ri.productVariantId] || 0) - qty;
+          }
+          const nameKey = ri.productName || '';
+          productAvailabilityByName[nameKey] = (productAvailabilityByName[nameKey] || 0) - qty;
+        });
       });
 
-      // Validate return items
+      // Validate return items: use variant-level availability when return item has productVariantId
       for (const returnItem of returnItems) {
-        const available = productAvailability[returnItem.productName] || 0;
+        const available = returnItem.productVariantId
+          ? (variantAvailability[returnItem.productVariantId] ?? 0)
+          : (productAvailabilityByName[returnItem.productName] ?? 0);
         if (returnItem.quantity > available) {
           return res.status(400).json({
             error: `Return quantity for ${returnItem.productName} (${returnItem.quantity}) exceeds available quantity (${available})`

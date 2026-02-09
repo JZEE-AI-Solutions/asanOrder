@@ -2106,7 +2106,58 @@ class InventoryService {
     try {
       for (const item of returnItems) {
         try {
-          // Search for existing product by name (case-insensitive exact match)
+          const returnQuantity = item.quantity || 0;
+
+          // Variant-aware: if return item has productVariantId, decrease variant stock
+          if (item.productVariantId) {
+            const variant = await prisma.productVariant.findFirst({
+              where: {
+                id: item.productVariantId,
+                product: { tenantId: tenantId }
+              },
+              include: { product: true }
+            });
+
+            if (variant) {
+              const oldQuantity = variant.currentQuantity;
+              const newQuantity = Math.max(0, oldQuantity - returnQuantity);
+
+              if (oldQuantity < returnQuantity) {
+                console.warn(`   ⚠️  Insufficient variant stock for return: ${item.productName || variant.product.name} (Available: ${oldQuantity}, Returning: ${returnQuantity})`);
+              }
+
+              await prisma.productVariant.update({
+                where: { id: variant.id },
+                data: {
+                  currentQuantity: newQuantity,
+                  updatedAt: new Date()
+                }
+              });
+
+              await prisma.productLog.create({
+                data: {
+                  action: 'DECREASE',
+                  quantity: -returnQuantity,
+                  oldQuantity: oldQuantity,
+                  newQuantity: newQuantity,
+                  reason: 'Purchase return to supplier',
+                  reference: `Invoice: ${invoiceNumber}`,
+                  notes: `Variant quantity decreased by ${returnQuantity} due to purchase return`,
+                  tenantId: tenantId,
+                  productId: variant.productId,
+                  productVariantId: variant.id
+                }
+              });
+
+              results.productsUpdated++;
+              results.logsCreated++;
+              console.log(`   ✅ Decreased variant inventory for return: ${variant.product.name} (${oldQuantity} → ${newQuantity})`);
+              continue;
+            }
+            console.log(`   ⚠️  Variant not found: ${item.productVariantId}, falling back to product-level`);
+          }
+
+          // Fallback: search by product name (backward compatible)
           const existingProduct = await prisma.product.findFirst({
             where: {
               tenantId: tenantId,
@@ -2118,12 +2169,9 @@ class InventoryService {
           });
 
           if (existingProduct) {
-            // Update existing product - decrease quantity
             const oldQuantity = existingProduct.currentQuantity;
-            const returnQuantity = item.quantity || 0;
             const newQuantity = Math.max(0, oldQuantity - returnQuantity);
 
-            // Warn if insufficient stock but don't fail
             if (oldQuantity < returnQuantity) {
               console.warn(`   ⚠️  Insufficient stock for return: ${item.productName || item.name} (Available: ${oldQuantity}, Returning: ${returnQuantity})`);
             }
@@ -2136,7 +2184,6 @@ class InventoryService {
               }
             });
 
-            // Create product log for quantity decrease
             await prisma.productLog.create({
               data: {
                 action: 'DECREASE',
@@ -2153,11 +2200,8 @@ class InventoryService {
 
             results.productsUpdated++;
             results.logsCreated++;
-
             console.log(`   ✅ Decreased inventory for return: ${item.productName || item.name} (${oldQuantity} → ${newQuantity})`);
-
           } else {
-            // Product not found - log warning but don't fail
             console.warn(`   ⚠️  Product not found for return: ${item.productName || item.name}`);
             results.errors.push({
               item: item.productName || item.name,
@@ -2230,6 +2274,44 @@ class InventoryService {
         if (newItems.length === 0) {
           for (const oldItem of oldItems) {
             try {
+              const returnQuantity = oldItem.quantity || 0;
+
+              if (oldItem.productVariantId) {
+                const variant = await prisma.productVariant.findFirst({
+                  where: {
+                    id: oldItem.productVariantId,
+                    product: { tenantId: tenantId }
+                  },
+                  include: { product: true }
+                });
+                if (variant) {
+                  const oldQuantity = variant.currentQuantity;
+                  const newQuantity = oldQuantity + returnQuantity;
+                  await prisma.productVariant.update({
+                    where: { id: variant.id },
+                    data: { currentQuantity: newQuantity, updatedAt: new Date() }
+                  });
+                  await prisma.productLog.create({
+                    data: {
+                      action: 'INCREASE',
+                      quantity: returnQuantity,
+                      oldQuantity: oldQuantity,
+                      newQuantity: newQuantity,
+                      reason: 'Purchase return item deleted',
+                      reference: `Invoice Edit: ${invoiceNumber}`,
+                      notes: `Variant quantity increased by ${returnQuantity} due to return item deletion (reversing return)`,
+                      tenantId: tenantId,
+                      productId: variant.productId,
+                      productVariantId: variant.id
+                    }
+                  });
+                  results.productsUpdated++;
+                  results.logsCreated++;
+                  console.log(`   ✅ Reversed return (variant) for deleted return item: ${variant.product.name} (${oldQuantity} → ${newQuantity})`);
+                  continue;
+                }
+              }
+
               const product = await prisma.product.findFirst({
                 where: {
                   tenantId: tenantId,
@@ -2239,20 +2321,13 @@ class InventoryService {
                   }
                 }
               });
-              
               if (product) {
                 const oldQuantity = product.currentQuantity;
-                const returnQuantity = oldItem.quantity || 0;
-                const newQuantity = oldQuantity + returnQuantity; // Increase (reverse the return)
-                
+                const newQuantity = oldQuantity + returnQuantity;
                 await prisma.product.update({
                   where: { id: product.id },
-                  data: {
-                    currentQuantity: newQuantity,
-                    lastUpdated: new Date()
-                  }
+                  data: { currentQuantity: newQuantity, lastUpdated: new Date() }
                 });
-
                 await prisma.productLog.create({
                   data: {
                     action: 'INCREASE',
@@ -2266,7 +2341,6 @@ class InventoryService {
                     productId: product.id
                   }
                 });
-
                 results.productsUpdated++;
                 results.logsCreated++;
                 console.log(`   ✅ Reversed return (increased inventory) for deleted return item: ${oldItem.productName || oldItem.name} (${oldQuantity} → ${newQuantity})`);
@@ -2294,25 +2368,41 @@ class InventoryService {
               oldItem = oldReturnItems.find(item => item.id === newItem.id);
             }
             
-            // If not found by ID, try to match from the same key group
+            // If not found by ID, try to match from the same key group (and variant when present)
             if (!oldItem && oldItems.length > 0) {
-              oldItem = oldItems.find(item => 
-                (item.productName || item.name || '').toLowerCase() === (newItem.productName || newItem.name || '').toLowerCase() &&
-                Math.abs((item.purchasePrice || 0) - (newItem.purchasePrice || 0)) < 0.01
-              );
+              oldItem = oldItems.find(item => {
+                const nameMatch = (item.productName || item.name || '').toLowerCase() === (newItem.productName || newItem.name || '').toLowerCase();
+                const priceMatch = Math.abs((item.purchasePrice || 0) - (newItem.purchasePrice || 0)) < 0.01;
+                const variantMatch = !newItem.productVariantId || (item.productVariantId === newItem.productVariantId);
+                return nameMatch && priceMatch && variantMatch;
+              });
             }
 
-            const product = await prisma.product.findFirst({
-              where: {
-                tenantId: tenantId,
-                name: {
-                  equals: newItem.productName || newItem.name,
-                  mode: 'insensitive'
+            // Resolve variant or product for inventory update
+            let variant = null;
+            let product = null;
+            if (newItem.productVariantId) {
+              variant = await prisma.productVariant.findFirst({
+                where: {
+                  id: newItem.productVariantId,
+                  product: { tenantId: tenantId }
+                },
+                include: { product: true }
+              });
+            }
+            if (!variant) {
+              product = await prisma.product.findFirst({
+                where: {
+                  tenantId: tenantId,
+                  name: {
+                    equals: newItem.productName || newItem.name,
+                    mode: 'insensitive'
+                  }
                 }
-              }
-            });
+              });
+            }
 
-            if (!product) {
+            if (!variant && !product) {
               console.warn(`   ⚠️  Product not found for return item: ${newItem.productName || newItem.name}`);
               results.errors.push({
                 item: newItem.productName || newItem.name,
@@ -2321,87 +2411,136 @@ class InventoryService {
               continue;
             }
 
+            const displayName = variant ? variant.product.name : (newItem.productName || newItem.name);
+
             if (!oldItem) {
               // New return item - decrease inventory
-              const oldQuantity = product.currentQuantity;
               const returnQuantity = newItem.quantity || 0;
-              const newQuantity = Math.max(0, oldQuantity - returnQuantity);
-
-              await prisma.product.update({
-                where: { id: product.id },
-                data: {
-                  currentQuantity: newQuantity,
-                  lastUpdated: new Date()
-                }
-              });
-
-              await prisma.productLog.create({
-                data: {
-                  action: 'DECREASE',
-                  quantity: -returnQuantity,
-                  oldQuantity: oldQuantity,
-                  newQuantity: newQuantity,
-                  reason: 'Purchase return item added',
-                  reference: `Invoice Edit: ${invoiceNumber}`,
-                  notes: `Quantity decreased by ${returnQuantity} due to new return item`,
-                  tenantId: tenantId,
-                  productId: product.id
-                }
-              });
-
-              results.productsUpdated++;
-              results.logsCreated++;
-              console.log(`   ✅ Decreased inventory for new return item: ${newItem.productName || newItem.name} (${oldQuantity} → ${newQuantity})`);
-
+              if (variant) {
+                const oldQuantity = variant.currentQuantity;
+                const newQuantity = Math.max(0, oldQuantity - returnQuantity);
+                await prisma.productVariant.update({
+                  where: { id: variant.id },
+                  data: { currentQuantity: newQuantity, updatedAt: new Date() }
+                });
+                await prisma.productLog.create({
+                  data: {
+                    action: 'DECREASE',
+                    quantity: -returnQuantity,
+                    oldQuantity: oldQuantity,
+                    newQuantity: newQuantity,
+                    reason: 'Purchase return item added',
+                    reference: `Invoice Edit: ${invoiceNumber}`,
+                    notes: `Variant quantity decreased by ${returnQuantity} due to new return item`,
+                    tenantId: tenantId,
+                    productId: variant.productId,
+                    productVariantId: variant.id
+                  }
+                });
+                results.productsUpdated++;
+                results.logsCreated++;
+                console.log(`   ✅ Decreased variant inventory for new return item: ${displayName} (${oldQuantity} → ${newQuantity})`);
+              } else {
+                const oldQuantity = product.currentQuantity;
+                const newQuantity = Math.max(0, oldQuantity - returnQuantity);
+                await prisma.product.update({
+                  where: { id: product.id },
+                  data: { currentQuantity: newQuantity, lastUpdated: new Date() }
+                });
+                await prisma.productLog.create({
+                  data: {
+                    action: 'DECREASE',
+                    quantity: -returnQuantity,
+                    oldQuantity: oldQuantity,
+                    newQuantity: newQuantity,
+                    reason: 'Purchase return item added',
+                    reference: `Invoice Edit: ${invoiceNumber}`,
+                    notes: `Quantity decreased by ${returnQuantity} due to new return item`,
+                    tenantId: tenantId,
+                    productId: product.id
+                  }
+                });
+                results.productsUpdated++;
+                results.logsCreated++;
+                console.log(`   ✅ Decreased inventory for new return item: ${displayName} (${oldQuantity} → ${newQuantity})`);
+              }
             } else {
               // Return item was updated - check what changed
               const oldReturnQuantity = oldItem.quantity || 0;
               const newReturnQuantity = newItem.quantity || 0;
               const quantityDiff = newReturnQuantity - oldReturnQuantity;
-              
+
               if (Math.abs(quantityDiff) > 0.01) {
-                const oldQuantity = product.currentQuantity;
-                let newQuantity;
-                let action;
-                let notes;
-
-                if (quantityDiff > 0) {
-                  // Return quantity increased - decrease inventory more
-                  newQuantity = Math.max(0, oldQuantity - quantityDiff);
-                  action = 'DECREASE';
-                  notes = `Quantity decreased by ${quantityDiff} due to return quantity increase`;
+                if (variant) {
+                  const oldQuantity = variant.currentQuantity;
+                  let newQuantity;
+                  let action;
+                  let notes;
+                  if (quantityDiff > 0) {
+                    newQuantity = Math.max(0, oldQuantity - quantityDiff);
+                    action = 'DECREASE';
+                    notes = `Variant quantity decreased by ${quantityDiff} due to return quantity increase`;
+                  } else {
+                    newQuantity = oldQuantity + Math.abs(quantityDiff);
+                    action = 'INCREASE';
+                    notes = `Variant quantity increased by ${Math.abs(quantityDiff)} due to return quantity decrease (reversing part of return)`;
+                  }
+                  await prisma.productVariant.update({
+                    where: { id: variant.id },
+                    data: { currentQuantity: newQuantity, updatedAt: new Date() }
+                  });
+                  await prisma.productLog.create({
+                    data: {
+                      action: action,
+                      quantity: quantityDiff > 0 ? -quantityDiff : Math.abs(quantityDiff),
+                      oldQuantity: oldQuantity,
+                      newQuantity: newQuantity,
+                      reason: 'Purchase return item quantity updated',
+                      reference: `Invoice Edit: ${invoiceNumber}`,
+                      notes: notes,
+                      tenantId: tenantId,
+                      productId: variant.productId,
+                      productVariantId: variant.id
+                    }
+                  });
+                  results.productsUpdated++;
+                  results.logsCreated++;
+                  console.log(`   ✅ Updated variant inventory for return item change: ${displayName} (${oldQuantity} → ${newQuantity}, diff: ${quantityDiff > 0 ? '-' : '+'}${Math.abs(quantityDiff)})`);
                 } else {
-                  // Return quantity decreased - increase inventory (reverse part of return)
-                  newQuantity = oldQuantity + Math.abs(quantityDiff);
-                  action = 'INCREASE';
-                  notes = `Quantity increased by ${Math.abs(quantityDiff)} due to return quantity decrease (reversing part of return)`;
+                  const oldQuantity = product.currentQuantity;
+                  let newQuantity;
+                  let action;
+                  let notes;
+                  if (quantityDiff > 0) {
+                    newQuantity = Math.max(0, oldQuantity - quantityDiff);
+                    action = 'DECREASE';
+                    notes = `Quantity decreased by ${quantityDiff} due to return quantity increase`;
+                  } else {
+                    newQuantity = oldQuantity + Math.abs(quantityDiff);
+                    action = 'INCREASE';
+                    notes = `Quantity increased by ${Math.abs(quantityDiff)} due to return quantity decrease (reversing part of return)`;
+                  }
+                  await prisma.product.update({
+                    where: { id: product.id },
+                    data: { currentQuantity: newQuantity, lastUpdated: new Date() }
+                  });
+                  await prisma.productLog.create({
+                    data: {
+                      action: action,
+                      quantity: quantityDiff > 0 ? -quantityDiff : Math.abs(quantityDiff),
+                      oldQuantity: oldQuantity,
+                      newQuantity: newQuantity,
+                      reason: 'Purchase return item quantity updated',
+                      reference: `Invoice Edit: ${invoiceNumber}`,
+                      notes: notes,
+                      tenantId: tenantId,
+                      productId: product.id
+                    }
+                  });
+                  results.productsUpdated++;
+                  results.logsCreated++;
+                  console.log(`   ✅ Updated inventory for return item change: ${displayName} (${oldQuantity} → ${newQuantity}, diff: ${quantityDiff > 0 ? '-' : '+'}${Math.abs(quantityDiff)})`);
                 }
-
-                await prisma.product.update({
-                  where: { id: product.id },
-                  data: {
-                    currentQuantity: newQuantity,
-                    lastUpdated: new Date()
-                  }
-                });
-
-                await prisma.productLog.create({
-                  data: {
-                    action: action,
-                    quantity: quantityDiff > 0 ? -quantityDiff : Math.abs(quantityDiff),
-                    oldQuantity: oldQuantity,
-                    newQuantity: newQuantity,
-                    reason: 'Purchase return item quantity updated',
-                    reference: `Invoice Edit: ${invoiceNumber}`,
-                    notes: notes,
-                    tenantId: tenantId,
-                    productId: product.id
-                  }
-                });
-
-                results.productsUpdated++;
-                results.logsCreated++;
-                console.log(`   ✅ Updated inventory for return item change: ${newItem.productName || newItem.name} (${oldQuantity} → ${newQuantity}, diff: ${quantityDiff > 0 ? '-' : '+'}${Math.abs(quantityDiff)})`);
               }
             }
 

@@ -1009,3 +1009,28 @@ On the Customer dashboard Payments tab, for payments that are **not yet associat
 ### Result
 - Direct payments can be linked to a customer order without creating a new accounting entry
 - Balance and ledger continue to reconcile correctly (Payment record update is sufficient; balanceService already uses Payment records for order-linked vs direct payments)
+
+---
+
+## Variant Impact: Supplier Return, Customer Return, and Accounting
+
+### Context
+After product variant implementation, a plan was implemented to make supplier return inventory variant-aware, add variant-level availability validation for standalone supplier returns, and use composite keys for customer return value calculation. No accounting changes were required (amount-based only).
+
+### Changes
+
+1. **Backend `services/inventoryService.js`**
+   - **decreaseInventoryFromReturn**: When a return item has `productVariantId`, resolve the variant (with tenant check), decrease `ProductVariant.currentQuantity`, and create ProductLog with `productVariantId`. Otherwise fall back to product-by-name and `Product.currentQuantity` (backward compatible).
+   - **updateInventoryFromReturnEdit**: (a) Deleted return items: if `oldItem.productVariantId`, reverse by increasing variant stock and logging; else product-by-name. (b) New return items: if `newItem.productVariantId`, decrease variant stock; else product-by-name. (c) Updated return items (quantity diff): if variant resolved for newItem, apply diff to variant; else to product. Old-item matching for "updated" case now considers `productVariantId` when matching.
+
+2. **Backend `routes/return.js`**
+   - Standalone supplier return (create) availability: built **variantAvailability** (per `productVariantId`: purchased qty minus returned qty) and kept **productAvailabilityByName** (per product name). Validation: if `returnItem.productVariantId` use variant availability; else use name-based availability. Prevents returning more of a variant than was purchased.
+
+3. **Backend `services/returnService.js`**
+   - **createOrderReturn**: Total order value, partial return value, and products value now use composite key `productId_variantId` when looking up `productQuantities` and `productPrices`, with fallback to `productId` only. Ensures correct totals and validation when orders are variant-keyed.
+
+### Result
+- Supplier return inventory (purchase invoice with returns and standalone) correctly decreases variant-level stock when return items have `productVariantId`; product-level fallback preserved.
+- Standalone supplier return creation validates quantity against variant-level availability when return items specify a variant.
+- Customer return creation uses composite key for quantity/price lookups so total order value and partial return validation stay consistent with variant line items.
+- Accounting (customer and supplier returns) unchanged; remains amount-based.

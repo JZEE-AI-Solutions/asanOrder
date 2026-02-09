@@ -60,12 +60,14 @@ class ReturnService {
       throw new Error('Invalid order data');
     }
 
-    // Calculate total order value
+    // Calculate total order value (use composite key productId_variantId when order is variant-keyed)
     let totalOrderValue = 0;
     selectedProductsList.forEach(product => {
       const productId = product.id || product;
-      const quantity = productQuantities[productId] || 1;
-      const price = productPrices[productId] || product.price || product.currentRetailPrice || 0;
+      const variantId = product.variantId || product.productVariantId || null;
+      const qtyPriceKey = variantId ? `${productId}_${variantId}` : productId;
+      const quantity = productQuantities[qtyPriceKey] ?? productQuantities[productId] ?? 1;
+      const price = productPrices[qtyPriceKey] ?? productPrices[productId] ?? product.price ?? product.currentRetailPrice ?? 0;
       totalOrderValue += price * quantity;
     });
     const shippingCharges = order.shippingCharges || 0;
@@ -90,17 +92,19 @@ class ReturnService {
 
     // Validation: For partial returns, check if it would exceed order value
     if (returnType === 'CUSTOMER_PARTIAL') {
-      // Calculate value of products being returned in this partial return
+      // Calculate value of products being returned in this partial return (composite key when variant-keyed)
       let partialReturnValue = 0;
       if (selectedProducts && selectedProducts.length > 0) {
         selectedProducts.forEach(product => {
           const productId = typeof product === 'object' ? (product.id || product) : product;
+          const variantId = typeof product === 'object' ? (product.variantId || product.productVariantId) : null;
+          const qtyPriceKey = variantId ? `${productId}_${variantId}` : productId;
           const quantity = typeof product === 'object' && product.quantity !== undefined
             ? product.quantity
-            : (productQuantities[productId] || 1);
+            : (productQuantities[qtyPriceKey] ?? productQuantities[productId] ?? 1);
           const price = typeof product === 'object' && product.price !== undefined
             ? product.price
-            : (productPrices[productId] || 0);
+            : (productPrices[qtyPriceKey] ?? productPrices[productId] ?? 0);
           partialReturnValue += price * quantity;
         });
       }
@@ -122,14 +126,16 @@ class ReturnService {
     }
 
     productsToReturn.forEach(product => {
-      // Handle both object format {id, quantity, price} and simple ID format
+      // Handle both object format {id, quantity, price} and simple ID format; use composite key when variant-keyed
       const productId = typeof product === 'object' ? (product.id || product) : product;
+      const variantId = typeof product === 'object' ? (product.variantId || product.productVariantId) : null;
+      const qtyPriceKey = variantId ? `${productId}_${variantId}` : productId;
       const quantity = typeof product === 'object' && product.quantity !== undefined
         ? product.quantity
-        : (productQuantities[productId] || 1);
+        : (productQuantities[qtyPriceKey] ?? productQuantities[productId] ?? 1);
       const price = typeof product === 'object' && product.price !== undefined
         ? product.price
-        : (productPrices[productId] || 0);
+        : (productPrices[qtyPriceKey] ?? productPrices[productId] ?? 0);
       productsValue += price * quantity;
     });
 
