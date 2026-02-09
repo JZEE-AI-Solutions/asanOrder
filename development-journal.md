@@ -1034,3 +1034,37 @@ After product variant implementation, a plan was implemented to make supplier re
 - Standalone supplier return creation validates quantity against variant-level availability when return items specify a variant.
 - Customer return creation uses composite key for quantity/price lookups so total order value and partial return validation stay consistent with variant line items.
 - Accounting (customer and supplier returns) unchanged; remains amount-based.
+
+---
+
+## Supplier Return: Product Balances, Variant Selection, Supplier Balance, Accounting
+
+### Issue
+After creating a supplier return: product/inventory balances were not updated, the UI did not ask which variant was being returned, supplier balance did not update, and accounting entries appeared not to be created.
+
+### Root causes
+1. **Standalone supplier return (CreateStandaloneSupplierReturnPage)** used invoice data from search (or pre-fetched by id) but did not send `productVariantId`, `color`, or `size` in return items, so backend inventory decreased by product name only and variant stock was wrong. When selecting from InvoiceSelector, the invoice came from search API which did not include variant info on purchase items.
+2. **GET purchase-invoice/:id** did not return `productAvailability` or `variantAvailability`, so the standalone page could not show correct “available to return” per variant.
+3. **Supplier balance** is computed from `purchaseInvoices[].totalAmount`. Standalone returns created a Return and a Transaction but did not reduce the linked invoice’s `totalAmount`, so the amount owed was not reduced.
+
+### Changes
+
+1. **Backend `routes/purchaseInvoice.js`**
+   - **GET /:id**: Compute and return `productAvailability` (by product name) and `variantAvailability` (by `productVariantId`) from purchase items minus existing return items, and attach them to the returned `purchaseInvoice` so the standalone return page can show and validate available quantities per variant.
+
+2. **Frontend `CreateStandaloneSupplierReturnPage.jsx`**
+   - **handleSelectInvoice**: When the user selects an invoice (from selector or pre-selected), refetch the full invoice by id (`GET /purchase-invoice/:id`) so response includes `productVariantId`, `productVariant`, `productAvailability`, and `variantAvailability`. Build `selectedProducts` with variant fields and set `availableQuantity` / `maxQuantity` from `variantAvailability` when the item has `productVariantId`, else from `productAvailability[name]`.
+   - **Product list**: Show “Variant: color / size” when present.
+   - **handleSubmit**: Include `productVariantId`, `color`, and `size` in each return item so backend can update variant-level inventory and logs.
+
+3. **Frontend `CreateSupplierReturnPage.jsx`**
+   - **Available quantity**: When computing `alreadyReturned` for a product, match return items by `productVariantId` when the product has a variant, otherwise by `productName`, so variant-level availability is correct.
+   - **Product list**: Show “Variant: color / size” when `productVariant` is present.
+
+4. **Backend `routes/return.js`**
+   - After creating accounting and updating inventory for a standalone supplier return, **update the linked purchase invoice**: set `totalAmount = max(0, invoice.totalAmount - returnTotal)` so supplier balance (which uses `purchaseInvoices[].totalAmount`) reflects the return.
+
+### Result
+- Standalone supplier return now loads full invoice with variants and availability, shows which variant each line is, and sends variant ids so inventory and logs update at variant level.
+- Supplier balance updates correctly after a standalone return because the linked invoice’s `totalAmount` is reduced.
+- Accounting and inventory were already created by the backend when `purchaseInvoiceId` and `returnHandlingMethod` were sent; the frontend already sent both. Any remaining “no accounting” or “no inventory” cases were likely due to missing variant data or using an invoice source (e.g. search) that lacked variant/availability; the refetch and payload fixes address that.

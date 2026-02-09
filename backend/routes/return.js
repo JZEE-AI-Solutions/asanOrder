@@ -430,6 +430,12 @@ router.post('/', authenticateToken, requireRole(['BUSINESS_OWNER']), [
             purchaseInvoiceId,
             invoice.invoiceNumber || 'N/A'
           );
+          // Reduce invoice totalAmount so supplier balance reflects the return
+          const newInvoiceTotal = Math.max(0, (invoice.totalAmount || 0) - totalAmount);
+          await prisma.purchaseInvoice.update({
+            where: { id: purchaseInvoiceId },
+            data: { totalAmount: newInvoiceTotal }
+          });
         }
 
         console.log(`✅ Supplier return created with accounting and stock updated: ${returnNumber}, Amount: Rs. ${totalAmount}, Method: ${returnHandlingMethod}, Transaction: ${createdTransaction.transactionNumber}`);

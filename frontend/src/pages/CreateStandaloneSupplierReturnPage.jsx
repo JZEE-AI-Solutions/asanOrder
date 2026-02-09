@@ -59,22 +59,50 @@ function CreateStandaloneSupplierReturnPage() {
     }
   }
 
-  const handleSelectInvoice = (invoice) => {
-    setSelectedInvoice(invoice)
-    setSelectedProducts([])
-    
-    // Pre-populate products with available quantities
-    if (invoice.purchaseItems && invoice.productAvailability) {
-      const products = invoice.purchaseItems.map(item => ({
-        id: item.id,
-        name: item.name,
-        purchasePrice: item.purchasePrice,
-        availableQuantity: invoice.productAvailability[item.name] || item.quantity,
-        maxQuantity: invoice.productAvailability[item.name] || item.quantity,
-        quantity: 0,
-        reason: ''
-      }))
-      setSelectedProducts(products)
+  const handleSelectInvoice = async (invoice) => {
+    // Refetch full invoice by ID to get productVariantId, productVariant, and availability
+    try {
+      setLoading(true)
+      const response = await api.get(`/purchase-invoice/${invoice.id}`)
+      const fullInvoice = response.data.purchaseInvoice
+      if (!fullInvoice) {
+        toast.error('Failed to load invoice details')
+        return
+      }
+      setSelectedInvoice(fullInvoice)
+      setSelectedProducts([])
+
+      const productAvailability = fullInvoice.productAvailability || {}
+      const variantAvailability = fullInvoice.variantAvailability || {}
+
+      if (fullInvoice.purchaseItems && fullInvoice.purchaseItems.length > 0) {
+        const products = fullInvoice.purchaseItems.map(item => {
+          const available = item.productVariantId
+            ? (variantAvailability[item.productVariantId] ?? item.quantity ?? 0)
+            : (productAvailability[item.name] ?? item.quantity ?? 0)
+          const avail = Math.max(0, available)
+          return {
+            id: item.id,
+            name: item.name,
+            purchasePrice: item.purchasePrice,
+            quantity: item.quantity,
+            sku: item.sku || null,
+            productVariantId: item.productVariantId || null,
+            color: item.productVariant?.color ?? item.color ?? null,
+            size: item.productVariant?.size ?? item.size ?? null,
+            availableQuantity: avail,
+            maxQuantity: avail,
+            quantity: 0,
+            reason: ''
+          }
+        })
+        setSelectedProducts(products)
+      }
+    } catch (err) {
+      console.error('Error loading invoice details:', err)
+      toast.error('Failed to load invoice details')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -120,7 +148,10 @@ function CreateStandaloneSupplierReturnPage() {
         purchasePrice: p.purchasePrice,
         quantity: p.quantity,
         reason: p.reason || 'Supplier return',
-        sku: p.sku || null
+        sku: p.sku || null,
+        productVariantId: p.productVariantId || null,
+        color: p.color || null,
+        size: p.size || null
       }))
 
     if (returnItems.length === 0) {
@@ -264,8 +295,13 @@ function CreateStandaloneSupplierReturnPage() {
                             <div className="flex items-start justify-between mb-3">
                               <div className="flex-1">
                                 <h3 className="font-medium text-gray-900">{product.name}</h3>
+                                {(product.color || product.size) && (
+                                  <p className="text-sm text-gray-600 mt-0.5">
+                                    Variant: {[product.color, product.size].filter(Boolean).join(' / ')}
+                                  </p>
+                                )}
                                 <p className="text-sm text-gray-500">
-                                  Price: Rs. {product.purchasePrice.toFixed(2)} • 
+                                  Price: Rs. {product.purchasePrice.toFixed(2)} •
                                   Available: {product.availableQuantity}
                                 </p>
                               </div>

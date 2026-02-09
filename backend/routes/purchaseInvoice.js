@@ -1151,8 +1151,39 @@ router.get('/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (re
       }
     }
 
-    res.json({ 
-      purchaseInvoice,
+    // Compute productAvailability (by name) and variantAvailability (by productVariantId) for returns
+    const variantAvailability = {};
+    const productAvailabilityByName = {};
+    if (purchaseInvoice.purchaseItems) {
+      purchaseInvoice.purchaseItems.forEach(item => {
+        const qty = item.quantity || 0;
+        if (item.productVariantId) {
+          variantAvailability[item.productVariantId] = (variantAvailability[item.productVariantId] || 0) + qty;
+        }
+        const nameKey = item.name || '';
+        productAvailabilityByName[nameKey] = (productAvailabilityByName[nameKey] || 0) + qty;
+      });
+    }
+    if (purchaseInvoice.returns) {
+      purchaseInvoice.returns.forEach(r => {
+        (r.returnItems || []).forEach(ri => {
+          const qty = ri.quantity || 0;
+          if (ri.productVariantId) {
+            variantAvailability[ri.productVariantId] = (variantAvailability[ri.productVariantId] || 0) - qty;
+          }
+          const nameKey = ri.productName || '';
+          productAvailabilityByName[nameKey] = (productAvailabilityByName[nameKey] || 0) - qty;
+        });
+      });
+    }
+    const responseInvoice = {
+      ...purchaseInvoice,
+      productAvailability: productAvailabilityByName,
+      variantAvailability
+    };
+
+    res.json({
+      purchaseInvoice: responseInvoice,
       profit: profitData,
       returnHandlingMethod: returnHandlingMethod,
       returnRefundAccountId: returnRefundAccountId

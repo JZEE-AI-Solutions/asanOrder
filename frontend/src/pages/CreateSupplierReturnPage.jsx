@@ -342,7 +342,11 @@ const CreateSupplierReturnPage = () => {
                       const isSelected = selectedProducts.some(p => p.id === product.id)
                       const selectedProduct = selectedProducts.find(p => p.id === product.id)
                       const alreadyReturned = existingReturns.reduce((sum, ret) => {
-                        const item = ret.returnItems?.find(ri => ri.productName === product.name)
+                        const item = ret.returnItems?.find(ri =>
+                          product.productVariantId
+                            ? ri.productVariantId === product.productVariantId
+                            : ri.productName === product.name
+                        )
                         return sum + (item?.quantity || 0)
                       }, 0)
                       const availableQuantity = (product.quantity || 0) - alreadyReturned
@@ -365,6 +369,11 @@ const CreateSupplierReturnPage = () => {
                               />
                               <div className="flex-1">
                                 <h3 className="font-medium text-gray-900">{product.name}</h3>
+                                {(product.productVariant?.color || product.productVariant?.size) && (
+                                  <p className="text-sm text-gray-600 mt-0.5">
+                                    Variant: {[product.productVariant?.color, product.productVariant?.size].filter(Boolean).join(' / ')}
+                                  </p>
+                                )}
                                 {product.description && (
                                   <p className="text-sm text-gray-600 mt-1">{product.description}</p>
                                 )}
