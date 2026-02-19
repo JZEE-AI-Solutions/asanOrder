@@ -56,7 +56,12 @@ router.delete('/:tenantId/clear-all-data', authenticateToken, requireRole(['ADMI
       };
 
       // Delete in order of dependencies (child entities first, respecting foreign keys)
-      
+
+      // 0. Delete TenantBankDetails (references tenant only)
+      await tx.tenantBankDetail.deleteMany({
+        where: { tenantId }
+      });
+
       // 1. Delete ProductLogs first (references products and purchase_items)
       stats.productLogs = await tx.productLog.deleteMany({
         where: { tenantId }
@@ -731,6 +736,146 @@ router.put('/owner/me', authenticateToken, requireRole(['BUSINESS_OWNER']), [
       details: error.message,
       code: error.code
     });
+  }
+});
+
+// ----- Prepaid bank / payment provider details (for customer transfer instructions) -----
+
+const getTenantByOwnerId = async (userId) => {
+  const tenant = await prisma.tenant.findUnique({
+    where: { ownerId: userId }
+  });
+  return tenant;
+};
+
+// List prepaid bank details for current business owner's tenant
+router.get('/owner/prepaid-bank-details', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const tenant = await getTenantByOwnerId(req.user.id);
+    if (!tenant) {
+      return res.status(404).json({ error: 'No tenant found for this business owner' });
+    }
+    const list = await prisma.tenantBankDetail.findMany({
+      where: { tenantId: tenant.id },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }]
+    });
+    res.json({ data: list });
+  } catch (error) {
+    console.error('List prepaid bank details error:', error);
+    const msg = error.message || '';
+    if (msg.includes('tenantBankDetail') || msg.includes('Unknown arg') || msg.includes('Invalid prisma')) {
+      console.error('Hint: Run "npx prisma generate" in the backend folder (with server stopped), then restart the server.');
+    }
+    res.status(500).json({ error: 'Failed to load bank details' });
+  }
+});
+
+// Create prepaid bank detail
+router.post('/owner/prepaid-bank-details', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('providerName').trim().notEmpty().withMessage('Provider name is required'),
+  body('accountTitle').trim().notEmpty().withMessage('Account title is required'),
+  body('accountNumber').trim().notEmpty().withMessage('Account number is required'),
+  body('iban').optional().trim(),
+  body('bankName').optional().trim(),
+  body('instructions').optional().trim(),
+  body('sortOrder').optional().isInt({ min: 0 }).toInt(),
+  body('isActive').optional().isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    const tenant = await getTenantByOwnerId(req.user.id);
+    if (!tenant) {
+      return res.status(404).json({ error: 'No tenant found for this business owner' });
+    }
+    const { providerName, accountTitle, accountNumber, iban, bankName, instructions, sortOrder, isActive } = req.body;
+    const created = await prisma.tenantBankDetail.create({
+      data: {
+        tenantId: tenant.id,
+        providerName,
+        accountTitle,
+        accountNumber,
+        iban: iban || null,
+        bankName: bankName || null,
+        instructions: instructions || null,
+        sortOrder: sortOrder != null ? sortOrder : 0,
+        isActive: isActive !== false
+      }
+    });
+    res.status(201).json({ data: created });
+  } catch (error) {
+    console.error('Create prepaid bank detail error:', error);
+    res.status(500).json({ error: 'Failed to create bank detail' });
+  }
+});
+
+// Update prepaid bank detail
+router.put('/owner/prepaid-bank-details/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), [
+  body('providerName').optional().trim().notEmpty(),
+  body('accountTitle').optional().trim().notEmpty(),
+  body('accountNumber').optional().trim().notEmpty(),
+  body('iban').optional().trim(),
+  body('bankName').optional().trim(),
+  body('instructions').optional().trim(),
+  body('sortOrder').optional().isInt({ min: 0 }).toInt(),
+  body('isActive').optional().isBoolean()
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    const tenant = await getTenantByOwnerId(req.user.id);
+    if (!tenant) {
+      return res.status(404).json({ error: 'No tenant found for this business owner' });
+    }
+    const existing = await prisma.tenantBankDetail.findFirst({
+      where: { id: req.params.id, tenantId: tenant.id }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'Bank detail not found' });
+    }
+    const updateData = {};
+    ['providerName', 'accountTitle', 'accountNumber', 'iban', 'bankName', 'instructions', 'sortOrder', 'isActive'].forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = field === 'iban' || field === 'bankName' || field === 'instructions'
+          ? (req.body[field] || null)
+          : req.body[field];
+      }
+    });
+    const updated = await prisma.tenantBankDetail.update({
+      where: { id: req.params.id },
+      data: updateData
+    });
+    res.json({ data: updated });
+  } catch (error) {
+    console.error('Update prepaid bank detail error:', error);
+    res.status(500).json({ error: 'Failed to update bank detail' });
+  }
+});
+
+// Delete prepaid bank detail
+router.delete('/owner/prepaid-bank-details/:id', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
+  try {
+    const tenant = await getTenantByOwnerId(req.user.id);
+    if (!tenant) {
+      return res.status(404).json({ error: 'No tenant found for this business owner' });
+    }
+    const existing = await prisma.tenantBankDetail.findFirst({
+      where: { id: req.params.id, tenantId: tenant.id }
+    });
+    if (!existing) {
+      return res.status(404).json({ error: 'Bank detail not found' });
+    }
+    await prisma.tenantBankDetail.delete({
+      where: { id: req.params.id }
+    });
+    res.json({ message: 'Bank detail deleted successfully' });
+  } catch (error) {
+    console.error('Delete prepaid bank detail error:', error);
+    res.status(500).json({ error: 'Failed to delete bank detail' });
   }
 });
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
-import { ArrowLeftIcon, CogIcon, LockClosedIcon, UserIcon, BuildingOfficeIcon, PhoneIcon, TruckIcon, CurrencyDollarIcon } from '@heroicons/react/24/outline'
+import { ArrowLeftIcon, CogIcon, LockClosedIcon, UserIcon, BuildingOfficeIcon, PhoneIcon, TruckIcon, CurrencyDollarIcon, BanknotesIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/react/24/outline'
 import api from '../services/api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import toast from 'react-hot-toast'
@@ -38,6 +38,23 @@ const SettingsPage = () => {
   const [loadingLogistics, setLoadingLogistics] = useState(false)
   const [showLogisticsForm, setShowLogisticsForm] = useState(false)
   const [selectedLogisticsCompany, setSelectedLogisticsCompany] = useState(null)
+
+  // Prepaid bank / payment provider details state
+  const [bankDetails, setBankDetails] = useState([])
+  const [loadingBankDetails, setLoadingBankDetails] = useState(false)
+  const [showBankDetailForm, setShowBankDetailForm] = useState(false)
+  const [selectedBankDetail, setSelectedBankDetail] = useState(null)
+  const [bankDetailForm, setBankDetailForm] = useState({
+    providerName: '',
+    accountTitle: '',
+    accountNumber: '',
+    iban: '',
+    bankName: '',
+    instructions: '',
+    sortOrder: 0,
+    isActive: true
+  })
+  const [savingBankDetail, setSavingBankDetail] = useState(false)
 
   const {
     register: registerProfile,
@@ -82,6 +99,12 @@ const SettingsPage = () => {
   useEffect(() => {
     if (activeTab === 'cod') {
       fetchLogisticsCompanies()
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (activeTab === 'bank-details') {
+      fetchBankDetails()
     }
   }, [activeTab])
 
@@ -151,6 +174,111 @@ const SettingsPage = () => {
     setShowLogisticsForm(false)
     setSelectedLogisticsCompany(null)
     fetchLogisticsCompanies()
+  }
+
+  const fetchBankDetails = async () => {
+    try {
+      setLoadingBankDetails(true)
+      const response = await api.get('/tenant/owner/prepaid-bank-details')
+      setBankDetails(response.data.data || [])
+    } catch (error) {
+      console.error('Error fetching bank details:', error)
+      toast.error('Failed to load bank details')
+    } finally {
+      setLoadingBankDetails(false)
+    }
+  }
+
+  const handleCreateBankDetail = () => {
+    setSelectedBankDetail(null)
+    setBankDetailForm({
+      providerName: '',
+      accountTitle: '',
+      accountNumber: '',
+      iban: '',
+      bankName: '',
+      instructions: '',
+      sortOrder: bankDetails.length,
+      isActive: true
+    })
+    setShowBankDetailForm(true)
+  }
+
+  const handleEditBankDetail = (detail) => {
+    setSelectedBankDetail(detail)
+    setBankDetailForm({
+      providerName: detail.providerName || '',
+      accountTitle: detail.accountTitle || '',
+      accountNumber: detail.accountNumber || '',
+      iban: detail.iban || '',
+      bankName: detail.bankName || '',
+      instructions: detail.instructions || '',
+      sortOrder: detail.sortOrder ?? 0,
+      isActive: detail.isActive !== false
+    })
+    setShowBankDetailForm(true)
+  }
+
+  const handleBankDetailFormClose = () => {
+    setShowBankDetailForm(false)
+    setSelectedBankDetail(null)
+    fetchBankDetails()
+  }
+
+  const handleSaveBankDetail = async (e) => {
+    e.preventDefault()
+    const { providerName, accountTitle, accountNumber, iban, bankName, instructions, sortOrder, isActive } = bankDetailForm
+    if (!providerName?.trim() || !accountTitle?.trim() || !accountNumber?.trim()) {
+      toast.error('Provider name, account title and account number are required')
+      return
+    }
+    try {
+      setSavingBankDetail(true)
+      if (selectedBankDetail) {
+        await api.put(`/tenant/owner/prepaid-bank-details/${selectedBankDetail.id}`, {
+          providerName: providerName.trim(),
+          accountTitle: accountTitle.trim(),
+          accountNumber: accountNumber.trim(),
+          iban: iban?.trim() || null,
+          bankName: bankName?.trim() || null,
+          instructions: instructions?.trim() || null,
+          sortOrder: parseInt(sortOrder, 10) || 0,
+          isActive: isActive !== false
+        })
+        toast.success('Bank detail updated successfully')
+      } else {
+        await api.post('/tenant/owner/prepaid-bank-details', {
+          providerName: providerName.trim(),
+          accountTitle: accountTitle.trim(),
+          accountNumber: accountNumber.trim(),
+          iban: iban?.trim() || null,
+          bankName: bankName?.trim() || null,
+          instructions: instructions?.trim() || null,
+          sortOrder: parseInt(sortOrder, 10) || 0,
+          isActive: isActive !== false
+        })
+        toast.success('Bank detail added successfully')
+      }
+      handleBankDetailFormClose()
+    } catch (error) {
+      console.error('Save bank detail error:', error)
+      const msg = error.response?.data?.error || 'Failed to save bank detail'
+      toast.error(typeof msg === 'string' ? msg : msg?.message || msg)
+    } finally {
+      setSavingBankDetail(false)
+    }
+  }
+
+  const handleDeleteBankDetail = async (id) => {
+    if (!window.confirm('Are you sure you want to remove this bank/payment detail? Customers will no longer see it for prepaid orders.')) return
+    try {
+      await api.delete(`/tenant/owner/prepaid-bank-details/${id}`)
+      toast.success('Bank detail removed')
+      fetchBankDetails()
+    } catch (error) {
+      console.error('Delete bank detail error:', error)
+      toast.error(error.response?.data?.error || 'Failed to delete')
+    }
   }
 
   const handleShippingConfigSave = async () => {
@@ -349,6 +477,19 @@ const SettingsPage = () => {
               <div className="flex items-center">
                 <CurrencyDollarIcon className="h-5 w-5 mr-2" />
                 COD Fee
+              </div>
+            </button>
+            <button
+              onClick={() => setActiveTab('bank-details')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'bank-details'
+                  ? 'border-pink-500 text-pink-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <div className="flex items-center">
+                <BanknotesIcon className="h-5 w-5 mr-2" />
+                Payment / Bank Details
               </div>
             </button>
           </nav>
@@ -918,6 +1059,196 @@ const SettingsPage = () => {
                 company={selectedLogisticsCompany}
                 onClose={handleLogisticsFormClose}
               />
+            )}
+          </div>
+        )}
+
+        {/* Payment / Bank Details Tab (prepaid transfer instructions for customers) */}
+        {activeTab === 'bank-details' && (
+          <div className="card p-6">
+            <div className="flex justify-between items-center mb-6">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Prepaid Payment – Bank & Payment Details</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Add bank accounts or payment providers (e.g. JazzCash, Easypaisa). Customers will see these when they choose prepaid payment so they can transfer the amount to you.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCreateBankDetail}
+                className="inline-flex items-center px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors text-sm font-medium"
+              >
+                <PlusIcon className="h-5 w-5 mr-2" />
+                Add bank / provider
+              </button>
+            </div>
+
+            {loadingBankDetails ? (
+              <div className="flex justify-center py-12">
+                <LoadingSpinner />
+              </div>
+            ) : bankDetails.length === 0 ? (
+              <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+                <BanknotesIcon className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-600 font-medium">No bank or payment details yet</p>
+                <p className="text-sm text-gray-500 mt-1">Add at least one so customers know where to transfer for prepaid orders.</p>
+                <button
+                  type="button"
+                  onClick={handleCreateBankDetail}
+                  className="mt-4 px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 text-sm font-medium"
+                >
+                  Add bank / provider
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {bankDetails.map((detail) => (
+                  <div
+                    key={detail.id}
+                    className="border border-gray-200 rounded-lg p-4 bg-white hover:border-gray-300 transition-colors"
+                  >
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-gray-900">{detail.providerName}</span>
+                          {!detail.isActive && (
+                            <span className="px-2 py-0.5 text-xs font-medium rounded bg-gray-200 text-gray-700">Hidden</span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-600 mt-1">{detail.accountTitle}</p>
+                        <p className="text-sm font-mono text-gray-800 mt-1">Account: {detail.accountNumber}</p>
+                        {detail.iban && <p className="text-sm font-mono text-gray-700">IBAN: {detail.iban}</p>}
+                        {detail.bankName && <p className="text-sm text-gray-500">{detail.bankName}</p>}
+                        {detail.instructions && (
+                          <p className="text-xs text-gray-500 mt-2 whitespace-pre-wrap">{detail.instructions}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleEditBankDetail(detail)}
+                          className="p-2 text-gray-600 hover:text-pink-600 hover:bg-pink-50 rounded-lg"
+                          title="Edit"
+                        >
+                          <PencilSquareIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteBankDetail(detail.id)}
+                          className="p-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                          title="Delete"
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Bank detail add/edit modal */}
+            {showBankDetailForm && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={() => setShowBankDetailForm(false)}>
+                <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-lg font-bold text-gray-900 mb-4">
+                    {selectedBankDetail ? 'Edit bank / payment detail' : 'Add bank / payment detail'}
+                  </h3>
+                  <form onSubmit={handleSaveBankDetail} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Provider / Bank name <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        value={bankDetailForm.providerName}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, providerName: e.target.value }))}
+                        placeholder="e.g. HBL, JazzCash, Easypaisa"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Account title <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        value={bankDetailForm.accountTitle}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, accountTitle: e.target.value }))}
+                        placeholder="Name on account"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Account number <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        value={bankDetailForm.accountNumber}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, accountNumber: e.target.value }))}
+                        placeholder="Account or wallet number"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">IBAN (optional)</label>
+                      <input
+                        type="text"
+                        value={bankDetailForm.iban}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, iban: e.target.value }))}
+                        placeholder="For bank accounts"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Bank name (optional)</label>
+                      <input
+                        type="text"
+                        value={bankDetailForm.bankName}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, bankName: e.target.value }))}
+                        placeholder="e.g. Habib Bank Limited"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Instructions for customer (optional)</label>
+                      <textarea
+                        value={bankDetailForm.instructions}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, instructions: e.target.value }))}
+                        placeholder="e.g. Add order number in reference"
+                        rows={2}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="bankDetailActive"
+                        checked={bankDetailForm.isActive}
+                        onChange={e => setBankDetailForm(prev => ({ ...prev, isActive: e.target.checked }))}
+                        className="h-4 w-4 text-pink-600 rounded border-gray-300 focus:ring-pink-500"
+                      />
+                      <label htmlFor="bankDetailActive" className="text-sm text-gray-700">Show to customers (active)</label>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                      <button
+                        type="button"
+                        onClick={handleBankDetailFormClose}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                        disabled={savingBankDetail}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="px-6 py-2 text-sm font-medium text-white bg-pink-600 rounded-lg hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                        disabled={savingBankDetail}
+                      >
+                        {savingBankDetail ? <LoadingSpinner size="sm" /> : null}
+                        <span className={savingBankDetail ? 'ml-2' : ''}>{selectedBankDetail ? 'Update' : 'Add'}</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
             )}
           </div>
         )}

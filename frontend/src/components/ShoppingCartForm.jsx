@@ -44,6 +44,8 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   const [paymentAmount, setPaymentAmount] = useState('')
   const [paymentReceipt, setPaymentReceipt] = useState(null)
   const [uploadingReceipt, setUploadingReceipt] = useState(false)
+  const [prepaidBankDetails, setPrepaidBankDetails] = useState([])
+  const [loadingPrepaidDetails, setLoadingPrepaidDetails] = useState(false)
   const [customerFormData, setCustomerFormData] = useState(null) // Store customer form data
   const [variantSelectionModal, setVariantSelectionModal] = useState({ isOpen: false, product: null })
   const [selectedVariant, setSelectedVariant] = useState(null) // For variant selection modal
@@ -74,6 +76,32 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
   useEffect(() => {
     filterProducts()
   }, [searchTerm])
+
+  // Fetch prepaid bank details when customer selects prepaid (for transfer instructions)
+  useEffect(() => {
+    if (!formLink || paymentMethod !== 'prepaid' || !showPaymentForm) {
+      return
+    }
+    let cancelled = false
+    const fetchPrepaidDetails = async () => {
+      setLoadingPrepaidDetails(true)
+      try {
+        const response = await api.get(`/form/public/${formLink}/prepaid-details`)
+        if (!cancelled && response.data?.bankDetails) {
+          setPrepaidBankDetails(response.data.bankDetails)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Failed to load prepaid payment details:', err)
+          setPrepaidBankDetails([])
+        }
+      } finally {
+        if (!cancelled) setLoadingPrepaidDetails(false)
+      }
+    }
+    fetchPrepaidDetails()
+    return () => { cancelled = true }
+  }, [formLink, paymentMethod, showPaymentForm])
 
   // Calculate shipping charges when city or cart changes
   useEffect(() => {
@@ -1362,6 +1390,36 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
                 {/* Prepaid Payment Fields - Only show if prepaid is selected */}
                 {paymentMethod === 'prepaid' && (
                   <div className="space-y-5 pt-3 border-t border-gray-200">
+                    {/* Bank / payment provider details – where to transfer */}
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-gray-900">Transfer payment to</p>
+                      {loadingPrepaidDetails ? (
+                        <div className="flex items-center gap-2 text-sm text-gray-500 py-2">
+                          <LoadingSpinner size="sm" />
+                          Loading payment details…
+                        </div>
+                      ) : prepaidBankDetails.length === 0 ? (
+                        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          No bank details are configured. You may still place the order and upload a receipt; the business will contact you if needed.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {prepaidBankDetails.map((detail) => (
+                            <div key={detail.id} className="bg-white border border-gray-200 rounded-lg p-3 text-sm">
+                              <p className="font-semibold text-gray-900">{detail.providerName}</p>
+                              <p className="text-gray-600">{detail.accountTitle}</p>
+                              <p className="font-mono text-gray-800 mt-1">Account: {detail.accountNumber}</p>
+                              {detail.iban && <p className="font-mono text-gray-700 text-xs mt-0.5">IBAN: {detail.iban}</p>}
+                              {detail.bankName && <p className="text-gray-500 text-xs">{detail.bankName}</p>}
+                              {detail.instructions && (
+                                <p className="text-gray-500 text-xs mt-2 whitespace-pre-wrap border-t border-gray-100 pt-2">{detail.instructions}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     {/* Payment Amount */}
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">

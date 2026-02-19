@@ -260,6 +260,38 @@ router.get('/public/:formLink', async (req, res) => {
   }
 });
 
+// Get prepaid bank details for a form (public – for customer checkout when prepaid is selected)
+router.get('/public/:formLink/prepaid-details', async (req, res) => {
+  try {
+    const { formLink } = req.params;
+    const form = await prisma.form.findUnique({
+      where: { formLink, isPublished: true },
+      select: { tenantId: true }
+    });
+    if (!form) {
+      return res.status(404).json({ error: 'Form not found or not published' });
+    }
+    const bankDetails = await prisma.tenantBankDetail.findMany({
+      where: { tenantId: form.tenantId, isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select: {
+        id: true,
+        providerName: true,
+        accountTitle: true,
+        accountNumber: true,
+        iban: true,
+        bankName: true,
+        instructions: true,
+        sortOrder: true
+      }
+    });
+    res.json({ bankDetails });
+  } catch (error) {
+    console.error('Get prepaid details error:', error);
+    res.status(500).json({ error: 'Failed to load payment details' });
+  }
+});
+
 // Publish form (Admin or Business Owner)
 router.post('/:id/publish', authenticateToken, requireRole(['ADMIN', 'BUSINESS_OWNER']), async (req, res) => {
   try {

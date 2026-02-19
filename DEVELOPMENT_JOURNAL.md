@@ -987,3 +987,50 @@ This journal tracks project milestones, features, and conversations.
   6. Delete Returns (after Transactions)
 - This ensures foreign key constraints are respected when deleting tenant data
 - Prevents errors when clearing data for tenants with approved returns that have accounting entries
+
+---
+
+## 2026-02-20 - Prepaid Payment: Business Bank Details for Customers
+
+### Feature: Show business bank/payment details for prepaid orders and allow multiple banks in settings
+
+**Request**: When a customer chooses prepaid payment, show the business owner’s bank (or payment provider) details so the customer can transfer money. Business owners should be able to configure multiple banks or payment providers in Settings. These details must appear in the payment step when the customer selects prepaid.
+
+**Implementation Details**:
+
+1. **Database** (`backend/prisma/schema.prisma`):
+   - Added model `TenantBankDetail`: id, tenantId, providerName, accountTitle, accountNumber, iban (optional), bankName (optional), instructions (optional), sortOrder, isActive, createdAt, updatedAt.
+   - Relation: Tenant has many `bankDetails` (TenantBankDetail).
+   - Migration: `20260220000000_add_tenant_bank_details` (SQL added under `prisma/migrations/`).
+
+2. **Backend APIs**:
+   - **Tenant routes** (`backend/routes/tenant.js`):
+     - `GET /api/tenant/owner/prepaid-bank-details` – list bank details for current owner’s tenant (auth: BUSINESS_OWNER).
+     - `POST /api/tenant/owner/prepaid-bank-details` – create (body: providerName, accountTitle, accountNumber, iban?, bankName?, instructions?, sortOrder?, isActive?).
+     - `PUT /api/tenant/owner/prepaid-bank-details/:id` – update (same fields, scoped to tenant).
+     - `DELETE /api/tenant/owner/prepaid-bank-details/:id` – delete (scoped to tenant).
+   - **Form routes** (`backend/routes/form.js`):
+     - `GET /api/form/public/:formLink/prepaid-details` – public, no auth. Returns `{ bankDetails }` for the tenant that owns the published form (only active, ordered by sortOrder).
+   - **Clear-all-data** (`backend/routes/tenant.js`): Added deletion of `TenantBankDetail` for the tenant when admin clears all data.
+
+3. **Settings page** (`frontend/src/pages/SettingsPage.jsx`):
+   - New tab: “Payment / Bank Details” (BanknotesIcon).
+   - Lists all bank/payment provider details; empty state with “Add bank / provider” CTA.
+   - Add and Edit open a modal with: Provider name, Account title, Account number, IBAN (optional), Bank name (optional), Instructions (optional), “Show to customers (active)” checkbox.
+   - Each row has Edit and Delete; delete confirms before removing.
+
+4. **Customer checkout** (`frontend/src/components/ShoppingCartForm.jsx`):
+   - When payment method is “Prepaid”, the payment drawer fetches `GET /form/public/:formLink/prepaid-details` and shows a “Transfer payment to” section above the payment amount and receipt upload.
+   - Displays each bank detail (provider name, account title, account number, IBAN, bank name, instructions). If none are configured, shows a short message that the customer can still place the order and upload a receipt.
+
+**Files modified/added**:
+- `backend/prisma/schema.prisma` – TenantBankDetail model and Tenant.bankDetails relation.
+- `backend/prisma/migrations/20260220000000_add_tenant_bank_details/migration.sql` – new migration.
+- `backend/routes/tenant.js` – CRUD for owner prepaid bank details; clear-all-data deletes TenantBankDetail.
+- `backend/routes/form.js` – public prepaid-details endpoint.
+- `frontend/src/pages/SettingsPage.jsx` – “Payment / Bank Details” tab and add/edit/delete UI.
+- `frontend/src/components/ShoppingCartForm.jsx` – prepaid bank details fetch and “Transfer payment to” block.
+
+**Notes**:
+- Run `npx prisma migrate deploy` (or `npx prisma db push` for dev) to apply the new table. If Prisma generate fails with EPERM, close other processes using the Prisma client and run `npx prisma generate` again.
+- Prepaid flow remains unchanged: customer enters amount and can upload receipt; bank details are for information only so they know where to transfer.
