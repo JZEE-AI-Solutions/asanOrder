@@ -2,8 +2,92 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const productCreationService = require('../services/productCreationService');
 
 const router = express.Router();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/product/quick-add
+// Mobile-first single-shot endpoint for the Quick-Add Product page.
+// Creates Product + ProductImage + PurchaseInvoice + PurchaseItem + ProductLog
+// + ProductEmbedding via the same shared service the AI agent uses.
+// Body: { name, costPrice, sellingPrice, quantity, imageBase64, imageMimeType?, isStitched? }
+// ─────────────────────────────────────────────────────────────────────────────
+router.post(
+  '/quick-add',
+  authenticateToken,
+  requireRole(['BUSINESS_OWNER']),
+  // Allow base64 payloads up to ~7 MB (post-base64 expansion of ~5 MB images)
+  express.json({ limit: '10mb' }),
+  async (req, res) => {
+    try {
+      const tenantId = req.user.tenant?.id;
+      if (!tenantId) return res.status(400).json({ error: 'No tenant for user' });
+
+      const {
+        name,
+        costPrice,
+        sellingPrice,
+        quantity,
+        imageBase64,
+        imageMimeType,
+        isStitched
+      } = req.body || {};
+
+      const cost = parseFloat(costPrice);
+      const sell = parseFloat(sellingPrice);
+      const qty  = parseInt(quantity, 10);
+
+      if (!name || typeof name !== 'string' || name.trim().length < 2) {
+        return res.status(400).json({ error: 'Product name is required (min 2 chars)' });
+      }
+      if (isNaN(cost) || cost <= 0) {
+        return res.status(400).json({ error: 'costPrice must be a positive number' });
+      }
+      if (isNaN(sell) || sell <= 0) {
+        return res.status(400).json({ error: 'sellingPrice must be a positive number' });
+      }
+      if (isNaN(qty) || qty <= 0) {
+        return res.status(400).json({ error: 'quantity must be a positive integer' });
+      }
+      if (sell < cost) {
+        return res.status(400).json({ error: 'sellingPrice should not be less than costPrice' });
+      }
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({ error: 'imageBase64 is required' });
+      }
+
+      // Strip a "data:image/...;base64," prefix if the client sent the data URL form.
+      let cleanedBase64 = imageBase64;
+      let detectedMime = imageMimeType || 'image/jpeg';
+      const dataUrlMatch = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+      if (dataUrlMatch) {
+        detectedMime = imageMimeType || dataUrlMatch[1];
+        cleanedBase64 = dataUrlMatch[2];
+      }
+
+      const result = await productCreationService.addProductToInventory({
+        tenantId,
+        quantity: qty,
+        sessionData: {
+          productCostPrice:    cost,
+          productSellingPrice: sell,
+          newProductName:      name.trim().substring(0, 120),
+          identifiedDress:     name.trim(),
+          originalImageBase64: cleanedBase64,
+          originalMediaType:   detectedMime,
+          isStitched:          !!isStitched,
+          supplierName:        'Quick Add'
+        }
+      });
+
+      return res.json({ success: true, ...result });
+    } catch (err) {
+      console.error('[product/quick-add]', err);
+      return res.status(500).json({ error: 'Failed to add product', message: err.message });
+    }
+  }
+);
 
 // Get all products for a tenant (Business Owner only)
 router.get('/', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {

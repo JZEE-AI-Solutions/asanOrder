@@ -11,6 +11,15 @@ yarn-error.log
 /backend/node_modules/
 /frontend/build/
 /frontend/dist/
+/frontend/dev-dist/
+
+# ML model cache (CLIP-Large, U-2-Net) — downloaded at runtime, ~700 MB
+/backend/.model-cache/
+
+# Claude worktree scratch + local backend logs
+/.claude/
+/backend-out.log
+/backend-err.log
 
 # Production files
 # render.yaml - needed for Render.com deployment

@@ -276,6 +276,28 @@ router.post('/:entityType/:entityId', authenticateToken, async (req, res) => {
         } catch (logError) {
           console.error('Error creating product log for image upload:', logError);
         }
+        // Fire-and-forget: generate CLIP tile embeddings + Lab so the agent
+        // can find this product via visual search. Only do this when the new
+        // image is the PRIMARY one (matching behaviour of the agent OOS-add flow).
+        if (setAsPrimary) {
+          const embeddingService = require('../services/embeddingService');
+          embeddingService.embedImage({
+            base64: imageBuffer.toString('base64'),
+            mimeType: req.body.mimeType
+          })
+            .then(async ({ tiles, meanLab }) => {
+              const tileEmbeddings = embeddingService.flattenTiles(tiles);
+              await prisma.productEmbedding.upsert({
+                where:  { productId: product.id },
+                create: { productId: product.id, tileEmbeddings, embedding: [], meanLab, model: embeddingService.MODEL_ID },
+                update: { tileEmbeddings, embedding: [], meanLab, model: embeddingService.MODEL_ID, updatedAt: new Date() }
+              });
+              console.log(`[images] ✅ Embedding+Lab stored for "${product.name}" via dashboard upload (Lab=[${meanLab.map(x=>x.toFixed(1)).join(',')}])`);
+            })
+            .catch(err => {
+              console.warn(`[images] ⚠️ Embedding failed for "${product.name}":`, err.message);
+            });
+        }
         return res.json({
           success: true,
           message: 'Product media uploaded successfully',
@@ -504,6 +526,7 @@ router.delete('/:entityType/:entityId', authenticateToken, async (req, res) => {
       if (req.user.role !== 'ADMIN' && req.user.tenant?.id !== productImage.product.tenantId) {
         return res.status(403).json({ error: 'Access denied' });
       }
+      const wasPrimary = productImage.isPrimary;
       await prisma.productImage.delete({ where: { id: imageId } });
       try {
         await prisma.productLog.create({
@@ -517,6 +540,40 @@ router.delete('/:entityType/:entityId', authenticateToken, async (req, res) => {
         });
       } catch (logError) {
         console.error('Error creating product log for media deletion:', logError);
+      }
+      // If the deleted image was the primary, the stored embedding is stale.
+      // Promote the next image to primary and re-embed; if no images left,
+      // drop the embedding row so the product won't surface in visual search.
+      if (wasPrimary) {
+        try {
+          const next = await prisma.productImage.findFirst({
+            where: { productId: productImage.productId },
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }]
+          });
+          if (!next) {
+            await prisma.productEmbedding.deleteMany({ where: { productId: productImage.productId } });
+            console.log(`[images] Cleared embedding for "${productImage.product.name}" (no images remaining)`);
+          } else {
+            await prisma.productImage.update({ where: { id: next.id }, data: { isPrimary: true } });
+            const embeddingService = require('../services/embeddingService');
+            embeddingService.embedImage({
+              base64: Buffer.from(next.mediaData).toString('base64'),
+              mimeType: next.mediaType
+            })
+              .then(async ({ tiles, meanLab }) => {
+                const tileEmbeddings = embeddingService.flattenTiles(tiles);
+                await prisma.productEmbedding.upsert({
+                  where:  { productId: productImage.productId },
+                  create: { productId: productImage.productId, tileEmbeddings, embedding: [], meanLab, model: embeddingService.MODEL_ID },
+                  update: { tileEmbeddings, embedding: [], meanLab, model: embeddingService.MODEL_ID, updatedAt: new Date() }
+                });
+                console.log(`[images] ✅ Re-embedded "${productImage.product.name}" from new primary image`);
+              })
+              .catch(err => console.warn(`[images] ⚠️ Re-embedding failed for "${productImage.product.name}":`, err.message));
+          }
+        } catch (e) {
+          console.warn('[images] Embedding cleanup after delete failed:', e.message);
+        }
       }
       return res.json({ message: 'Product media deleted successfully' });
     }

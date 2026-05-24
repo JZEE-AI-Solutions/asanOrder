@@ -1,45 +1,101 @@
-services:
-  # PostgreSQL Database (Render will create this automatically)
-  - type: pspg
-    name: asanorder-db
-    plan: free
-    databaseName: asanorder
-    databaseUser: asanorder_user
+# Render.com Blueprint — AsanOrder
+# ─────────────────────────────────────────────────────────────────────────────
+# Database is HOSTED ON SUPABASE (not Render) — set DATABASE_URL manually in
+# the asanorder-api service from the Supabase connection string.
+#
+# Backend on Render free tier (512 MB RAM):
+#   - CLIP-Large embedding will fail to load → embeddings/visual-search disable
+#     gracefully (chat + dashboard + quick-add still work, just without visual
+#     re-ID for new uploads).
+#   - For full visual matching you'll need to upgrade to Standard ($25/mo, 2 GB).
+# ─────────────────────────────────────────────────────────────────────────────
 
-  # Backend API Service
+services:
+
+  # ── Backend API ────────────────────────────────────────────────────────────
   - type: web
-    name: asanorder-api
+    name: asanOrderAPI
     env: node
     plan: free
-    buildCommand: npm install && cd backend && npm install && npx prisma generate
-    startCommand: cd backend && npx prisma migrate deploy && node server.js
+    region: singapore
+    branch: main
+    rootDir: .
+    buildCommand: |
+      cd backend && \
+      npm ci --no-audit --no-fund && \
+      npx prisma generate && \
+      npx prisma db push --accept-data-loss
+    startCommand: cd backend && node server.js
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: asanorder-db
-          property: connectionString
-      - key: JWT_SECRET
-        generateValue: true
+      - key: NODE_OPTIONS
+        value: "--max-old-space-size=460"        # leave headroom on 512 MB tier
       - key: PORT
         value: 10000
+      # ── Database (Supabase) ──────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false                              # set in dashboard — Supabase pooler URL
+      # ── Auth ─────────────────────────────────────────────────────────
+      - key: JWT_SECRET
+        generateValue: true
+      # ── Uploads (legacy local FS — note free tier disk is ephemeral) ─
       - key: UPLOAD_DIR
         value: uploads
       - key: MAX_FILE_SIZE
         value: 5242880
+      # ── AI Agent ─────────────────────────────────────────────────────
+      - key: AI_PROVIDER
+        value: anthropic                          # switch to openai if needed
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_MODEL
+        value: claude-sonnet-4-20250514
       - key: OPENAI_API_KEY
-        sync: false  # You'll need to set this manually in Render dashboard
+        sync: false                               # optional fallback
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: AGENT_MODE
+        value: supervised
+      - key: AGENT_OWNER_PHONE
+        sync: false
+      # ── WhatsApp Meta Cloud API ──────────────────────────────────────
+      - key: META_ACCESS_TOKEN
+        sync: false                               # rotate every 24h OR use long-lived
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_WABA_ID
+        sync: false
+      - key: WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: WEBHOOK_BASE_URL
+        value: https://asanorderapi.onrender.com  # this service's URL
+      # ── CORS / Frontend ──────────────────────────────────────────────
+      - key: FRONTEND_URL
+        value: https://asanorderui.onrender.com,https://asanorder-ui.onrender.com
 
-  # Frontend Static Site
+  # ── Frontend (Vite SPA + PWA) ──────────────────────────────────────────────
   - type: web
-    name: asanorder-ui
+    name: asanOrderUI
     env: static
-    buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: ./frontend/dist
+    plan: free
+    region: singapore
+    branch: main
+    rootDir: .
+    buildCommand: cd frontend && npm ci --no-audit --no-fund && npm run build
+    staticPublishPath: frontend/dist
+    # SPA fallback so React Router works on hard-refresh
+    routes:
+      - type: rewrite
+        source: /api/*
+        destination: https://asanorderapi.onrender.com/api/:splat
+      - type: rewrite
+        source: /uploads/*
+        destination: https://asanorderapi.onrender.com/uploads/:splat
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: asanorder-api
-          property: host
+        value: https://asanorderapi.onrender.com

@@ -52,11 +52,14 @@ import {
   LazyAccountingSettingsPage,
   LazyAccountLedgerPage,
   LazySupplierLedgerPage,
-  LazyCustomerLedgerPage
+  LazyCustomerLedgerPage,
+  LazyAgentDashboard,
+  LazyQuickAddProductPage
 } from './components/LazyComponents'
 
 // Synchronous components
 import Login from './pages/Login'
+import WebChat from './pages/WebChat'
 import ProtectedRoute from './components/ProtectedRoute'
 
 function App() {
@@ -78,6 +81,9 @@ function App() {
                   <LazyOrderReceipt />
                 </SuspenseWrapper>
               } />
+
+              {/* Public AI Agent chat (PWA) */}
+              <Route path="/chat/:businessCode" element={<WebChat />} />
 
               {/* Protected routes */}
               <Route path="/admin" element={
@@ -240,6 +246,15 @@ function App() {
                 </ProtectedRoute>
               } />
 
+              {/* Quick Add — mobile-first single-screen flow */}
+              <Route path="/business/quick-add" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyQuickAddProductPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
               <Route path="/business/products/:productId/edit" element={
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
@@ -396,6 +411,15 @@ function App() {
                 <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
                   <SuspenseWrapper>
                     <LazyAccountLedgerPage />
+                  </SuspenseWrapper>
+                </ProtectedRoute>
+              } />
+
+              {/* AI Agent Dashboard */}
+              <Route path="/business/agent" element={
+                <ProtectedRoute allowedRoles={['BUSINESS_OWNER']}>
+                  <SuspenseWrapper>
+                    <LazyAgentDashboard />
                   </SuspenseWrapper>
                 </ProtectedRoute>
               } />

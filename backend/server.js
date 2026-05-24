@@ -3,7 +3,7 @@ const cors = require('cors');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 const authRoutes = require('./routes/auth');
 const tenantRoutes = require('./routes/tenant');
@@ -19,6 +19,7 @@ const imageRoutes = require('./routes/images');
 const customerRoutes = require('./routes/customer');
 const shippingRoutes = require('./routes/shipping');
 const accountingRoutes = require('./routes/accounting');
+const agentRoutes = require('./routes/agent');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,6 +66,7 @@ app.use('/api/images', imageRoutes);
 app.use('/api/customer', customerRoutes);
 app.use('/api/shipping', shippingRoutes);
 app.use('/api/accounting', accountingRoutes);
+app.use('/api/agent', agentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -85,7 +87,33 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Route not found' });
 });
 
-app.listen(PORT, () => {
+const db = require('./lib/db');
+
+app.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📁 Uploads directory: ${uploadsDir}`);
+  try {
+    await db.$connect();
+    console.log('✅ Connected to PostgreSQL successfully');
+    const agentConfigCount = await db.agentConfig.count();
+    console.log(`🤖 AI Agent: ${agentConfigCount} tenant(s) configured`);
+    const { getProviderInfo } = require('./services/aiService');
+    const info = getProviderInfo();
+    console.log(`🧠 AI Provider: ${info.provider.toUpperCase()} (${info.model})`);
+
+    // Prune expired agent sessions on startup
+    try {
+      const pruned = await db.agentSession.updateMany({
+        where: { expiresAt: { lt: new Date() }, isActive: true },
+        data:  { isActive: false }
+      });
+      if (pruned.count > 0) {
+        console.log(`🧹 Deactivated ${pruned.count} expired agent session(s)`);
+      }
+    } catch (pruneErr) {
+      console.warn('⚠️ Session cleanup skipped (table may not exist yet):', pruneErr.message);
+    }
+  } catch (err) {
+    console.error('❌ DB connection error:', err.message);
+  }
 });

@@ -57,6 +57,8 @@ model Tenant {
   profitDistributions    ProfitDistribution[]
   withdrawals            Withdrawal[]
   bankDetails            TenantBankDetail[]
+  agentSessions          AgentSession[]
+  agentConfig            AgentConfig?
   owner                  User                 @relation(fields: [ownerId], references: [id], onUpdate: NoAction)
 
   @@map("tenants")
@@ -227,12 +229,28 @@ model Product {
   useDefaultShipping            Boolean             @default(true)
   productLogs                   ProductLog[]
   productImages                 ProductImage[]
+  embedding                     ProductEmbedding?
   variants                      ProductVariant[]
   orderItems                    OrderItem[]
   tenant                        Tenant              @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
   purchaseItems                 PurchaseItem[]
 
   @@map("products")
+}
+
+model ProductEmbedding {
+  id             String   @id @default(cuid())
+  productId      String   @unique
+  embedding      Float[]  // legacy mean-pool vector (kept for back-compat; no longer queried)
+  tileEmbeddings Float[]  // 5 tiles × 768 dims flattened = 3840 L2-normalised floats
+  meanLab        Float[]  // [L, a, b] dominant color of segmented torso region
+  model          String   @default("clip-vit-large-patch14")
+  imageHash      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  product        Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("product_embeddings")
 }
 
 model ProductImage {
@@ -747,4 +765,68 @@ model ProductVariantImage {
 
   @@index([productVariantId])
   @@map("product_variant_images")
+}
+
+// ─── AI WhatsApp Agent ────────────────────────────────────────────────────────
+
+model AgentConfig {
+  id                String   @id @default(cuid())
+  tenantId          String   @unique
+  mode              String   @default("supervised") // supervised | direct
+  ownerPhone        String   // whitelisted number in supervised mode (e.g. "923001234567")
+  aiProvider        String   @default("anthropic")  // anthropic | openai
+  aiModel           String   @default("claude-3-5-sonnet-20241022")
+  isEnabled         Boolean  @default(true)
+  packingTeamPhone  String?  // WhatsApp number/group for packing notifications
+  deliveryTeamPhone String?  // WhatsApp number for delivery notifications
+  greeting          String?  @db.Text // Custom greeting message
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+
+  @@map("agent_configs")
+}
+
+model AgentSession {
+  id                  String         @id @default(cuid())
+  tenantId            String
+  fromPhone           String         // supervised: owner's phone | direct: customer's phone
+  actualCustomerPhone String?        // supervised only: the real customer's phone
+  actualCustomerName  String?        // supervised only: the real customer's name
+  state               String         @default("IDLE")
+  // States: IDLE | CHECKING_STOCK | COLLECTING_NAME | COLLECTING_ADDRESS
+  //         COLLECTING_CITY | COLLECTING_PHONE | AWAITING_PAYMENT
+  //         VERIFYING_PAYMENT | CONFIRMED | CANCELLED
+  sessionData         String         @default("{}") @db.Text  // JSON: accumulated order info
+  messageHistory      String         @default("[]") @db.Text  // JSON: [{role,content}] for AI context
+  pendingOrderId      String?        // Order created once phone is collected
+  customerId          String?        // Customer record linked to this session
+  mode                String         @default("supervised")
+  isActive            Boolean        @default(true)
+  expiresAt           DateTime       // Reset 24h on each message
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  tenant              Tenant         @relation(fields: [tenantId], references: [id], onUpdate: NoAction)
+  messages            AgentMessage[]
+
+  @@unique([tenantId, fromPhone, isActive])
+  @@index([tenantId, state])
+  @@index([tenantId, isActive])
+  @@map("agent_sessions")
+}
+
+model AgentMessage {
+  id          String       @id @default(cuid())
+  sessionId   String
+  direction   String       // INBOUND | OUTBOUND
+  messageType String       // TEXT | IMAGE | COMMAND
+  content     String       @db.Text
+  imageUrl    String?
+  twilioSid   String?      // Twilio message SID for delivery tracking
+  createdAt   DateTime     @default(now())
+  session     AgentSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sessionId])
+  @@index([sessionId, createdAt])
+  @@map("agent_messages")
 }

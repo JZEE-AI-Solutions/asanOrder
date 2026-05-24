@@ -34,6 +34,7 @@ export const LazyAddSupplierPage = lazy(() => import('../pages/AddSupplierPage')
 export const LazyEditSupplierPage = lazy(() => import('../pages/EditSupplierPage'))
 export const LazySupplierDetailsPage = lazy(() => import('../pages/SupplierDetailsPage'))
 export const LazyAddProductPage = lazy(() => import('../pages/AddProductPage'))
+export const LazyQuickAddProductPage = lazy(() => import('../pages/QuickAddProductPage'))
 export const LazyEditProductPage = lazy(() => import('../pages/EditProductPage'))
 export const LazyAddPurchasePage = lazy(() => import('../pages/AddPurchasePage'))
 export const LazyProductManagementPage = lazy(() => import('../pages/ProductManagementPage'))
@@ -59,6 +60,9 @@ export const LazyProductHistoryModal = lazy(() => import('./ProductHistoryModal'
 export const LazyProductImageUpload = lazy(() => import('./ProductImageUpload'))
 export const LazyPurchaseInvoiceModal = lazy(() => import('./PurchaseInvoiceModal'))
 export const LazyReturnsManagement = lazy(() => import('./ReturnsManagement'))
+
+// AI Agent
+export const LazyAgentDashboard = lazy(() => import('../pages/AgentDashboard'))
 
 // Lazy load forms
 export const LazyClientFormDynamic = lazy(() => import('../pages/ClientFormDynamic'))

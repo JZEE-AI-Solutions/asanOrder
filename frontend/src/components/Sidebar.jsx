@@ -16,7 +16,8 @@ import {
     CogIcon,
     CalculatorIcon,
     ArrowPathIcon,
-    UserCircleIcon
+    UserCircleIcon,
+    SparklesIcon
 } from '@heroicons/react/24/outline';
 
 const Sidebar = ({ onLogout, isOpen, onClose }) => {
@@ -43,6 +44,7 @@ const Sidebar = ({ onLogout, isOpen, onClose }) => {
     const configItems = [
         { name: 'Order Forms', icon: DocumentTextIcon, path: '/business/forms' },
         { name: 'Accounting', icon: CalculatorIcon, path: '/business/accounting' },
+        { name: 'AI Agent', icon: SparklesIcon, path: '/business/agent' },
         { name: 'Settings', icon: CogIcon, path: '/business/settings' },
     ];
 
