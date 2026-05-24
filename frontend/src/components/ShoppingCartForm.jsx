@@ -572,8 +572,18 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     }
   }
 
-  // Desired order for customer info: Customer Name, Phone Number, Shipping Address, City, CNIC, Email
-  const CUSTOMER_FIELD_ORDER = ['Customer Name', 'Phone Number', 'Shipping Address', 'City', 'CNIC', 'Email Address']
+  // Desired order for customer info: Customer Name, Phone Number, Address, City, CNIC, Email.
+  // The address field label can be "Shipping Address" or "Delivery Address" depending
+  // on which form template the tenant was provisioned with — both must render.
+  const CUSTOMER_FIELD_ORDER = [
+    'Customer Name',
+    'Phone Number',
+    'Delivery Address',
+    'Shipping Address',
+    'City',
+    'CNIC',
+    'Email Address'
+  ]
 
   /** Pakistan CNIC: 13 digits, format XXXXX-XXXXXXX-X (5-7-1). Optional field. */
   const validateCNIC = (value) => {

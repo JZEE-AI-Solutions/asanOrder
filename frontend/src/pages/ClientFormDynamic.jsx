@@ -676,11 +676,12 @@ const ClientFormDynamic = () => {
   }
 
   // Group fields by sections - use more precise filtering to avoid duplicates
-  const customerFields = form.fields.filter(f => 
+  const customerFields = form.fields.filter(f =>
     f.label.toLowerCase() === 'customer name' ||
     f.label.toLowerCase() === 'email address' ||
     f.label.toLowerCase() === 'phone number' ||
-    f.label.toLowerCase() === 'shipping address'
+    f.label.toLowerCase() === 'shipping address' ||
+    f.label.toLowerCase() === 'delivery address'
   )
   const dressFields = form.fields.filter(f => 
     f.label.toLowerCase().includes('size') ||
