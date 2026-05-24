@@ -80,7 +80,7 @@ services:
       - key: WEBHOOK_VERIFY_TOKEN
         sync: false
       - key: WEBHOOK_BASE_URL
-        value: https://asanorderapi.onrender.com  # this service's URL
+        value: https://asanorder.onrender.com  # this service's URL
       # ── CORS / Frontend ──────────────────────────────────────────────
       - key: FRONTEND_URL
         value: https://asanorderui.onrender.com,https://asanorder-ui.onrender.com
@@ -99,13 +99,13 @@ services:
     routes:
       - type: rewrite
         source: /api/*
-        destination: https://asanorderapi.onrender.com/api/:splat
+        destination: https://asanorder.onrender.com/api/:splat
       - type: rewrite
         source: /uploads/*
-        destination: https://asanorderapi.onrender.com/uploads/:splat
+        destination: https://asanorder.onrender.com/uploads/:splat
       - type: rewrite
         source: /*
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        value: https://asanorderapi.onrender.com
+        value: https://asanorder.onrender.com
