@@ -1,7 +1,8 @@
 # Render.com Blueprint — AsanOrder
 # ─────────────────────────────────────────────────────────────────────────────
-# Database is HOSTED ON SUPABASE (not Render) — set DATABASE_URL manually in
-# the asanorder-api service from the Supabase connection string.
+# Database is Render-managed Postgres (free tier — 1 GB, 90-day expiry).
+# Create it in the dashboard first, then set DATABASE_URL on the API service
+# from its "Internal Database URL".
 #
 # Backend on Render free tier (512 MB RAM):
 #   - CLIP-Large embedding will fail to load → embeddings/visual-search disable
@@ -9,6 +10,13 @@
 #     re-ID for new uploads).
 #   - For full visual matching you'll need to upgrade to Standard ($25/mo, 2 GB).
 # ─────────────────────────────────────────────────────────────────────────────
+
+databases:
+  - name: asanorder-db
+    plan: free
+    region: singapore
+    databaseName: asanorder
+    user: asanorder_user
 
 services:
 
@@ -34,9 +42,11 @@ services:
         value: "--max-old-space-size=460"        # leave headroom on 512 MB tier
       - key: PORT
         value: 10000
-      # ── Database (Supabase) ──────────────────────────────────────────
+      # ── Database (Render Postgres) ───────────────────────────────────
       - key: DATABASE_URL
-        sync: false                              # set in dashboard — Supabase pooler URL
+        fromDatabase:
+          name: asanorder-db
+          property: connectionString
       # ── Auth ─────────────────────────────────────────────────────────
       - key: JWT_SECRET
         generateValue: true

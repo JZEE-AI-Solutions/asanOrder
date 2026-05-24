@@ -1,7 +1,8 @@
-# Render Re-Deploy Runbook (with Supabase DB)
+# Render Re-Deploy Runbook (with Render Postgres)
 
 This is the **exact step-by-step** to get your latest commit live on Render with
-a brand-new Supabase Postgres. Estimated time: **20–30 minutes**.
+a Render-managed Postgres (restore the suspended one or create a new free one).
+Estimated time: **20–30 minutes**.
 
 > **Free-tier caveat:** CLIP-Large (~600 MB model, ~800 MB peak RAM) will most
 > likely fail to load on Render's 512 MB free tier. The agent has been hardened
@@ -35,31 +36,34 @@ git push origin main                        # or whichever branch your services 
 
 ---
 
-## Step 1 — Create the Supabase database (5 min)
+## Step 1 — Render Postgres database (5 min)
 
-1. Go to <https://supabase.com> → sign in → **New project**.
-2. Name: `asanorder`. Region: **Singapore** (matches your Render services).
-   Database password: **generate strong; save in a password manager**.
-3. Wait ~2 min for provisioning.
-4. In the project: **Settings → Database → Connection string → URI** (use the
-   **"Transaction" pooler** entry; it has port `6543`).
-5. Copy it. It looks like:
-   ```
-   postgresql://postgres.<ref>:<password>@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
-   ```
-6. **Append the pooler-safety params**:
-   ```
-   ?pgbouncer=true&connection_limit=1
-   ```
-   So your final URL is:
-   ```
-   postgresql://postgres.<ref>:<password>@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
-   ```
-   Save this string — you'll paste it into Render in Step 3 as `DATABASE_URL`.
+Two paths depending on whether you have a usable suspended DB:
 
-> Why the pooler URL with `pgbouncer=true`? Render free-tier instances spin
-> down; the pooler keeps lots of short-lived connections cheap and avoids
-> Prisma's prepared-statement issues with PgBouncer.
+**Path A — Restore the suspended DB (if it's recent)**
+1. Render dashboard → **Suspended** tab → click the row.
+2. If it shows a **Resume** or **Restore** button → click it. The DB comes back
+   with old data. Schema differences are reconciled in Step 3 by `prisma db push`.
+3. Open the DB → copy the **Internal Database URL**. It looks like:
+   ```
+   postgresql://asanorder_user:xxxxxxxx@dpg-xxxxx-a/asanorder
+   ```
+   Save it for Step 3.
+
+**Path B — Create a new free Postgres (clean slate)**
+1. Render dashboard → **New +** → **PostgreSQL**.
+2. Name: `asanorder-db`. Database: `asanorder`. User: `asanorder_user`.
+   Region: **Singapore** (matches your services). PostgreSQL version: **16**.
+   Plan: **Free**.
+3. Click **Create Database**. Wait ~1 min for provisioning.
+4. On the DB's overview page, copy the **Internal Database URL** (starts with
+   `postgresql://asanorder_user:...`). Save it for Step 3.
+
+> Use the **Internal** URL (not External). Internal works only inside Render's
+> network, which is what `asanOrderAPI` needs and is faster than External.
+> Free Render Postgres has a **90-day expiry** — after that you'll need to
+> create a new one or upgrade. Schema is reapplied each deploy via
+> `prisma db push`, so a fresh DB just needs a one-time seed.
 
 ---
 
@@ -101,7 +105,7 @@ Skip this step if you're OK rotating the 24 h token manually.
    | `NODE_ENV` | `production` |
    | `NODE_OPTIONS` | `--max-old-space-size=460` |
    | `PORT` | `10000` |
-   | `DATABASE_URL` | *(Supabase URL from Step 1)* **SECRET** |
+   | `DATABASE_URL` | *(Internal Database URL from Step 1)* **SECRET** |
    | `JWT_SECRET` | *(click "Generate" if not already set)* |
    | `UPLOAD_DIR` | `uploads` |
    | `MAX_FILE_SIZE` | `5242880` |
@@ -131,6 +135,11 @@ If you see `prisma db push` errors, the most common cause is a stale
 `DATABASE_URL`. Verify the value in Render, redeploy. If you see
 `@xenova/transformers` install errors, ignore — model is downloaded lazily
 on first dress photo, not at install time.
+
+If you reused the suspended DB (Path A) and `db push` complains about column
+type mismatches or missing constraints, add `--accept-data-loss` to your
+build command (it already is in the template) — Prisma will drop the
+incompatible parts and recreate. Data in unrelated tables is preserved.
 
 ---
 
@@ -200,19 +209,20 @@ The build will pull the new vite-plugin-pwa config and emit `dist/sw.js` +
 
 ## Step 7 — Seed users (one-time, only if DB is brand new)
 
-If Step 3 ran `db push` against a fresh Supabase DB, you'll need the seed users
-that local dev relied on:
+Skip this if you restored a suspended DB that already has users.
 
-1. Render dashboard → **asanOrderAPI** → **Shell** (free tier doesn't have Shell;
-   use **Run a one-off command** instead, or run from your laptop pointing at
-   the Supabase DB):
+If you went with Path B (new free Postgres), seed the admin + business owner + stockkeeper users:
+
+1. From your laptop, point Prisma at the new DB's **External** URL (External
+   works from outside Render; Internal only works from inside Render's network):
+   - Render dashboard → asanorder-db → copy **External Database URL**.
+2. Run the seed:
    ```powershell
-   # locally, with the Supabase URL temporarily in .env
    cd D:\JZProjects\asanOrder\.claude\worktrees\great-williamson-14a827\backend
-   $env:DATABASE_URL="<supabase URL with pgbouncer params>"
+   $env:DATABASE_URL="<external Render Postgres URL>"
    node prisma/seed.js
    ```
-2. This creates `admin@asanorder.com`, `business@dressshop.com`, `stockkeeper@asanorder.com`
+3. This creates `admin@asanorder.com`, `business@dressshop.com`, `stockkeeper@asanorder.com`
    with the seeded passwords printed at the end.
 
 > After seeding, **unset** the DATABASE_URL from your local shell so you don't
@@ -242,7 +252,7 @@ that local dev relied on:
 |---|---|
 | Backend health | `https://asanorderapi.onrender.com/api/health` |
 | Real-time logs | Render dashboard → asanOrderAPI → Logs |
-| DB stats (storage, connections) | Supabase dashboard → Database → Reports |
+| DB stats (storage, connections) | Render dashboard → asanorder-db → Metrics |
 | Agent vector-search behaviour | grep `Tile-MAX search` in API logs |
 | Webhook hits | grep `[agent/webhook]` in API logs |
 | PWA SW status | Open the deployed UI → Chrome DevTools → Application → Service Workers |
@@ -255,4 +265,5 @@ If a new deploy breaks something:
    deploy → **Rollback to this deploy**.
 2. For schema changes, Prisma's `db push` is non-destructive *except* for the
    `--accept-data-loss` flag which only drops columns/tables that vanished from
-   the schema. Take a Supabase snapshot before any large schema move.
+   the schema. Take a Render DB **manual backup** (dashboard → asanorder-db →
+   Backups → Create) before any large schema move.
