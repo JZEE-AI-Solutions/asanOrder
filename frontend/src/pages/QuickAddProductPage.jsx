@@ -16,7 +16,7 @@
  */
 import { useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import api from '../services/api'
 import toast from 'react-hot-toast'
 
 function fileToBase64 (file) {
@@ -79,7 +79,9 @@ export default function QuickAddProductPage () {
     setSaving(true)
     const t = toast.loading('Saving product…')
     try {
-      const { data } = await axios.post('/api/product/quick-add', {
+      // `api` instance auto-injects the JWT from localStorage and the
+      // VITE_API_URL baseURL ('/api/...' becomes absolute in production).
+      const { data } = await api.post('/product/quick-add', {
         name: name.trim(),
         costPrice:    parseFloat(costPrice),
         sellingPrice: parseFloat(sellPrice),

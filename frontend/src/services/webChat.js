@@ -5,7 +5,9 @@
  */
 import axios from 'axios'
 
-const API = '/api/agent/web'
+// Use VITE_API_URL when set (production), otherwise rely on Vite's proxy (dev).
+const API_BASE = (import.meta.env && import.meta.env.VITE_API_URL) || ''
+const API = `${API_BASE}/api/agent/web`
 const storageKey = (code) => `asanchat:webId:${code}`
 
 export function getStoredWebId (businessCode) {
