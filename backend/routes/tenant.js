@@ -410,7 +410,11 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
     try {
       const formLink = crypto.randomBytes(16).toString('hex');
       
-      // Default form fields for shopping cart
+      // Default form fields for shopping cart.
+      // Note: Two distinct phone fields:
+      //   - "Customer Phone" identifies the buyer (used for customer record lookup).
+      //   - "Shipping Phone" is the contact number the courier should call on delivery
+      //     (often the same as Customer Phone, sometimes a recipient/relative).
       const defaultFields = [
         {
           label: 'Customer Name',
@@ -420,32 +424,39 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
           order: 0
         },
         {
-          label: 'Phone Number',
+          label: 'Customer Phone',
           fieldType: 'PHONE',
           isRequired: true,
-          placeholder: 'Enter your phone number',
+          placeholder: 'e.g. 03001234567',
           order: 1
+        },
+        {
+          label: 'Shipping Phone',
+          fieldType: 'PHONE',
+          isRequired: true,
+          placeholder: 'Courier contact (same as customer if no other)',
+          order: 2
         },
         {
           label: 'Email Address',
           fieldType: 'EMAIL',
           isRequired: false,
           placeholder: 'Enter your email',
-          order: 2
+          order: 3
         },
         {
           label: 'Delivery Address',
           fieldType: 'TEXTAREA',
           isRequired: true,
           placeholder: 'Enter complete delivery address',
-          order: 3
+          order: 4
         },
         {
           label: 'City',
           fieldType: 'TEXT',
           isRequired: true,
           placeholder: 'Enter your city',
-          order: 4
+          order: 5
         }
       ];
 

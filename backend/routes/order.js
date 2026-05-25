@@ -86,21 +86,37 @@ router.post('/submit', [
       });
     }
 
-    // Extract phone number for customer lookup
+    // Extract phone number for customer record lookup.
+    // Forms may have BOTH "Customer Phone" (buyer identity) AND "Shipping Phone"
+    // (courier contact). The buyer's phone is what identifies the customer in DB.
+    // Legacy forms used "Phone Number" — supported for back-compat.
     let phoneNumber = null;
-    const phoneField = form.fields.find(field =>
+    const phoneFields = form.fields.filter(field =>
       field.fieldType === 'PHONE' ||
       field.label.toLowerCase().includes('phone') ||
       field.label.toLowerCase().includes('mobile') ||
       field.label.toLowerCase().includes('contact')
     );
 
-    console.log('Phone field found:', phoneField);
+    // Priority order: Customer Phone > Phone Number (legacy) > Mobile > anything else
+    // Avoid using Shipping Phone for identity — it may differ from the buyer's number.
+    const scorePhoneField = (label) => {
+      const lower = (label || '').toLowerCase();
+      if (lower === 'customer phone' || lower === 'customer mobile') return 100;
+      if (lower === 'phone number' || lower === 'mobile number') return 80;
+      if (lower.includes('shipping') || lower.includes('delivery') || lower.includes('courier')) return 10;
+      return 50;
+    };
+    const phoneField = phoneFields
+      .slice()
+      .sort((a, b) => scorePhoneField(b.label) - scorePhoneField(a.label))[0];
+
+    console.log('Phone field selected for customer identity:', phoneField?.label);
     console.log('Form data keys:', Object.keys(formData));
 
     if (phoneField && formData[phoneField.label]) {
       phoneNumber = formData[phoneField.label].trim();
-      console.log('Phone number extracted:', phoneNumber);
+      console.log('Customer phone extracted:', phoneNumber);
     } else {
       console.log('No phone number found in form data');
     }

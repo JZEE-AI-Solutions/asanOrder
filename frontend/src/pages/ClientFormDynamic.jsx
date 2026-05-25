@@ -679,6 +679,8 @@ const ClientFormDynamic = () => {
   const customerFields = form.fields.filter(f =>
     f.label.toLowerCase() === 'customer name' ||
     f.label.toLowerCase() === 'email address' ||
+    f.label.toLowerCase() === 'customer phone' ||
+    f.label.toLowerCase() === 'shipping phone' ||
     f.label.toLowerCase() === 'phone number' ||
     f.label.toLowerCase() === 'shipping address' ||
     f.label.toLowerCase() === 'delivery address'

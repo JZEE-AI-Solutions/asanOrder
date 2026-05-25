@@ -572,12 +572,14 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
     }
   }
 
-  // Desired order for customer info: Customer Name, Phone Number, Address, City, CNIC, Email.
-  // The address field label can be "Shipping Address" or "Delivery Address" depending
-  // on which form template the tenant was provisioned with — both must render.
+  // Desired order for customer info. Multiple labels are listed for each slot
+  // because templates have evolved over time and tenants may still have legacy
+  // labels in their stored forms — render whichever the form actually has.
   const CUSTOMER_FIELD_ORDER = [
     'Customer Name',
-    'Phone Number',
+    'Customer Phone',     // new: buyer identity
+    'Phone Number',       // legacy alias
+    'Shipping Phone',     // new: courier contact (may differ from buyer)
     'Delivery Address',
     'Shipping Address',
     'City',
