@@ -3,12 +3,18 @@
  *   - "Customer Phone"  (renamed from "Phone Number" if present)
  *   - "Shipping Phone"  (inserted if missing)
  *
+ * Also refreshes both fields' placeholders to the latest copy so existing
+ * tenants get the clearer "WhatsApp" / "courier" hints.
+ *
  * Usage:
  *   node scripts/add-shipping-phone-field.js [businessCode?]
  *
  * Idempotent — safe to re-run.
  */
 const prisma = require('../lib/db')
+
+const CUSTOMER_PHONE_PLACEHOLDER = 'WhatsApp number we contact you on (e.g. 03001234567)'
+const SHIPPING_PHONE_PLACEHOLDER = "Number the courier calls on delivery (same as customer if you'll receive it)"
 
 ;(async () => {
   const businessCode = process.argv[2]
@@ -43,20 +49,24 @@ const prisma = require('../lib/db')
       if (!hasCustomerPhone && legacyPhone) {
         await prisma.formField.update({
           where: { id: legacyPhone.id },
-          data: { label: 'Customer Phone' }
+          data: { label: 'Customer Phone', placeholder: CUSTOMER_PHONE_PLACEHOLDER }
         })
-        console.log('    ✓ Renamed "Phone Number" → "Customer Phone"')
+        console.log('    ✓ Renamed "Phone Number" → "Customer Phone" (+ placeholder)')
       } else if (hasCustomerPhone) {
-        console.log('    · "Customer Phone" already present')
+        // refresh placeholder so existing tenants get the clearer copy
+        await prisma.formField.update({
+          where: { id: byLabel['customer phone'].id },
+          data: { placeholder: CUSTOMER_PHONE_PLACEHOLDER }
+        })
+        console.log('    · "Customer Phone" already present (placeholder refreshed)')
       } else {
         // no phone at all — insert Customer Phone
-        const maxOrder = Math.max(0, ...form.fields.map(f => f.order || 0))
         await prisma.formField.create({
           data: {
             label: 'Customer Phone',
             fieldType: 'PHONE',
             isRequired: true,
-            placeholder: 'e.g. 03001234567',
+            placeholder: CUSTOMER_PHONE_PLACEHOLDER,
             order: 1,
             formId: form.id
           }
@@ -85,14 +95,19 @@ const prisma = require('../lib/db')
             label: 'Shipping Phone',
             fieldType: 'PHONE',
             isRequired: true,
-            placeholder: 'Courier contact (same as customer if no other)',
+            placeholder: SHIPPING_PHONE_PLACEHOLDER,
             order: afterOrder + 1,
             formId: form.id
           }
         })
         console.log('    ✓ Inserted "Shipping Phone"')
       } else {
-        console.log('    · "Shipping Phone" already present')
+        // refresh placeholder
+        await prisma.formField.update({
+          where: { id: byLabel['shipping phone'].id },
+          data: { placeholder: SHIPPING_PHONE_PLACEHOLDER }
+        })
+        console.log('    · "Shipping Phone" already present (placeholder refreshed)')
       }
     }
   }

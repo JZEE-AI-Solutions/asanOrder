@@ -427,14 +427,14 @@ router.post('/', authenticateToken, requireRole(['ADMIN']), [
           label: 'Customer Phone',
           fieldType: 'PHONE',
           isRequired: true,
-          placeholder: 'e.g. 03001234567',
+          placeholder: 'WhatsApp number we contact you on (e.g. 03001234567)',
           order: 1
         },
         {
           label: 'Shipping Phone',
           fieldType: 'PHONE',
           isRequired: true,
-          placeholder: 'Courier contact (same as customer if no other)',
+          placeholder: "Number the courier calls on delivery (same as customer if you'll receive it)",
           order: 2
         },
         {
