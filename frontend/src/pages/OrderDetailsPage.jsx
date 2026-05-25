@@ -789,7 +789,18 @@ const OrderDetailsPage = () => {
         
         // Get recipient details
         const customerName = formData['Customer Name'] || formData['Name'] || formData['Full Name'] || 'N/A'
-        const phoneNumber = formData['Phone Number'] || formData['Mobile Number'] || formData['Contact Number'] || formData['Phone'] || 'N/A'
+        // For the shipping receipt, prefer the Shipping Phone (the number the
+        // courier will call on delivery). Fall back to Customer Phone, then to
+        // legacy field names for older orders.
+        const phoneNumber =
+          formData['Shipping Phone'] ||
+          formData['Delivery Phone'] ||
+          formData['Customer Phone'] ||
+          formData['Phone Number'] ||
+          formData['Mobile Number'] ||
+          formData['Contact Number'] ||
+          formData['Phone'] ||
+          'N/A'
         const shippingAddress = formData['Shipping Address'] || formData['Address'] || formData['Delivery Address'] || 'N/A'
         const city = formData['City'] || formData['City Name'] || ''
         
