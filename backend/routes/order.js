@@ -62,12 +62,37 @@ router.post('/submit', [
       return res.status(404).json({ error: 'Form not found or not published' });
     }
 
+    // Cash on Delivery = no upfront payment, so payment amount / receipt are
+    // not applicable. Anything not clearly a prepaid/online method is COD.
+    const isCOD = !paymentMethod || /cod|cash|delivery/i.test(String(paymentMethod));
+
+    // On SHOPPING_CART forms each product carries its own variant selection,
+    // so a single form-level product-attribute dropdown (Size/Color) is not
+    // collected during checkout and must not block the order.
+    const isCartForm = form.formCategory === 'SHOPPING_CART';
+    const PRODUCT_ATTRIBUTE_LABELS = ['size', 'color', 'colour', 'variant'];
+
     // Validate required fields
     const requiredFields = form.fields.filter(field => field.isRequired);
     const missingFields = requiredFields.filter(field => {
+      const label = (field.label || '').toLowerCase();
+
+      // Payment amount / receipt only matter for prepaid — skip for COD.
+      if (isCOD && (field.fieldType === 'AMOUNT' ||
+                    label.includes('payment amount') ||
+                    label.includes('payment receipt'))) {
+        return false;
+      }
+
+      // Product-attribute dropdowns on cart forms are covered by per-product variants.
+      if (isCartForm && field.fieldType === 'DROPDOWN' &&
+          PRODUCT_ATTRIBUTE_LABELS.some(a => label.includes(a))) {
+        return false;
+      }
+
       if (field.fieldType === 'FILE_UPLOAD') {
         // For file uploads, check if images array is provided and not empty
-        if (field.label.toLowerCase().includes('image') || field.label.toLowerCase().includes('dress')) {
+        if (label.includes('image') || label.includes('dress')) {
           return !images || images.length === 0;
         }
         // For receipt uploads, they're usually optional or handled separately
