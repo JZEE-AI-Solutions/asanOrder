@@ -19,6 +19,58 @@ class StockValidationService {
   }
 
   /**
+   * Compute stock already committed to CONFIRMED / DISPATCHED / COMPLETED orders.
+   * Returns two maps: allocatedStock (productId -> qty) and
+   * allocatedVariantStock (variantId -> qty). Shared by validation and the
+   * public catalog so "available" stock is consistent everywhere.
+   * @param {string} tenantId
+   * @returns {Promise<{allocatedStock: Object, allocatedVariantStock: Object}>}
+   */
+  async getAllocatedStock(tenantId) {
+    const allocatedStock = {};
+    const allocatedVariantStock = {};
+
+    const confirmedOrders = await prisma.order.findMany({
+      where: {
+        tenantId,
+        status: { in: ['CONFIRMED', 'DISPATCHED', 'COMPLETED'] }
+      },
+      select: {
+        selectedProducts: true,
+        productQuantities: true,
+        orderItems: { select: { productId: true, productVariantId: true, quantity: true } }
+      }
+    });
+
+    for (const order of confirmedOrders) {
+      if (order.orderItems && order.orderItems.length > 0) {
+        for (const oi of order.orderItems) {
+          if (oi.productVariantId) {
+            allocatedVariantStock[oi.productVariantId] = (allocatedVariantStock[oi.productVariantId] || 0) + oi.quantity;
+          } else if (oi.productId) {
+            allocatedStock[oi.productId] = (allocatedStock[oi.productId] || 0) + oi.quantity;
+          }
+        }
+      } else {
+        const orderProducts = this.parseJSON(order.selectedProducts) || [];
+        const orderQuantities = this.parseJSON(order.productQuantities) || {};
+        for (const product of orderProducts) {
+          const productId = product.id || product;
+          const variantId = product.variantId || product.productVariantId;
+          const quantity = orderQuantities[productId] || product.quantity || 1;
+          if (variantId) {
+            allocatedVariantStock[variantId] = (allocatedVariantStock[variantId] || 0) + quantity;
+          } else {
+            allocatedStock[productId] = (allocatedStock[productId] || 0) + quantity;
+          }
+        }
+      }
+    }
+
+    return { allocatedStock, allocatedVariantStock };
+  }
+
+  /**
    * Validate stock availability for order products
    * @param {string} tenantId - Tenant ID
    * @param {Array|string} selectedProducts - Selected products

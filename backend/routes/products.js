@@ -1,8 +1,43 @@
 const express = require('express');
 const prisma = require('../lib/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const stockValidationService = require('../services/stockValidationService');
 
 const router = express.Router();
+
+/**
+ * Adjust a formatted product list so `currentQuantity` (per variant and per
+ * product) reflects EFFECTIVE available stock = raw − stock already committed
+ * to CONFIRMED/DISPATCHED/COMPLETED orders. Used by the public catalog so a
+ * customer can't add items that are actually sold out. Mutates + returns the list.
+ */
+async function applyEffectiveStock(formattedProducts, tenantId) {
+  if (!tenantId || !Array.isArray(formattedProducts) || formattedProducts.length === 0) {
+    return formattedProducts;
+  }
+  try {
+    const { allocatedStock, allocatedVariantStock } = await stockValidationService.getAllocatedStock(tenantId);
+    for (const p of formattedProducts) {
+      if (p.hasVariants && Array.isArray(p.variants) && p.variants.length > 0) {
+        let effTotal = 0;
+        for (const v of p.variants) {
+          const raw = v.currentQuantity || 0;
+          const eff = Math.max(0, raw - (allocatedVariantStock[v.id] || 0));
+          v.currentQuantity = eff;
+          effTotal += eff;
+        }
+        p.totalVariantStock = effTotal;
+        p.currentQuantity = effTotal; // product-level mirrors effective variant total
+      } else {
+        const raw = p.currentQuantity || 0;
+        p.currentQuantity = Math.max(0, raw - (allocatedStock[p.id] || 0));
+      }
+    }
+  } catch (e) {
+    console.warn('[products] applyEffectiveStock failed, returning raw stock:', e.message);
+  }
+  return formattedProducts;
+}
 
 // Search products by name (Business Owner only)
 router.get('/search/:query', authenticateToken, requireRole(['BUSINESS_OWNER']), async (req, res) => {
@@ -748,9 +783,10 @@ router.post('/by-ids', async (req, res) => {
         };
       });
 
-      return res.json({ 
-        success: true, 
-        products: formattedProducts 
+      await applyEffectiveStock(formattedProducts, tenantId);
+      return res.json({
+        success: true,
+        products: formattedProducts
       });
     }
 
@@ -929,9 +965,10 @@ router.post('/by-ids', async (req, res) => {
       };
     });
 
-    res.json({ 
-      success: true, 
-      products: formattedProducts 
+    await applyEffectiveStock(formattedProducts, tenantId);
+    res.json({
+      success: true,
+      products: formattedProducts
     });
 
   } catch (error) {
