@@ -556,13 +556,56 @@ const ShoppingCartForm = ({ form, onSubmit }) => {
       console.error('Submit error:', error)
       console.error('Error response:', error.response?.data)
       
-      if (error.response?.data?.missingFields) {
-        const missingFields = error.response.data.missingFields
-        toast.error(`Missing required fields: ${missingFields.join(', ')}`)
-      } else if (error.response?.data?.error) {
-        const errorMsg = typeof error.response.data.error === 'string'
-          ? error.response.data.error
-          : error.response.data.error?.message || 'Failed to submit order'
+      const resp = error.response?.data
+      const stockDetails = Array.isArray(resp?.details) ? resp.details : []
+
+      if (resp?.missingFields) {
+        toast.error(`Missing required fields: ${resp.missingFields.join(', ')}`)
+      } else if (stockDetails.length > 0) {
+        // Rich stock-availability error: one row per unavailable item, with a
+        // product thumbnail and exactly how many are left vs. requested.
+        const apiBase = import.meta.env.VITE_API_URL || ''
+        toast.custom((t) => (
+          <div className={`max-w-sm w-full bg-white shadow-lg rounded-lg pointer-events-auto border border-red-200 overflow-hidden ${t.visible ? 'animate-enter' : 'animate-leave'}`}>
+            <div className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-red-600 font-semibold text-sm">Some items aren’t available</span>
+                <button onClick={() => toast.dismiss(t.id)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button>
+              </div>
+              <ul className="space-y-2">
+                {stockDetails.map((d, i) => (
+                  <li key={i} className="flex items-center gap-3">
+                    <img
+                      src={`${apiBase}/api/images/public/product/${d.productId}`}
+                      alt=""
+                      className="w-12 h-12 rounded object-cover border border-gray-200 flex-shrink-0 bg-gray-100"
+                      onError={(e) => { e.currentTarget.style.visibility = 'hidden' }}
+                    />
+                    <div className="text-sm text-gray-800 min-w-0">
+                      <div className="font-medium truncate">
+                        {d.productName || 'Product'}{d.variantInfo ? ` (${d.variantInfo})` : ''}
+                      </div>
+                      <div className="text-xs text-red-600">
+                        {d.availableStock !== undefined
+                          ? (d.availableStock <= 0
+                              ? 'Out of stock'
+                              : `Only ${d.availableStock} left — you asked for ${d.requestedQuantity}`)
+                          : (d.message || 'Not available')}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 text-xs text-gray-500">
+                Please reduce the quantity or remove the item, then try again.
+              </div>
+            </div>
+          </div>
+        ), { duration: 9000 })
+      } else if (resp?.error) {
+        const errorMsg = typeof resp.error === 'string'
+          ? resp.error
+          : resp.error?.message || 'Failed to submit order'
         toast.error(errorMsg)
       } else {
         toast.error('Failed to submit order')
