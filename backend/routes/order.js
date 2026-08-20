@@ -565,6 +565,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             id: true,
             businessName: true,
             businessType: true,
+            contactPerson: true,
             whatsappNumber: true,
             businessAddress: true,
             ownerId: true,

@@ -855,6 +855,7 @@ const OrderDetailsPage = () => {
         
         // Get business details
         const businessName = order.tenant?.businessName || 'Business Name'
+        const contactPerson = order.tenant?.contactPerson || ''
         const businessAddress = order.tenant?.businessAddress || ''
         const businessPhone = order.tenant?.whatsappNumber || ''
 
@@ -1074,14 +1075,14 @@ const OrderDetailsPage = () => {
         
         <div class="business-section" style="margin-top: 6mm;">
             <div class="shipping-line">
-                <span class="shipping-label">FROM:</span>
-                <span class="shipping-value" style="font-weight: 600;">${businessName}</span>
+                <span class="shipping-label">From:</span>
+                <span class="shipping-value" style="font-weight: 600;">${businessName}${contactPerson ? ` (${contactPerson})` : ''}</span>
             </div>
+            ${businessPhone ? `
+            <div class="business-phone">${businessPhone}</div>
+            ` : ''}
             ${businessAddress ? `
             <div class="business-address">${businessAddress}</div>
-            ` : ''}
-            ${businessPhone ? `
-            <div class="business-phone">Phone: ${businessPhone}</div>
             ` : ''}
         </div>
     </div>
