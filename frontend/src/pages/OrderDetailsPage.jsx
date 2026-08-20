@@ -887,18 +887,12 @@ const OrderDetailsPage = () => {
             line-height: 1.6;
             color: #000;
             background: #fff;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
         }
         .container {
             width: 100%;
-            height: 100%;
             padding: 6mm 8mm;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
-            overflow: hidden;
         }
         .header {
             margin-bottom: 5mm;
@@ -973,6 +967,7 @@ const OrderDetailsPage = () => {
             flex-direction: column;
             justify-content: flex-start;
             flex-shrink: 0;
+            margin-top: 12mm;
         }
         .business-label {
             font-size: 20px;
@@ -1003,12 +998,11 @@ const OrderDetailsPage = () => {
             }
             .container {
                 padding: 5mm 7mm;
-                height: 100%;
-                overflow: hidden;
             }
-            body {
-                height: 100vh;
-                overflow: hidden;
+            /* Keep the whole receipt on a single page */
+            .container, .header, .shipping-section, .business-section {
+                page-break-inside: avoid;
+                break-inside: avoid;
             }
             * {
                 -webkit-print-color-adjust: exact;
